@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "mappings": [
+    {
+      "name": "application-code",
+      "triggers": ["app.py"],
+      "documents": ["README.md", "ARCHITECTURE.md", "STANDARDS.md"]
+    },
+    {
+      "name": "application-tests",
+      "triggers": ["test_app.py"],
+      "documents": ["README.md", "TESTING.md"]
+    }
+  ]
+}

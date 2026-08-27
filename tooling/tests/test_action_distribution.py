@@ -16,6 +16,9 @@ class ActionDistributionTests(unittest.TestCase):
             ".guardrails/scan.py": "tooling/scan_repository.py",
             ".guardrails/github_evidence.py": "tooling/github_evidence.py",
             ".guardrails/validate_ground_truth.py": "tooling/validators/validate_ground_truth.py",
+            "examples/python-demo/.guardrails/configure.py": "tooling/configure_guardrails.py",
+            "examples/python-demo/.guardrails/scan.py": "tooling/scan_repository.py",
+            "examples/python-demo/.guardrails/validate_ground_truth.py": "tooling/validators/validate_ground_truth.py",
         }
         for installed, source in runtime_copies.items():
             with self.subTest(installed=installed):
@@ -135,8 +138,6 @@ class ActionDistributionTests(unittest.TestCase):
         excluded_prefixes = (
             "docs/superpowers/specs/",
             "docs/superpowers/plans/",
-            # Task 4 removes this exclusion after migrating the embedded demo.
-            "examples/python-demo/",
         )
 
         failures = []
@@ -145,7 +146,10 @@ class ActionDistributionTests(unittest.TestCase):
                 continue
             if not path.endswith((".py", ".yml", ".yaml")):
                 continue
-            text = (ROOT / path).read_text(encoding="utf-8")
+            candidate = ROOT / path
+            if not candidate.is_file():
+                continue
+            text = candidate.read_text(encoding="utf-8")
             for retired_path in retired_paths:
                 if retired_path in text:
                     failures.append(f"{path}: {retired_path}")

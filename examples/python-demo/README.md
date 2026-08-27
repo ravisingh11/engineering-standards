@@ -100,7 +100,7 @@ controls:
 - Unit tests
 - Change-scope inspection
 
-These controls are selected as advisory in `.ai/guardrails.yaml`, so the demo
+These controls are selected as advisory in `.guardrails/policy.yaml`, so the demo
 can show GREEN evidence locally and in pull requests without blocking on
 unconfigured services. External providers such as SonarQube, Snyk, FOSSA, and
 AI review remain ORANGE until their real producers and credentials are

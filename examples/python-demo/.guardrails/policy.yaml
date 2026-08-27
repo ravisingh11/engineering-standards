@@ -1,5 +1,5 @@
 {
-  "$schema": "./policy.schema.json",
+  "$schema": "https://raw.githubusercontent.com/ravisingh11/engineering-standards/main/guardrails/policy.schema.json",
   "version": 1,
   "name": "baseline",
   "operations": {

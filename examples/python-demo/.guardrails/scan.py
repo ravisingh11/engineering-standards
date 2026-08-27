@@ -41,24 +41,24 @@ EVIDENCE_LABELS = {
     "not_activated": "NOT ACTIVATED",
 }
 CONTROL_DOCS = {
-    "repository-validation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-validation--green-",
-    "documentation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#documentation-validation--green-",
-    "repository-ground-truth": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-ground-truth--advisory-until-configured",
-    "build": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#build--green-",
-    "unit-tests": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#unit-tests--green-",
-    "codeql-sast": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#codeql--sast--green-",
-    "secrets-scan": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#secrets-scanning--green-",
-    "dependency-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependency-review--green-",
-    "dependabot": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependabot--advisory-until-configured",
-    "sonarqube": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#sonarqube--orange-until-configured-then-green-",
-    "fossa": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#fossa--orange-until-configured-then-green-",
-    "snyk-code": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default",
-    "snyk-open-source": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default",
-    "soak-check": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#soak-check--gray-until-repository-setup-then-green",
-    "ai-engineering-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews--orange-until-configured-then-green",
-    "ai-qa-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews--orange-until-configured-then-green",
-    "ai-security-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews--orange-until-configured-then-green",
-    "ai-repo-standards-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-standards-review--orange-until-adapter-is-configured",
+    "repository-validation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-validation",
+    "documentation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#documentation-validation",
+    "repository-ground-truth": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ground-truth",
+    "build": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#build",
+    "unit-tests": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#unit-tests",
+    "codeql-sast": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#codeql--sast",
+    "secrets-scan": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#secrets-scanning",
+    "dependency-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependency-review",
+    "dependabot": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependabot",
+    "sonarqube": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#sonarqube",
+    "fossa": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#fossa",
+    "snyk-code": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk",
+    "snyk-open-source": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk",
+    "soak-check": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#soak-check",
+    "ai-engineering-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
+    "ai-qa-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
+    "ai-security-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
+    "ai-repo-standards-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-standards-review",
 }
 
 
@@ -99,6 +99,16 @@ def load(path: Path) -> dict[str, Any]:
     return value
 
 
+def default_config_path(target: Path, consumer_path: str, shared_path: str) -> Path:
+    """Resolve defaults for both consumers and this standards repository."""
+    consumer = target / consumer_path
+    if consumer.exists():
+        return consumer
+    if target == ROOT and (target / shared_path).exists():
+        return target / shared_path
+    return consumer
+
+
 def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]:
     checks: dict[str, Any] = {}
     validators = target / "tooling" / "validators"
@@ -123,7 +133,7 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         }
 
     ground_truth_validator = target / ".guardrails" / "validate_ground_truth.py"
-    ground_truth_policy = target / ".ai" / "ground-truth.yaml"
+    ground_truth_policy = target / ".guardrails" / "ground-truth-ai.yaml"
     if ground_truth_validator.exists() and ground_truth_policy.exists():
         command = [sys.executable, str(ground_truth_validator), "--policy", str(ground_truth_policy)]
         code, output = run(command, target)
@@ -364,10 +374,10 @@ def detailed_markdown(card: dict[str, Any], evidence_path: str, report_path: str
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run local producers and render a guardrail scorecard")
     parser.add_argument("--target", type=Path, default=Path("."))
-    parser.add_argument("--policy", type=Path, default=Path(".ai/guardrails.yaml"))
-    parser.add_argument("--catalog", type=Path, default=Path(".ai/control-catalog.yaml"))
-    parser.add_argument("--evidence", type=Path, default=Path(".artifacts/guardrails/evidence.json"))
-    parser.add_argument("--evidence-dir", type=Path, default=Path(".artifacts/guardrails/evidence"))
+    parser.add_argument("--policy", type=Path, default=None)
+    parser.add_argument("--catalog", type=Path, default=None)
+    parser.add_argument("--evidence", type=Path, default=None)
+    parser.add_argument("--evidence-dir", type=Path, default=None)
     parser.add_argument("--operation", default="change")
     parser.add_argument("--revision", default="")
     parser.add_argument("--base-ref", default="HEAD~1")
@@ -380,14 +390,31 @@ def main() -> int:
     )
     args = parser.parse_args()
     target = args.target.resolve()
-    policy_path = (target / args.policy).resolve()
-    catalog_path = (target / args.catalog).resolve()
-    evidence_path = (target / args.evidence).resolve()
+    policy_path = (
+        (target / args.policy).resolve()
+        if args.policy
+        else default_config_path(target, ".guardrails/policy.yaml", "guardrails/baseline.yaml")
+    )
+    catalog_path = (
+        (target / args.catalog).resolve()
+        if args.catalog
+        else default_config_path(target, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml")
+    )
+    evidence_path = (
+        (target / args.evidence).resolve()
+        if args.evidence
+        else target / ".artifacts/guardrails/evidence.json"
+    )
+    evidence_dir = (
+        (target / args.evidence_dir).resolve()
+        if args.evidence_dir
+        else target / ".artifacts/guardrails/evidence"
+    )
     try:
         policy = load(policy_path)
         revision = args.revision or run(["git", "rev-parse", "HEAD"], target)[1]
         evidence = local_evidence(target, revision, args.base_ref)
-        merge_external_evidence(evidence, (target / args.evidence_dir).resolve())
+        merge_external_evidence(evidence, evidence_dir)
         add_missing_policy_checks(evidence, policy, args.operation)
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

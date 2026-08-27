@@ -30,7 +30,7 @@ class ControlCatalogPolicyTests(unittest.TestCase):
 
         for relative_path in (
             ".guardrails/control-catalog.yaml",
-            "examples/python-demo/.ai/" + "control-catalog.yaml",
+            "examples/python-demo/.guardrails/control-catalog.yaml",
         ):
             with self.subTest(path=relative_path):
                 distributed = json.loads(

@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - run: python3 .guardrails/validate_ground_truth.py --policy .ai/ground-truth.yaml
+      - run: python3 .guardrails/validate_ground_truth.py --policy .guardrails/ground-truth-ai.yaml
 
   repository:
     name: Validate / repository
