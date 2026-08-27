@@ -45,28 +45,30 @@ def retired_path_failures(root: Path) -> list[str]:
     tracked.discard("")
     untracked.discard("")
 
-    failures = []
+    failures: set[str] = set()
     for path in sorted(tracked | untracked):
         if path in EXCLUDED_FILES or path.startswith(EXCLUDED_PREFIXES):
             continue
         if not path.endswith((".md", ".py", ".yml", ".yaml")):
             continue
+        contents: set[str] = set()
+        if path in tracked:
+            contents.add(
+                subprocess.run(
+                    ["git", "show", f":{path}"],
+                    cwd=root,
+                    check=True,
+                    capture_output=True,
+                ).stdout.decode("utf-8")
+            )
         candidate = root / path
         if candidate.is_file():
-            text = candidate.read_text(encoding="utf-8")
-        elif path in tracked:
-            text = subprocess.run(
-                ["git", "show", f":{path}"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            ).stdout.decode("utf-8")
-        else:
-            continue
-        for retired_path in RETIRED_PATHS:
-            if retired_path in text:
-                failures.append(f"{path}: {retired_path}")
-    return failures
+            contents.add(candidate.read_text(encoding="utf-8"))
+        for text in contents:
+            for retired_path in RETIRED_PATHS:
+                if retired_path in text:
+                    failures.add(f"{path}: {retired_path}")
+    return sorted(failures)
 
 
 class RetiredPathCandidateTests(unittest.TestCase):
@@ -135,6 +137,28 @@ class RetiredPathCandidateTests(unittest.TestCase):
             legacy = ".ai/" + "guardrails.yaml"
             (root / "active.py").write_text(
                 f'POLICY = "{legacy}"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                [f"active.py: {legacy}"],
+                retired_path_failures(root),
+            )
+
+    def test_staged_retired_reference_is_not_hidden_by_clean_worktree_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.initialize_repository(root)
+            legacy = ".ai/" + "guardrails.yaml"
+            self.commit_file(root, "active.py", 'POLICY = ".guardrails/policy.yaml"\n')
+
+            (root / "active.py").write_text(
+                f'POLICY = "{legacy}"\n',
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "active.py"], cwd=root, check=True)
+            (root / "active.py").write_text(
+                'POLICY = ".guardrails/policy.yaml"\n',
                 encoding="utf-8",
             )
 
@@ -250,6 +274,12 @@ class ActionDistributionTests(unittest.TestCase):
                 text = (ROOT / workflow).read_text(encoding="utf-8")
                 self.assertIn("--policy .guardrails/policy.yaml", text)
                 self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
+
+    def test_attestation_workflow_uses_canonical_policy(self) -> None:
+        text = (
+            ROOT / ".github" / "workflows" / "guardrails-attestation.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--policy .guardrails/policy.yaml", text)
 
     def test_active_markdown_python_and_yaml_have_no_retired_paths(self) -> None:
         self.assertEqual([], retired_path_failures(ROOT))

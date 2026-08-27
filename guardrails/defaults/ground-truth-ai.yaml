@@ -1,4 +1,4 @@
 {
   "version": 1,
-  "documents": ["README.md"]
+  "documents": [{"path": "README.md"}]
 }

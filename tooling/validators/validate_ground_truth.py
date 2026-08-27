@@ -24,12 +24,22 @@ def main() -> int:
     if policy.get("version") != 1 or not isinstance(policy.get("documents"), list):
         print("ERROR: ground-truth policy requires version 1 and documents")
         return 1
+    for index, item in enumerate(policy["documents"], start=1):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path"}
+            or not isinstance(item["path"], str)
+            or not item["path"].strip()
+        ):
+            print(
+                f"ERROR: invalid document entry {index}; "
+                "expected an object with exactly one non-empty string path"
+            )
+            return 1
     missing = [
         item["path"]
         for item in policy["documents"]
-        if isinstance(item, dict)
-        and isinstance(item.get("path"), str)
-        and not Path(item["path"]).is_file()
+        if not Path(item["path"]).is_file()
     ]
     if missing:
         print("Missing repository ground-truth documents:")

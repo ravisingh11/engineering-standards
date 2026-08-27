@@ -20,7 +20,7 @@ class GroundTruthValidatorTests(unittest.TestCase):
             check=False,
         )
 
-    def write_policy(self, root: Path, documents: list[dict[str, str]]) -> Path:
+    def write_policy(self, root: Path, documents: list[object]) -> Path:
         policy = root / "policy.yaml"
         policy.write_text(
             json.dumps({"version": 1, "documents": documents}),
@@ -48,6 +48,37 @@ class GroundTruthValidatorTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("- missing.md", result.stdout)
+
+    def test_malformed_inventory_entries_fail(self) -> None:
+        malformed_entries = {
+            "string entry": "README.md",
+            "missing path": {},
+            "empty path": {"path": ""},
+            "non-string path": {"path": 1},
+            "unexpected shape": {"path": "README.md", "owner": "platform"},
+        }
+        for label, entry in malformed_entries.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+                policy = self.write_policy(root, [entry])
+
+                result = self.run_validator(root, "--policy", str(policy))
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("invalid document entry 1", result.stdout)
+
+    def test_installed_starter_requires_readme(self) -> None:
+        starter = (
+            SCRIPT.parents[2] / "guardrails" / "defaults" / "ground-truth-ai.yaml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            result = self.run_validator(root, "--policy", str(starter))
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("- README.md", result.stdout)
 
     def test_malformed_json_compatible_yaml_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
