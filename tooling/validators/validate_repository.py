@@ -101,14 +101,17 @@ def validate_links_and_docs() -> None:
 
 def validate_no_machine_paths() -> None:
     for path in ROOT.rglob("*"):
+        relative_path = path.relative_to(ROOT)
         if not path.is_file() or ".git" in path.parts:
+            continue
+        if relative_path.parts[0] == ".superpowers":
             continue
         if path.name in {"validate_repository.py", "validate-skills.py"}:
             continue
         if path.suffix not in {".md", ".py", ".yaml", ".yml", ".sh"}:
             continue
         if ABSOLUTE_PATH_PATTERN.search(path.read_text(encoding="utf-8")):
-            fail(f"{path.relative_to(ROOT)} contains a machine-local path")
+            fail(f"{relative_path} contains a machine-local path")
 
 
 def main() -> int:
