@@ -84,7 +84,7 @@ jobs:
         run: |
           python3 .guardrails/scan.py \
             --target . \
-            --policy .ai/guardrails.yaml \
-            --catalog .ai/control-catalog.yaml \
+            --policy .guardrails/policy.yaml \
+            --catalog .guardrails/control-catalog.yaml \
             --evidence-dir .artifacts/guardrails/evidence \
             --all-catalog-controls

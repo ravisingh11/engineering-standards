@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -9,11 +10,19 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ActionDistributionTests(unittest.TestCase):
-    def test_repository_runtime_collector_matches_distribution_source(self) -> None:
-        self.assertEqual(
-            (ROOT / ".guardrails" / "github_evidence.py").read_text(encoding="utf-8"),
-            (ROOT / "tooling" / "github_evidence.py").read_text(encoding="utf-8"),
-        )
+    def test_installed_runtimes_match_distribution_sources(self) -> None:
+        runtime_copies = {
+            ".guardrails/configure.py": "tooling/configure_guardrails.py",
+            ".guardrails/scan.py": "tooling/scan_repository.py",
+            ".guardrails/github_evidence.py": "tooling/github_evidence.py",
+            ".guardrails/validate_ground_truth.py": "tooling/validators/validate_ground_truth.py",
+        }
+        for installed, source in runtime_copies.items():
+            with self.subTest(installed=installed):
+                self.assertEqual(
+                    (ROOT / installed).read_bytes(),
+                    (ROOT / source).read_bytes(),
+                )
 
     def test_action_is_a_thin_evaluator_adapter(self) -> None:
         text = (ROOT / "action.yml").read_text(encoding="utf-8")
@@ -22,6 +31,10 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("title=Missing revision", text)
         self.assertIn("title=Missing evidence", text)
         self.assertIn("title=Missing policy", text)
+        self.assertIn("default: .guardrails/policy.yaml", text)
+        self.assertIn(
+            "Commit a repository-local .guardrails/policy.yaml policy.", text
+        )
         self.assertIn("guardrails/evaluate.py", text)
         self.assertNotIn("git diff", text)
 
@@ -43,6 +56,8 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn(".guardrails/github_evidence.py", text)
         self.assertIn(".guardrails/producer-manifest.json", text)
         self.assertIn(".guardrails/scan.py", text)
+        self.assertIn("--policy .guardrails/policy.yaml", text)
+        self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
         workflow = (ROOT / "docs" / "examples" / "guardrails.yml").read_text(
             encoding="utf-8"
         )
@@ -69,11 +84,86 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("name: Validate / repository", text)
         self.assertIn("needs: [docs, scope, ground-truth]", text)
         self.assertIn(".guardrails/validate_ground_truth.py", text)
+        self.assertIn("--policy .guardrails/ground-truth-ai.yaml", text)
+        self.assertIn("policy-file: .guardrails/policy.yaml", text)
         self.assertIn("tooling/validators/validate_documentation.py", text)
         self.assertIn("tooling/validators/inspect_change_scope.py", text)
         self.assertIn("PUSH_FORCED: ${{ github.event.forced || false }}", text)
         self.assertIn('[[ "$PUSH_FORCED" != "true"', text)
         self.assertNotIn("branches: [main]", text)
+
+        documentation_validator = (
+            ROOT / "tooling" / "validators" / "validate_documentation.py"
+        ).read_text(encoding="utf-8")
+        scope_inspector = (
+            ROOT / "tooling" / "validators" / "inspect_change_scope.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('".guardrails" / "documentation.yaml"', documentation_validator)
+        self.assertIn('".guardrails" / "change-scope.yaml"', scope_inspector)
+
+    def test_scorecard_workflows_use_canonical_configuration(self) -> None:
+        workflows = (
+            ".github/workflows/guardrail-checks.yml",
+            ".github/workflows/dependabot-verification.yml",
+            "docs/examples/guardrails.yml",
+        )
+        for workflow in workflows:
+            with self.subTest(workflow=workflow):
+                text = (ROOT / workflow).read_text(encoding="utf-8")
+                self.assertIn("--policy .guardrails/policy.yaml", text)
+                self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
+
+    def test_task_three_distribution_surfaces_have_no_retired_paths(self) -> None:
+        retired_paths = (
+            ".ai/" + "guardrails.yaml",
+            ".ai/" + "control-catalog.yaml",
+            ".ai/" + "documentation.yaml",
+            ".ai/" + "change-scope.yaml",
+            ".ai/" + "ground-truth.yaml",
+        )
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        excluded_files = {
+            "tooling/install.py",
+            "tooling/tests/test_install.py",
+        }
+        excluded_prefixes = (
+            "docs/superpowers/specs/",
+            "docs/superpowers/plans/",
+            # Task 4 removes this exclusion after migrating the embedded demo.
+            "examples/python-demo/",
+        )
+
+        def owned_by_task_three(path: str) -> bool:
+            if path == "action.yml" or path == "docs/examples/guardrails.yml":
+                return True
+            if path.endswith((".yml", ".yaml")):
+                return path.startswith((".github/workflows/", "workflows/"))
+            if path.endswith(".py"):
+                return path.startswith((".guardrails/", "guardrails/", "tooling/"))
+            return False
+
+        failures = []
+        for path in tracked:
+            if path in excluded_files or path.startswith(excluded_prefixes):
+                continue
+            if not owned_by_task_three(path):
+                continue
+            text = (ROOT / path).read_text(encoding="utf-8")
+            # This assertion tracks a demo-owned path until Task 4 migrates it.
+            if path == "tooling/validators/tests/test_control_catalog.py":
+                text = "\n".join(
+                    line for line in text.splitlines() if "examples/python-demo/.ai/" not in line
+                )
+            for retired_path in retired_paths:
+                if retired_path in text:
+                    failures.append(f"{path}: {retired_path}")
+        self.assertEqual([], failures)
 
     def test_secret_scan_workflow_verifies_github_platform_settings(self) -> None:
         text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(

@@ -24,7 +24,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Validate declared repository ground truth
-        run: python3 .guardrails/validate_ground_truth.py --policy .ai/ground-truth.yaml
+        run: python3 .guardrails/validate_ground_truth.py --policy .guardrails/ground-truth-ai.yaml
 
   docs:
     name: Validate / docs
@@ -148,7 +148,7 @@ jobs:
       - name: Exercise local attestation action
         uses: ./
         with:
-          policy-file: .ai/guardrails.yaml
+          policy-file: .guardrails/policy.yaml
           evidence-file: ${{ runner.temp }}/agent-safe-evidence.json
           operation: change
           revision: ${{ github.event.pull_request.head.sha || github.sha }}

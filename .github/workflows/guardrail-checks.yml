@@ -40,8 +40,8 @@ jobs:
             --wait-seconds 120
           python3 .guardrails/scan.py \
             --target . \
-            --policy .ai/guardrails.yaml \
-            --catalog .ai/control-catalog.yaml \
+            --policy .guardrails/policy.yaml \
+            --catalog .guardrails/control-catalog.yaml \
             --revision "$REVISION" \
             --all-catalog-controls
 

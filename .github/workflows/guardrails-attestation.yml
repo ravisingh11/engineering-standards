@@ -89,7 +89,7 @@ jobs:
           EVIDENCE_FILE: ${{ runner.temp }}/guardrails-evidence.json
         run: |
           python3 .guardrails/evaluate.py \
-            --policy .ai/guardrails.yaml \
+            --policy .guardrails/policy.yaml \
             --evidence "$EVIDENCE_FILE" \
             --operation change \
             --revision "$REVISION" \
