@@ -113,7 +113,7 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("--policy .guardrails/policy.yaml", text)
                 self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
 
-    def test_task_three_distribution_surfaces_have_no_retired_paths(self) -> None:
+    def test_active_python_and_yaml_have_no_retired_paths(self) -> None:
         retired_paths = (
             ".ai/" + "guardrails.yaml",
             ".ai/" + "control-catalog.yaml",
@@ -139,27 +139,13 @@ class ActionDistributionTests(unittest.TestCase):
             "examples/python-demo/",
         )
 
-        def owned_by_task_three(path: str) -> bool:
-            if path == "action.yml" or path == "docs/examples/guardrails.yml":
-                return True
-            if path.endswith((".yml", ".yaml")):
-                return path.startswith((".github/workflows/", "workflows/"))
-            if path.endswith(".py"):
-                return path.startswith((".guardrails/", "guardrails/", "tooling/"))
-            return False
-
         failures = []
         for path in tracked:
             if path in excluded_files or path.startswith(excluded_prefixes):
                 continue
-            if not owned_by_task_three(path):
+            if not path.endswith((".py", ".yml", ".yaml")):
                 continue
             text = (ROOT / path).read_text(encoding="utf-8")
-            # This assertion tracks a demo-owned path until Task 4 migrates it.
-            if path == "tooling/validators/tests/test_control_catalog.py":
-                text = "\n".join(
-                    line for line in text.splitlines() if "examples/python-demo/.ai/" not in line
-                )
             for retired_path in retired_paths:
                 if retired_path in text:
                     failures.append(f"{path}: {retired_path}")
