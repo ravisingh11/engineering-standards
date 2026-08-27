@@ -303,6 +303,33 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("pull_request:", org)
         self.assertNotIn("SECURITY_SETTINGS_TOKEN", org)
 
+    def test_secret_scan_verifier_is_skipped_without_a_credential(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(
+            encoding="utf-8"
+        )
+        configuration, verifier = text.split("  verifier:\n", 1)
+
+        self.assertIn("  configuration:\n", configuration)
+        self.assertIn("name: Secret Scan Configuration", configuration)
+        self.assertIn(
+            "token_configured: ${{ steps.detect.outputs.token_configured }}",
+            configuration,
+        )
+        self.assertIn(
+            "if: steps.detect.outputs.token_configured != 'true'",
+            configuration,
+        )
+        self.assertIn('conclusion:"skipped"', configuration)
+        self.assertIn("needs: configuration", verifier)
+        self.assertIn(
+            "if: needs.configuration.outputs.token_configured == 'true'",
+            verifier,
+        )
+        self.assertNotIn(
+            'reason="SECURITY_SETTINGS_TOKEN is not configured."',
+            verifier,
+        )
+
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
         text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
             encoding="utf-8"
