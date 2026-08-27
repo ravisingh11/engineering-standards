@@ -3,23 +3,22 @@
 ## Status
 
 This is an initial, evolving standard. The shared baseline reports these
-controls as advisory so teams can adopt them without stopping delivery. A
-repository may promote a mature, connected control to enforced status.
+controls as advisory so teams can adopt them without stopping delivery. Move a
+control to enforced only after it meets the promotion rule in
+[the guardrails standard](../docs/guardrails.md#promotion-rule).
 
 ## Security expectations
 
-- SAST is expected on every PR. The initial shared baseline reports it as
-  advisory until the producer is connected and the repository promotes it to
-  enforced.
+- SAST is expected on every PR and starts in advisory mode.
 - Secret scanning is expected. GitHub secret scanning and push protection are
   platform configuration; workflows must not claim to enable them. Keep the
-  control advisory until the platform capability is confirmed.
+  control advisory while the platform capability and producer evidence are
+  verified.
 - Dependency vulnerability scanning and dependency review are expected. Keep
-  them advisory until the producer is connected and its policy is understood.
+  them advisory while their producers and policies are verified.
 - Snyk is an approved and recommended external provider for dependency and/or
-  source-code scanning. Snyk is an advisory gate by default: repositories may
-  adopt it, learn from its findings, and promote it to an enforced merge check
-  when the integration and ownership are mature. A repository must define
+  source-code scanning. Snyk starts in advisory mode so repositories can adopt
+  it and learn from its findings before enforcing it. A repository must define
   which Snyk product is authoritative for each finding class and must not
   create duplicate blocking gates without a documented defense-in-depth
   decision.

@@ -96,7 +96,7 @@ configuration, observes the actual check name, and adds it to the ruleset.
 
 ## Configuration checklist
 
-Before turning a configurable control into a required merge check, verify:
+Before moving a control from **Advisory** to **Enforced**, verify:
 
 - A real producer runs on the intended event.
 - The producer checks the exact revision under review.

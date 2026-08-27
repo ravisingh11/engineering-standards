@@ -14,6 +14,38 @@ assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
+class ControlDocumentationLinkTests(unittest.TestCase):
+    def test_control_links_use_stable_heading_anchors(self) -> None:
+        expected = {
+            "repository-validation": "repository-validation",
+            "documentation": "documentation-validation",
+            "repository-ground-truth": "ground-truth",
+            "build": "build",
+            "unit-tests": "unit-tests",
+            "codeql-sast": "codeql--sast",
+            "secrets-scan": "secrets-scanning",
+            "dependency-review": "dependency-review",
+            "dependabot": "dependabot",
+            "sonarqube": "sonarqube",
+            "fossa": "fossa",
+            "snyk-code": "snyk",
+            "snyk-open-source": "snyk",
+            "soak-check": "soak-check",
+            "ai-engineering-review": "ai-reviews",
+            "ai-qa-review": "ai-reviews",
+            "ai-security-review": "ai-reviews",
+            "ai-repo-standards-review": "repository-standards-review",
+        }
+
+        self.assertEqual(set(MODULE.CONTROL_DOCS), set(expected))
+        for control_id, anchor in expected.items():
+            with self.subTest(control_id=control_id):
+                self.assertEqual(
+                    MODULE.CONTROL_DOCS[control_id].rsplit("#", 1)[1],
+                    anchor,
+                )
+
+
 class DependabotEvidenceTests(unittest.TestCase):
     def test_configuration_is_not_claimed_as_a_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

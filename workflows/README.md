@@ -45,12 +45,13 @@ pull request, this template intentionally builds the GitHub event revision
 matches GitHub's provenance record. Code, test, and scorecard workflows use the
 exact PR-head revision instead. It does not build an artifact unless the caller
 supplies `build-command`, and it does not enforce verification at deployment
-time. Promote it only after the release or deployment path verifies the
-attestation. The three required steps are: build the final artifact, attest
-that exact file, and verify it before release or deployment. An Actions upload
-is not an attestation, and a successful attestation job is not deployment
-enforcement by itself. See the [Artifact Provenance setup](../docs/control-setup.md#artifact-provenance--orange-until-configured-then-green-) for
-the caller permissions, expected status names, verification command, and
+time. Move it to enforced only after the release or deployment path verifies
+the attestation and the producer meets the shared promotion rule. The three
+required steps are: build the final artifact, attest that exact file, and
+verify it before release or deployment. An Actions upload is not an
+attestation, and a successful attestation job is not deployment enforcement by
+itself. See the [Artifact Provenance setup](../docs/control-setup.md#artifact-provenance)
+for the caller permissions, expected status names, verification command, and
 GREEN/ORANGE/RED/NO RESULT meanings.
 
 New integrations should use `actions/attest@v4`, pinned to an immutable commit.
@@ -186,17 +187,16 @@ official Snyk setup action pinned to an immutable commit. The consuming
 repository owns its Snyk project, severity threshold, ignore policy, and
 whether CodeQL or Snyk Code is the primary source-code SAST gate.
 Snyk checks are advisory by default; a consuming repository may add the real
-check names to its ruleset after the team has tuned policy and assigned
-ownership for findings.
+check names to its ruleset after the producer meets the shared promotion rule.
 
 ### Semgrep
 
 `semgrep.yml` is the verified Semgrep provider template. It runs `semgrep ci`
 in the official Semgrep container and publishes the `Semgrep` check. Configure
 the `SEMGREP_APP_TOKEN` Actions secret before enabling the provider. Keep it
-advisory while rules and thresholds are tuned; promote it to enforced only
-after the real check passes reliably. The template does not define a fake
-organization rule set or pass credentials to any other workflow.
+advisory while rules and thresholds are tuned. Move it to enforced only after
+the producer meets the shared promotion rule. The template does not define a
+fake organization rule set or pass credentials to any other workflow.
 
 When a workflow produces guardrail evidence, write a check-specific JSON file
 under `.artifacts/guardrails/evidence/`. The installed `scan.py` command merges

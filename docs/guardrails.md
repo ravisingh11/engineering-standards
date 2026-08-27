@@ -101,6 +101,9 @@ participate in the decision.
 
 ## Promotion Rule
 
-Promote an advisory check to enforced only after its producer is stable, its
-false-positive behavior is understood, and adopters have a practical way to
-resolve failures. Change policy through normal review.
+By default, selected controls start in `advisory` mode. Move a control to
+`enforced` only after its producer is activated, returns reliable evidence for
+the exact revision, has a stable check name, and has a clear remediation
+owner. Change policy through normal review.
+
+Configuration shows intent. Producer evidence proves the control ran.

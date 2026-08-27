@@ -121,11 +121,16 @@ repository chooses how strongly to enforce the controls it adopts:
 | **Advisory** | The repository selected the control. Findings and failures are visible, but it does not block merge. |
 | **Enforced** | The repository selected the control and added its exact check to the ruleset. It can block merge. |
 
+By default, selected controls start in **Advisory** mode. Move a control to
+**Enforced** only after its producer is activated, returns reliable evidence
+for the exact revision, has a stable check name, and has a clear remediation
+owner.
+
+> Configuration shows intent. Producer evidence proves the control ran.
+
 The shared repository provides the catalog and templates. Application teams
 may add Snyk, FOSSA, Semgrep, soak checks, additional AI review depth, or other
-approved capabilities as they see fit. Promote a capability only after its
-results are reliable, thresholds are understood, and an owner is accountable
-for remediation.
+approved capabilities as they see fit.
 
 ### Activation categories
 
@@ -139,26 +144,25 @@ mean that the current revision passed.
 | **ORANGE 🟠** | External integration required. A third-party service or organization-owned adapter must be connected. |
 | **GRAY ⚪** | Application repository configuration required. The shared repository provides a template or contract. |
 
-| Check | Primarily finds | Runs | Activation | Policy |
+| Check | Primarily finds | Runs | Activation | Default mode |
 | --- | --- | --- | --- | --- |
-| [SonarQube](docs/control-setup.md#sonarqube--orange-until-configured-then-green-) | Code quality, bugs, maintainability, and new-code regressions | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
-| [CodeQL / SAST](docs/control-setup.md#codeql--sast--green-) | Vulnerabilities in application code | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| [Secrets scan](docs/control-setup.md#secrets-scanning--green-) | Credentials, tokens, and authentication material in code | Push and PR | **GREEN ✅** | Advisory by default; promote when mature |
-| [FOSSA](docs/control-setup.md#fossa--orange-until-configured-then-green-) | Open-source dependency, license, and supply-chain risk | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
-| [Snyk Open Source](docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default) | Dependency vulnerabilities and supply-chain risk | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| [Snyk Code](docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default) | Vulnerabilities in application source code | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| [Semgrep](docs/control-setup.md#semgrep--orange-until-configured-then-green-) | Organization-specific static-analysis and security rules | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| [Dependency Review](docs/control-setup.md#dependency-review--green-) | Risk introduced by changed dependencies | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| [Dependabot](docs/control-setup.md#dependabot--advisory-until-configured) | Automated dependency update and security-update pull requests | Scheduled and event-driven | **GREEN ✅** | Configuration is visible locally; activation and producer evidence must be verified |
-| [Artifact Provenance](docs/control-setup.md#artifact-provenance--orange-until-configured-then-green-) | Signed evidence of how a release artifact was built | Build and release | **ORANGE 🟠** until configured | Build, attest, and verify the exact promoted artifact; advisory until the release path is verified |
-| [Unit Tests](docs/control-setup.md#unit-tests--green-) | Functional regressions and changed behavior | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| [Soak Check](docs/control-setup.md#soak-check--gray-until-repository-setup-then-green-) | Runtime degradation, memory growth, leaks, and performance drift | Pre-release and scheduled | **GRAY ⚪** | Advisory; promote when configured |
-| [AI reviews](docs/control-setup.md#ai-reviews--orange-until-configured-then-green) | Engineering, QA, security, and repository-standard findings | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
+| [SonarQube](docs/control-setup.md#sonarqube) | Code quality, bugs, maintainability, and new-code regressions | Every PR | **ORANGE 🟠** | Advisory |
+| [CodeQL / SAST](docs/control-setup.md#codeql--sast) | Vulnerabilities in application code | Every PR | **GREEN ✅** | Advisory |
+| [Secrets scan](docs/control-setup.md#secrets-scanning) | Credentials, tokens, and authentication material in code | Push and PR | **GREEN ✅** | Advisory |
+| [FOSSA](docs/control-setup.md#fossa) | Open-source dependency, license, and supply-chain risk | Every PR | **ORANGE 🟠** | Advisory |
+| [Snyk Open Source](docs/control-setup.md#snyk) | Dependency vulnerabilities and supply-chain risk | Every PR when connected | **ORANGE 🟠** | Advisory |
+| [Snyk Code](docs/control-setup.md#snyk) | Vulnerabilities in application source code | Every PR when connected | **ORANGE 🟠** | Advisory |
+| [Semgrep](docs/control-setup.md#semgrep) | Organization-specific static-analysis and security rules | Every PR when connected | **ORANGE 🟠** | Advisory |
+| [Dependency Review](docs/control-setup.md#dependency-review) | Risk introduced by changed dependencies | Every PR | **GREEN ✅** | Advisory |
+| [Dependabot](docs/control-setup.md#dependabot) | Automated dependency update and security-update pull requests | Scheduled and event-driven | **GREEN ✅** | Advisory |
+| [Artifact Provenance](docs/control-setup.md#artifact-provenance) | Signed evidence of how a release artifact was built | Build and release | **ORANGE 🟠** | Advisory |
+| [Unit Tests](docs/control-setup.md#unit-tests) | Functional regressions and changed behavior | Every PR | **GREEN ✅** | Advisory |
+| [Soak Check](docs/control-setup.md#soak-check) | Runtime degradation, memory growth, leaks, and performance drift | Pre-release and scheduled | **GRAY ⚪** | Advisory |
+| [AI reviews](docs/control-setup.md#ai-reviews) | Engineering, QA, security, and repository-standard findings | Every PR | **ORANGE 🟠** | Advisory |
 
-`required_when_configured` is catalog metadata, not a user-facing enforcement
-mode. It means a repository must provide a real producer before that control
-can become an enforced merge gate. A repository may leave the control
-`not_activated` or keep it `advisory`. Missing evidence is reported as
+The catalog records **Advisory** as the default for every control. A consuming
+repository's policy is the source of truth for whether a selected control stays
+**Advisory** or moves to **Enforced**. Missing evidence is reported as
 `no_result` or `blocked`; it is never treated as a pass.
 
 ## Repository architecture
@@ -282,8 +286,8 @@ python3 /path/to/engineering-standards/tooling/install.py \
 ```
 
 The command never copies credentials. Add `SEMGREP_APP_TOKEN` as a GitHub
-Actions secret, keep the provider advisory while tuning it, and promote it to
-`enforced` only after the real `Semgrep` check passes on representative PRs.
+Actions secret and keep the provider advisory while tuning it. Move it to
+`enforced` only after it meets the promotion rule above.
 
 Use `advisory` or `enforced`. Remove `--dry-run` to write the policy; use
 `--all-operations` to configure both change and release. An `enforced` control
@@ -373,8 +377,8 @@ Ready to use:
 Each application repository still needs to configure its own commands,
 credentials, external services, CODEOWNERS, scanner projects, and actual check
 names. Snyk, FOSSA, soak testing, Semgrep rules, and AI review adapters can be
-adopted incrementally; they become blocking only when a repository explicitly
-promotes the connected producer into its ruleset.
+adopted incrementally. They become blocking only when a repository moves the
+control to **Enforced** and adds the exact producer check to its ruleset.
 
 ## License
 

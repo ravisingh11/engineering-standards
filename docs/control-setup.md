@@ -30,7 +30,7 @@ existing consumer workflow and removes only known guardrail-owned migration
 files; update workflow files through the consuming repository's normal
 pull-request process. Use `--dry-run` to inspect cleanup before applying it.
 
-## Repository Validation — GREEN ✅
+## Repository Validation
 
 **Protects:** the repository contracts that make the standards and Guardrails
 safe to consume. The canonical producer is `.github/workflows/validate.yml`;
@@ -61,7 +61,7 @@ python3 tooling/validators/validate_repository.py
 git show --check --format= HEAD
 ```
 
-## Documentation Validation — GREEN ✅
+## Documentation Validation
 
 **Protects:** documentation navigation and explicit change-to-documentation
 contracts. The canonical producer is `.github/workflows/validate.yml`; its
@@ -88,7 +88,7 @@ Troubleshoot locally with:
 python3 tooling/validators/validate_documentation.py
 ```
 
-## Ground Truth — advisory until configured
+## Ground Truth
 
 **Protects:** the application-owned documents that define architecture,
 engineering constraints, testing, security, deployment, and contribution
@@ -132,10 +132,11 @@ python3 .guardrails/validate_ground_truth.py \
   --policy .ai/ground-truth.yaml
 ```
 
-Promote this control to enforced only after the repository has declared and
-maintained its own ground truth.
+Keep this control **Advisory** while the repository declares and validates its
+ground truth. Move it to **Enforced** only after it meets the shared promotion
+rule.
 
-## Change Scope — advisory by default
+## Change Scope
 
 **Protects:** review quality and cycle time by identifying unexpectedly broad
 or oversized changes. The producer is
@@ -169,7 +170,7 @@ Inspect the staged change locally with:
 python3 tooling/validators/inspect_change_scope.py
 ```
 
-## Build — GREEN ✅
+## Build
 
 Use `workflows/build.yml`.
 
@@ -184,7 +185,7 @@ WORKING_DIRECTORY=optional subdirectory
 The command must return non-zero on a build failure. The resulting check name
 should be `Build`.
 
-## Unit Tests — GREEN ✅
+## Unit Tests
 
 Use `workflows/unit-tests.yml`.
 
@@ -201,7 +202,7 @@ COVERAGE_REQUIRED=true when coverage is required for this repository
 Tests must contain meaningful assertions. Coverage is evidence for new or
 changed code; it is not a reason to force unrelated historical cleanup.
 
-## CodeQL / SAST — GREEN ✅
+## CodeQL / SAST
 
 Use the `codeql` job in `workflows/security-scanning.yml`.
 
@@ -220,7 +221,7 @@ For a Python repository, `CODEQL_LANGUAGES=python` with
 `CODEQL_BUILD_MODE=none` is sufficient. The producer must publish the check
 context as `CodeQL` for the scorecard to report `codeql-sast` as GREEN.
 
-## Secrets scanning — GREEN ✅
+## Secrets scanning
 
 Enable GitHub secret scanning and push protection in the organization or
 repository Security settings. These are platform controls; the Actions
@@ -240,7 +241,7 @@ If the organization also requires a scanner command, configure
 `SECRET_SCAN_COMMAND` and use the organization scanner workflow. Keep the
 command scanner-specific and do not give it repository secrets.
 
-## Dependency Review — GREEN ✅
+## Dependency Review
 
 Use the `dependency-review` job in `workflows/security-scanning.yml`.
 
@@ -269,7 +270,7 @@ present in the current pull request. The `.ai/control-catalog.yaml` and
 `.ai/guardrails.yaml` files only declare and configure the control. The actual
 scan runs in GitHub Actions through `actions/dependency-review-action`.
 
-## Dependabot — advisory until configured
+## Dependabot
 
 Add `.github/dependabot.yml` to configure scheduled dependency update pull
 requests. The file activates Dependabot version updates, but GitHub’s
@@ -284,7 +285,7 @@ GitHub using the repository API, writes revision-bound evidence, and runs the
 scorecard with that evidence. Copy it into a consuming repository when you want
 the Dependabot control to become GREEN after the platform settings pass.
 
-## SonarQube — ORANGE 🟠 until configured, then GREEN ✅
+## SonarQube
 
 Use `workflows/sonar.yml` for every pull request.
 
@@ -305,7 +306,7 @@ approved it.
 The GitHub check should be named `SonarQube Quality Gate`. The workflow runs on
 every pull request; it is not an end-of-week scan.
 
-## FOSSA — ORANGE 🟠 until configured, then GREEN ✅
+## FOSSA
 
 FOSSA requires an external project and policy.
 
@@ -319,7 +320,7 @@ FOSSA requires an external project and policy.
 The shared repository does not install FOSSA, choose a license policy, or
 fabricate a result.
 
-## Artifact Provenance — ORANGE 🟠 until configured, then GREEN ✅
+## Artifact Provenance
 
 Artifact provenance creates a signed, revision-bound statement about how a
 release artifact was built. The attestation binds the artifact digest to the
@@ -399,13 +400,14 @@ Expected outcomes:
 - **NO RESULT** — the workflow did not run for the revision under review. Do
   not treat a skipped job or an uploaded Actions artifact as proof.
 
-Do not promote this control to enforced until the deployment path rejects
-artifacts without a valid attestation. For public repositories, GitHub makes
+Keep this control **Advisory** until the deployment path rejects artifacts
+without a valid attestation. Move it to **Enforced** only after it also meets
+the shared promotion rule. For public repositories, GitHub makes
 artifact attestations available on current plans; private or internal
 repositories require the supported GitHub Enterprise Cloud plan. Confirm plan
 availability and organization policy before rollout.
 
-## Snyk — ORANGE 🟠 until configured, then GREEN ✅ (advisory by default)
+## Snyk
 
 Snyk is an external provider and an important recommended gate, not a required
 organization-wide merge control yet. Use Snyk Open Source for dependency and
@@ -429,10 +431,10 @@ To activate Snyk in a consuming repository:
    ignore/expiry policy in Snyk.
 5. Run the workflow on every pull request and the default branch.
 6. Confirm the actual check names: `Snyk Code` and/or `Snyk Open Source`.
-7. Leave the checks advisory while the team learns the findings, tunes
+7. Leave the checks **Advisory** while the team learns the findings, tunes
    thresholds, and establishes ownership.
-8. Add those names to the GitHub ruleset only when the team explicitly
-   promotes Snyk to an enforced gate.
+8. Move Snyk to **Enforced** and add its exact check names to the GitHub
+   ruleset only after it meets the shared promotion rule.
 9. Record revision-bound evidence for the scorecard.
 
 Fork pull requests do not receive repository secrets. The example therefore
@@ -458,7 +460,7 @@ Findings tuned and owned
 Required Snyk check for selected repositories
 ```
 
-## Semgrep — ORANGE 🟠 until configured, then GREEN ✅
+## Semgrep
 
 Semgrep requires an organization-owned rule set and execution path.
 
@@ -479,10 +481,11 @@ python3 .guardrails/configure.py \
 
 The template runs `semgrep ci` in the official Semgrep container on pull
 requests and the default branch. It requires `SEMGREP_APP_TOKEN`; it does not
-invent or embed organization-specific rules. Semgrep is advisory until the
-consumer changes its mode to `enforced` and adds the exact `Semgrep` check to
-its ruleset. Semgrep's documented GitHub Actions setup requires a repository
-workflow and `SEMGREP_APP_TOKEN` secret. [Semgrep GitHub reusable workflow
+invent or embed organization-specific rules. Semgrep starts **Advisory**. Move
+it to **Enforced** and add the exact `Semgrep` check to the ruleset only after
+it meets the shared promotion rule. Semgrep's documented GitHub Actions setup
+requires a repository workflow and `SEMGREP_APP_TOKEN` secret.
+[Semgrep GitHub reusable workflow
 documentation](https://semgrep.dev/docs/kb/semgrep-ci/github-reusable-workflows-semgrep)
 is the provider reference.
 
@@ -495,7 +498,7 @@ is the provider reference.
 
 Do not add a placeholder Semgrep command just to make the status green.
 
-## Soak Check — GRAY ⚪ until repository setup, then GREEN ✅
+## Soak Check
 
 Use `workflows/soak.yml` for scheduled or manually triggered endurance checks.
 
@@ -510,7 +513,7 @@ The producer must record workload, duration, resource observations,
 thresholds, degradation findings, and the exact revision. The application
 repository owns the definition of acceptable runtime behavior.
 
-## AI reviews — ORANGE 🟠 until configured, then GREEN ✅
+## AI reviews
 
 Use `workflows/ai-pr-review.yml` with a trusted repository-owned or
 organization-owned adapter.
@@ -536,7 +539,7 @@ Each result must contain a `findings` array. The consolidation job blocks
 unresolved `P0` and `P1` findings and fails when any reviewer does not finish.
 The shared workflow does not choose an AI provider or handle credentials.
 
-## Repository standards review — ORANGE 🟠 until adapter is configured
+## Repository standards review
 
 The adapter should read these files when they exist:
 
@@ -553,7 +556,7 @@ CONTRIBUTING.md
 It must distinguish organization policy from repository ground truth and must
 not invent standards where documentation is absent.
 
-## Branch protection — GREEN ✅ after activation
+## Branch protection
 
 Use `rulesets/default-branch-protection.json` as the starting point.
 

@@ -58,8 +58,8 @@ enforce:
   iteration.
 - Dependency review passed.
 - Snyk findings are reviewed when the repository has adopted the advisory Snyk
-  integration; Snyk becomes a required check only when the repository promotes
-  it in its ruleset.
+  integration; Snyk becomes enforced only after it meets the shared promotion
+  rule and its exact check is added to the repository ruleset.
 - CODEOWNERS or domain approval where applicable.
 
 There is no standing bypass for normal development, including for a
