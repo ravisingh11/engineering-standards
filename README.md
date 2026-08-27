@@ -4,17 +4,24 @@ Executable engineering standards for faster, safer software delivery.
 
 [![Guardrail Scorecard](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrail-checks.yml/badge.svg?branch=main)](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrail-checks.yml)
 
+AI has made it faster than ever to create and change software. That speed makes
+strong engineering standards more important, not less. Practices that once
+felt optional are becoming non-negotiable: builds must run, tests must execute,
+security checks must report, and the evidence must belong to the exact change
+being shipped.
+
+I created this repository to make that discipline lightweight and executable.
+Guardrails is a small layer that verifies the checks and services a repository
+depends on actually ran and produced evidence. It does not replace those tools,
+interpret their findings, or own remediation. Each producer performs its
+analysis; Guardrails connects the results to policy and makes the state visible.
+
 This repository combines policy, review guidance, reusable workflows, GitHub
-rulesets, and shared agent skills. **Guardrails** is the executable layer: it
-connects those standards to revision-bound evidence and produces a scorecard
-that can run locally or on every pull request.
+rulesets, and shared agent skills.
 
 Application repositories keep their own architecture and operating details.
 This project supplies the common engineering backbone without inventing
 repository-specific ground truth.
-
-> The goal is to replace slow, manual process with automated guardrails so
-> good code reaches production faster and with more confidence.
 
 ## How it fits together
 
