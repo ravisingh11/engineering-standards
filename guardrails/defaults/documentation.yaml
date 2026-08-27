@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "mappings": [
+    {
+      "name": "application-code",
+      "triggers": ["src/**", "app/**", "lib/**"],
+      "documents": ["README.md"]
+    }
+  ]
+}

@@ -10,6 +10,9 @@ from typing import NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "guardrails" / "baseline.yaml"
 CONTROL_CATALOG = ROOT / "policies" / "control-catalog.yaml"
+DOCUMENTATION_POLICY = ROOT / "guardrails" / "defaults" / "documentation.yaml"
+CHANGE_SCOPE_POLICY = ROOT / "guardrails" / "defaults" / "change-scope.yaml"
+GROUND_TRUTH_POLICY = ROOT / "guardrails" / "defaults" / "ground-truth-ai.yaml"
 EVALUATOR = ROOT / "guardrails" / "evaluate.py"
 SCORECARD = ROOT / "tooling" / "guardrail_scorecard.py"
 CONFIGURE = ROOT / "tooling" / "configure_guardrails.py"
@@ -50,12 +53,36 @@ LEGACY_FILES = (
     *LEGACY_RUNTIME_FILES,
     LEGACY_SCORECARD_WORKFLOW,
 )
+LEGACY_CONFIG_PATHS = {
+    Path(".ai/guardrails.yaml"): Path(".guardrails/policy.yaml"),
+    Path(".ai/control-catalog.yaml"): Path(".guardrails/control-catalog.yaml"),
+    Path(".ai/documentation.yaml"): Path(".guardrails/documentation.yaml"),
+    Path(".ai/change-scope.yaml"): Path(".guardrails/change-scope.yaml"),
+    Path(".ai/ground-truth.yaml"): Path(".guardrails/ground-truth-ai.yaml"),
+}
 
 
 class InstallItem(NamedTuple):
     source: Path
     destination: Path
     kind: str
+
+
+def reject_legacy_configuration(target: Path) -> None:
+    conflicts = [
+        (old_path, new_path)
+        for old_path, new_path in LEGACY_CONFIG_PATHS.items()
+        if (target / old_path).exists() or (target / old_path).is_symlink()
+    ]
+    if not conflicts:
+        return
+    instructions = "\n".join(
+        f"- git mv {old_path} {new_path}" for old_path, new_path in conflicts
+    )
+    raise ValueError(
+        "legacy Guardrails configuration must be moved before installation:\n"
+        f"{instructions}"
+    )
 
 
 def legacy_cleanup_items(target: Path) -> list[InstallItem]:
@@ -108,8 +135,11 @@ def apply_legacy_migrations(
 
 def build_plan(target: Path, *, github_actions: bool = False, providers: list[str] | None = None) -> list[InstallItem]:
     plan = [
-        InstallItem(POLICY, target / ".ai" / "guardrails.yaml", "file"),
-        InstallItem(CONTROL_CATALOG, target / ".ai" / "control-catalog.yaml", "file"),
+        InstallItem(POLICY, target / ".guardrails" / "policy.yaml", "file"),
+        InstallItem(CONTROL_CATALOG, target / ".guardrails" / "control-catalog.yaml", "file"),
+        InstallItem(DOCUMENTATION_POLICY, target / ".guardrails" / "documentation.yaml", "file"),
+        InstallItem(CHANGE_SCOPE_POLICY, target / ".guardrails" / "change-scope.yaml", "file"),
+        InstallItem(GROUND_TRUTH_POLICY, target / ".guardrails" / "ground-truth-ai.yaml", "file"),
         InstallItem(EVALUATOR, target / ".guardrails" / "evaluate.py", "file"),
         InstallItem(SCORECARD, target / ".guardrails" / "scorecard.py", "file"),
         InstallItem(CONFIGURE, target / ".guardrails" / "configure.py", "file"),
@@ -154,6 +184,7 @@ def install(
     target = target.resolve()
     if not target.is_dir():
         raise ValueError(f"target is not a directory: {target}")
+    reject_legacy_configuration(target)
 
     plan = build_plan(target, github_actions=github_actions, providers=providers)
     plan = [
@@ -173,13 +204,21 @@ def install(
         plan = [item for item in plan if not item.destination.exists()]
     elif refresh_existing:
         plan = apply_legacy_migrations(plan, target, github_actions=github_actions)
-        policy_path = target / ".ai" / "guardrails.yaml"
+        selected_configuration = {
+            target / ".guardrails" / "policy.yaml",
+            target / ".guardrails" / "documentation.yaml",
+            target / ".guardrails" / "change-scope.yaml",
+            target / ".guardrails" / "ground-truth-ai.yaml",
+        }
         provider_path = target / ".guardrails" / "providers.yaml"
         manifest_path = target / ".guardrails" / "producer-manifest.json"
         scorecard_workflow = target / ".github" / "workflows" / "guardrails-scorecard.yml"
         plan = [
             item for item in plan
-            if item.destination != policy_path
+            if not (
+                item.destination in selected_configuration
+                and item.destination.exists()
+            )
             and not (item.destination == provider_path and item.destination.exists())
             and not (item.destination == manifest_path and item.destination.exists())
             and not (item.destination == scorecard_workflow and item.destination.exists())

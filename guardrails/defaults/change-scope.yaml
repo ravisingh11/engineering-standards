@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "limits": {
+    "max_files": 12,
+    "max_added_lines": 300,
+    "max_changed_lines": 500,
+    "max_added_lines_per_file": 150
+  },
+  "exclude": [
+    "**/*.md",
+    "**/*.lock",
+    "**/generated/**",
+    "**/vendor/**",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ]
+}
