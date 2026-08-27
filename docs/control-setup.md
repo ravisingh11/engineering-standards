@@ -3,6 +3,8 @@
 This guide connects each control to the configuration required in an
 application repository. A control is GREEN only after its real producer runs
 against the exact revision and writes `passed` evidence.
+See [Guardrails directories](../README.md#guardrails-directories) for the
+shared-source, repository-installation, and AI-owned configuration boundary.
 
 ## Before adding controls
 
@@ -25,10 +27,11 @@ Then:
 6. Add the check to the repository ruleset only after it passes reliably.
 
 Do not add a check to the policy until its producer is real. Do not describe a
-missing or `not_run` result as a pass. `--refresh-existing` preserves an
-existing consumer workflow and removes only known guardrail-owned migration
-files; update workflow files through the consuming repository's normal
-pull-request process. Use `--dry-run` to inspect cleanup before applying it.
+missing or `not_run` result as a pass. Before using `--refresh-existing`, follow
+the [refresh procedure](compliance.md#install-it-in-an-application-repository)
+so required manual configuration moves happen before any known-artifact
+cleanup. Refresh preserves an existing consumer workflow; update workflow files
+through the consuming repository's normal pull-request process.
 
 ## Repository Validation
 
@@ -67,8 +70,9 @@ git show --check --format= HEAD
 contracts. The canonical producer is `.github/workflows/validate.yml`; its
 GitHub check name is `Validate / docs`.
 
-Configure `.ai/documentation.yaml` with mappings from implementation paths to
-the documentation paths that must change with them. The validator checks:
+Configure `.guardrails/documentation.yaml` with mappings from implementation
+paths to the documentation paths that must change with them. The validator
+checks:
 
 - that the policy uses the supported version and mapping structure;
 - that configured paths are relative, repository-contained POSIX patterns;
@@ -97,7 +101,7 @@ GitHub check name is `Validate / ground truth`.
 
 This control is separate from generic documentation validation. Each
 application repository declares only the documents it treats as local truth in
-`.ai/ground-truth.yaml`:
+`.guardrails/ground-truth-ai.yaml`:
 
 ```json
 {
@@ -129,7 +133,7 @@ Troubleshoot locally with:
 
 ```sh
 python3 .guardrails/validate_ground_truth.py \
-  --policy .ai/ground-truth.yaml
+  --policy .guardrails/ground-truth-ai.yaml
 ```
 
 Keep this control **Advisory** while the repository declares and validates its
@@ -143,7 +147,7 @@ or oversized changes. The producer is
 `tooling/validators/inspect_change_scope.py`; the GitHub check name is
 `Validate / scope`.
 
-Configure `.ai/change-scope.yaml` with repository-appropriate limits for:
+Configure `.guardrails/change-scope.yaml` with repository-appropriate limits for:
 
 - included files;
 - added lines;
@@ -266,9 +270,9 @@ required. The displayed check name should be `Dependency Review`.
 
 Dependency Review is not Dependabot. Dependabot proposes dependency update or
 security pull requests; Dependency Review evaluates dependency changes already
-present in the current pull request. The `.ai/control-catalog.yaml` and
-`.ai/guardrails.yaml` files only declare and configure the control. The actual
-scan runs in GitHub Actions through `actions/dependency-review-action`.
+present in the current pull request. The `.guardrails/control-catalog.yaml` and
+`.guardrails/policy.yaml` files only declare and configure the control. The
+actual scan runs in GitHub Actions through `actions/dependency-review-action`.
 
 ## Dependabot
 
@@ -578,8 +582,8 @@ Policy-scoped scorecard:
 
 ```sh
 python3 .guardrails/scorecard.py \
-  --policy .ai/guardrails.yaml \
-  --catalog .ai/control-catalog.yaml \
+  --policy .guardrails/policy.yaml \
+  --catalog .guardrails/control-catalog.yaml \
   --evidence .artifacts/guardrails/evidence.json \
   --operation change \
   --revision "$(git rev-parse HEAD)" \
@@ -590,8 +594,8 @@ Full onboarding view, including controls not yet selected in policy:
 
 ```sh
 python3 .guardrails/scorecard.py \
-  --policy .ai/guardrails.yaml \
-  --catalog .ai/control-catalog.yaml \
+  --policy .guardrails/policy.yaml \
+  --catalog .guardrails/control-catalog.yaml \
   --evidence .artifacts/guardrails/evidence.json \
   --operation change \
   --revision "$(git rev-parse HEAD)" \

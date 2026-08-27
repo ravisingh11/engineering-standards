@@ -5,7 +5,7 @@ description: "Prepare an evidence-backed software change without expanding autho
 
 # Prepare Safe Change
 
-Use the repository's `.ai/guardrails.yaml` policy. The policy declares evidence
+Use the repository's `.guardrails/policy.yaml` policy. The policy declares evidence
 requirements; it does not authorize an operation or tell you which tools to run.
 
 ## Workflow
@@ -22,7 +22,7 @@ requirements; it does not authorize an operation or tell you which tools to run.
 
    ```sh
    python3 "$evaluator" \
-     --policy .ai/guardrails.yaml \
+     --policy .guardrails/policy.yaml \
      --evidence /path/to/evidence.yaml \
      --operation change \
      --revision "$exact_revision"

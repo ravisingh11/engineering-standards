@@ -61,10 +61,14 @@ python3 /path/to/engineering-standards/tooling/install.py \
 ```
 
 Review the proposed files, then run the same command without `--dry-run`.
-The installer adds:
+The installer adds the repository installation described in
+[Guardrails directories](../README.md#guardrails-directories), including:
 
-- `.ai/guardrails.yaml` — repository-selected policy.
-- `.ai/control-catalog.yaml` — activation metadata for shared controls.
+- `.guardrails/policy.yaml` — repository-selected policy.
+- `.guardrails/control-catalog.yaml` — activation metadata for shared controls.
+- `.guardrails/documentation.yaml` — implementation-to-documentation mappings.
+- `.guardrails/change-scope.yaml` — repository scope thresholds.
+- `.guardrails/ground-truth-ai.yaml` — repository ground-truth inventory.
 - `.guardrails/evaluate.py` — deterministic evaluator.
 - `.guardrails/scorecard.py` — human-readable and JSON scorecard.
 - `.guardrails/configure.py` — safe control activation and enforcement configuration.
@@ -81,22 +85,35 @@ the shared repository's own runs.
 The application repository still owns its commands, scanner settings,
 credentials, AI adapter, and ground-truth documents.
 
-If the target already has `.ai/guardrails.yaml` or another installed product
-file, use `--merge-existing`. It preserves existing files and installs only
-missing product components. The default installer mode refuses to overwrite
-anything.
+If the target already has an installed product file, use `--merge-existing`.
+It preserves existing files and installs only missing product components. The
+default installer mode refuses to overwrite anything.
 
-Use `--refresh-existing` after upgrading this standards repository. It refreshes
-the installed evaluator, configurator, scanner, scorecard, catalog, and
-workflow files while preserving `.ai/guardrails.yaml`, the producer manifest,
-copied skill directories, consumer workflows, and generated reports. It also
-removes only known guardrail-owned legacy files, including the retired
-`.ai/providers.yaml`, `.ai/producer-manifest.json`, and known runtime files
-under `.agentic-guardrails/`. Existing provider configuration, producer
-manifests, and customized scorecard workflows are migrated to their canonical
-`.guardrails/` names. Unknown files are preserved; the installer never
-recursively deletes directories or application files. Use `--dry-run` to
-review the plan, or `--no-cleanup` to skip migration cleanup.
+Before using `--refresh-existing` after upgrading this standards repository,
+run it in dry-run mode:
+
+```sh
+python3 /path/to/engineering-standards/tooling/install.py \
+  --target . \
+  --github-actions \
+  --refresh-existing \
+  --dry-run
+```
+
+The installer rejects legacy Guardrails configuration before planning the
+refresh. Execute every complete `git mv` command it prints, review relative
+schema references in moved files, and rerun `--dry-run`. Run only the printed
+commands for files the repository has. The installer is the canonical exact
+path map and does not move or delete rejected configuration automatically.
+
+After the dry run succeeds, remove `--dry-run`. Refresh updates the evaluator,
+configurator, scanner, scorecard, catalog, and installed workflow while
+preserving selected repository validation policies, provider configuration,
+the producer manifest, copied skill directories, consumer workflows, and
+generated reports. It migrates or removes only known installer-owned runtime
+artifacts and the former scorecard workflow name. Unknown files remain
+untouched; the installer never recursively deletes directories or application
+files. Use `--no-cleanup` to skip that known-artifact cleanup.
 
 ## Enable a capability
 
@@ -106,7 +123,7 @@ List the available controls and their current enforcement mode:
 python3 .guardrails/configure.py --list
 ```
 
-Set a control without hand-editing `.ai/guardrails.yaml`:
+Set a control without hand-editing `.guardrails/policy.yaml`:
 
 ```sh
 python3 .guardrails/configure.py \
@@ -122,9 +139,10 @@ Remove `--dry-run` to write the policy. The modes are:
   status context to the repository ruleset separately.
 
 Use `--all-operations` to apply a selection to both `change` and `release`.
-The command validates control IDs against `.ai/control-catalog.yaml`, prevents
-enforced/advisory overlap, and refuses unknown modes. Unselected controls are
-reported as `not_activated`; there is no separate `observe` mode.
+The command validates control IDs against
+`.guardrails/control-catalog.yaml`, prevents enforced/advisory overlap, and
+refuses unknown modes. Unselected controls are reported as `not_activated`;
+there is no separate `observe` mode.
 
 ## Run the repository scan
 
@@ -169,7 +187,7 @@ Evidence must identify the exact revision under evaluation:
 
 ```sh
 python3 .guardrails/evaluate.py \
-  --policy .ai/guardrails.yaml \
+  --policy .guardrails/policy.yaml \
   --evidence .artifacts/guardrails/evidence.json \
   --operation change \
   --revision "$(git rev-parse HEAD)" \
@@ -182,7 +200,7 @@ name:
 
 ```sh
 python3 .guardrails/evaluate.py \
-  --policy .ai/guardrails.yaml \
+  --policy .guardrails/policy.yaml \
   --evidence "$EVIDENCE_FILE" \
   --operation change \
   --revision "$GITHUB_SHA" \
@@ -200,8 +218,8 @@ or release:
 
 ```sh
 python3 .guardrails/scorecard.py \
-  --policy .ai/guardrails.yaml \
-  --catalog .ai/control-catalog.yaml \
+  --policy .guardrails/policy.yaml \
+  --catalog .guardrails/control-catalog.yaml \
   --evidence .artifacts/guardrails/evidence.json \
   --operation change \
   --revision "$(git rev-parse HEAD)" \

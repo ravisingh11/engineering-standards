@@ -49,7 +49,7 @@ def retired_path_failures(root: Path) -> list[str]:
     for path in sorted(tracked | untracked):
         if path in EXCLUDED_FILES or path.startswith(EXCLUDED_PREFIXES):
             continue
-        if not path.endswith((".py", ".yml", ".yaml")):
+        if not path.endswith((".md", ".py", ".yml", ".yaml")):
             continue
         candidate = root / path
         if candidate.is_file():
@@ -251,7 +251,7 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("--policy .guardrails/policy.yaml", text)
                 self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
 
-    def test_active_python_and_yaml_have_no_retired_paths(self) -> None:
+    def test_active_markdown_python_and_yaml_have_no_retired_paths(self) -> None:
         self.assertEqual([], retired_path_failures(ROOT))
 
     def test_secret_scan_workflow_verifies_github_platform_settings(self) -> None:

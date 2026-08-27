@@ -66,16 +66,19 @@ invocations use the same reconciliation behavior.
 ## Consumer safety
 
 Installing or refreshing the runtime never overwrites a consumer-owned
-`.ai/guardrails.yaml` or existing GitHub workflow. Use the installer to refresh
-the evaluator, collector, catalog, and manifest; review workflow changes as a
-normal pull request in the consuming repository.
+`.guardrails/policy.yaml` or existing GitHub workflow. Use the installer to
+refresh the evaluator, collector, and catalog; it preserves an existing
+producer manifest. Review workflow changes as a normal pull request in the
+consuming repository. See
+[Guardrails directories](../README.md#guardrails-directories) for the source
+and installation boundary.
 
 The manifest is explicit. If a repository renames a check, it must update the
 manifest and the ruleset status context together.
 
 The manifest is a connection map, not an activation switch. `wait_for` describes
 workflow scheduling, not policy enforcement. Selecting a control
-in `.ai/guardrails.yaml` does not create a producer, enable a GitHub setting, or
-authenticate a third-party service. Configure the producer first, verify its
-exact check name and revision-bound evidence, then select `advisory` or
-`enforced` policy as appropriate.
+in `.guardrails/policy.yaml` does not create a producer, enable a GitHub
+setting, or authenticate a third-party service. Configure the producer first,
+verify its exact check name and revision-bound evidence, then select `advisory`
+or `enforced` policy as appropriate.

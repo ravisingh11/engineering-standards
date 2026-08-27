@@ -11,10 +11,12 @@ From the root of this standards repository, no installation is needed:
 python3 tooling/scan_repository.py --all-catalog-controls
 ```
 
-The scanner uses the checked-in `.ai/` configuration when present. On a clean
-standards checkout without that overlay, it falls back to
+The scanner uses the checked-in `.guardrails/` configuration. If those files
+are absent in a standards source checkout, it falls back to
 `guardrails/baseline.yaml` and `policies/control-catalog.yaml`. When pointed at
-an installed application repository, it uses that repository's `.ai/` files.
+an installed application repository, it uses that repository's `.guardrails/`
+files. See [Guardrails directories](../README.md#guardrails-directories) for
+the source, installation, and AI-owned configuration boundary.
 
 ## 1. Install
 
@@ -27,15 +29,15 @@ python3 ../engineering-standards/tooling/install.py \
   --target . --github-actions
 ```
 
-Use `--refresh-existing` when updating an installation. Use `--dry-run` first
-to preview changes. The installer preserves application policy, the producer
-manifest, workflows, skills, and generated reports; it only removes explicitly
-known legacy files.
+Use `--refresh-existing` when updating an installation. Follow the
+[refresh steps](#updating-an-installation) so the installer can report any
+required configuration moves before it plans the refresh.
 
 ## 2. Choose controls
 
-The installer creates `.ai/guardrails.yaml` and
-`.guardrails/providers.yaml`. List controls before changing anything:
+The installer creates `.guardrails/policy.yaml`, the repository validation
+policies, and `.guardrails/providers.yaml`. List controls before changing
+anything:
 
 ```sh
 python3 .guardrails/configure.py --list
@@ -103,13 +105,20 @@ the shared installer does not pretend to configure them automatically.
 ```sh
 git -C ../engineering-standards pull --ff-only
 python3 ../engineering-standards/tooling/install.py \
-  --target . --github-actions --refresh-existing
+  --target . --github-actions --refresh-existing --dry-run
 ```
 
+If the dry run rejects legacy Guardrails configuration, execute every complete
+`git mv` command it prints, review relative schema references in the moved
+files, and rerun `--dry-run`. Run only the printed commands for files the
+repository has. The installer owns the exact path map and does not move or
+delete rejected configuration automatically.
+
+After the dry run succeeds, rerun the installer command without `--dry-run`.
 Review the diff, run the local scan, and commit the refresh through the normal
 application pull request.
 
 Refresh migrates installations that still use `.agentic-guardrails/` or
 `agentic-guardrails-scorecard.yml` to `.guardrails/` and
-`guardrails-scorecard.yml`. Run with `--dry-run` first to inspect the exact
-copy and cleanup operations.
+`guardrails-scorecard.yml`. This known runtime cleanup is separate from the
+configuration moves above.

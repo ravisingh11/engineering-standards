@@ -101,6 +101,14 @@ For a runnable consumer example, see the embedded
 | `tooling/` | Installers and deterministic validation tools. |
 | `examples/` | Small applications that demonstrate installation and evidence collection. |
 
+### Guardrails directories
+
+| Directory | Purpose |
+| --- | --- |
+| `guardrails/` | Shared source: evaluator, schemas, baseline, defaults, and tests. |
+| `.guardrails/` | Repository installation: selected policy, control catalog, repository validation policies, provider configuration, producer manifest, and runtime commands. |
+| `.ai/` | Configuration genuinely owned by AI features, not Guardrails. |
+
 Application repositories remain the source of truth for:
 
 ```text
@@ -252,18 +260,32 @@ python3 /path/to/engineering-standards/tooling/install.py \
   --merge-existing
 ```
 
-Use `--refresh-existing` after upgrading this standards repository to refresh
-installed product files while preserving `.ai/guardrails.yaml`, the producer
-manifest, copied skill directories, consumer workflows, and generated reports.
-Refresh also removes
-only known guardrail-owned migration files, such as the retired
-`.ai/providers.yaml` and known files under the former
-`.agentic-guardrails/` runtime. Consumer configuration and customized
-scorecard workflows are migrated to `.guardrails/` and
-`guardrails-scorecard.yml`. Unknown files are preserved, and the installer
-never recursively deletes directories or application files. Use `--dry-run`
-to review the install and cleanup plan, or
-`--no-cleanup` when a refresh must skip that migration cleanup.
+Before refreshing an installation, preview the operation:
+
+```sh
+python3 /path/to/engineering-standards/tooling/install.py \
+  --target . \
+  --github-actions \
+  --refresh-existing \
+  --dry-run
+```
+
+The installer rejects legacy Guardrails configuration before planning any
+install or refresh. If it does, execute every complete `git mv` command it
+prints, review relative schema references in the moved files, and rerun the
+same `--dry-run` command. Run only the commands the installer prints for files
+the repository has. The installer is the canonical exact path map; it does not
+move or delete rejected configuration automatically.
+
+After the dry run succeeds, remove `--dry-run` to refresh installed product
+files. Refresh preserves selected repository validation policies, provider
+configuration, the producer manifest, copied skill directories, consumer
+workflows, and generated reports. It refreshes the shared control catalog and
+runtime. It may migrate or remove only known installer-owned runtime artifacts
+and the former scorecard workflow name. Unknown files remain untouched, and
+the installer never recursively deletes directories or application files. Use
+`--no-cleanup` to skip that known-artifact cleanup; it does not bypass the
+configuration cutover.
 
 List and configure controls through the installed policy tool:
 
@@ -323,8 +345,8 @@ After the repository's real producers write revision-bound evidence, run:
 
 ```sh
 python3 .guardrails/scorecard.py \
-  --policy .ai/guardrails.yaml \
-  --catalog .ai/control-catalog.yaml \
+  --policy .guardrails/policy.yaml \
+  --catalog .guardrails/control-catalog.yaml \
   --evidence .artifacts/guardrails/evidence.json \
   --operation change \
   --revision "$(git rev-parse HEAD)" \
