@@ -10,7 +10,11 @@ from pathlib import Path
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate repository ground-truth documents")
-    parser.add_argument("--policy", type=Path, default=Path(".ai/ground-truth.yaml"))
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        default=Path(".guardrails/ground-truth-ai.yaml"),
+    )
     args = parser.parse_args()
     try:
         policy = json.loads(args.policy.read_text(encoding="utf-8"))

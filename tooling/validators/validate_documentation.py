@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY = ROOT / ".ai" / "documentation.yaml"
+DEFAULT_POLICY = ROOT / ".guardrails" / "documentation.yaml"
 LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 
 

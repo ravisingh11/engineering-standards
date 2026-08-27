@@ -25,6 +25,12 @@ def policy() -> dict:
 
 
 class ChangeScopeTests(unittest.TestCase):
+    def test_default_policy_uses_guardrails_configuration(self) -> None:
+        self.assertEqual(
+            MODULE.DEFAULT_POLICY,
+            MODULE.ROOT / ".guardrails" / "change-scope.yaml",
+        )
+
     def test_passes_change_within_advisory_thresholds(self) -> None:
         result = MODULE.inspect(
             "git-tree",

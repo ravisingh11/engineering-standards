@@ -17,11 +17,17 @@ ROOT = Path(__file__).resolve().parents[3]
 class DocumentationValidatorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.policy = MODULE.load_policy(ROOT / ".ai" / "documentation.yaml")
+        cls.policy = MODULE.load_policy(ROOT / ".guardrails" / "documentation.yaml")
+
+    def test_default_policy_uses_guardrails_configuration(self) -> None:
+        self.assertEqual(
+            MODULE.DEFAULT_POLICY,
+            MODULE.ROOT / ".guardrails" / "documentation.yaml",
+        )
 
     def test_current_documentation_links_and_targets_are_valid(self) -> None:
         self.assertEqual(
-            MODULE.validate(ROOT, ROOT / ".ai" / "documentation.yaml"),
+            MODULE.validate(ROOT, ROOT / ".guardrails" / "documentation.yaml"),
             [],
         )
 

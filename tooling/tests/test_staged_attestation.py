@@ -12,6 +12,10 @@ SPEC.loader.exec_module(MODULE)
 
 
 class StagedAttestationTests(unittest.TestCase):
+    def test_staged_snapshot_uses_guardrails_configuration(self) -> None:
+        self.assertEqual(MODULE.POLICY_PATH, Path(".guardrails/policy.yaml"))
+        self.assertEqual(MODULE.SCOPE_POLICY_PATH, Path(".guardrails/change-scope.yaml"))
+
     @staticmethod
     def scope(status: str = "passed") -> dict:
         return {

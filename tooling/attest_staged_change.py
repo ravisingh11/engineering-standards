@@ -10,6 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+POLICY_PATH = Path(".guardrails/policy.yaml")
+SCOPE_POLICY_PATH = Path(".guardrails/change-scope.yaml")
+
 
 def git_output(root: Path, *arguments: str) -> str:
     return subprocess.run(
@@ -151,7 +154,7 @@ def run(root: Path) -> int:
             snapshot / "validators" / "inspect_change_scope.py",
             "staged_change_scope",
         )
-        scope_policy = scope.load_policy(snapshot / ".ai" / "change-scope.yaml")
+        scope_policy = scope.load_policy(snapshot / SCOPE_POLICY_PATH)
         scope_result = scope.staged(root, scope_policy)
         print(scope.render(scope_result), end="")
 
@@ -159,7 +162,7 @@ def run(root: Path) -> int:
             snapshot / "attest" / "evaluate.py",
             "staged_agent_safe_evaluator",
         )
-        policy = evaluator.load_document(snapshot / ".ai" / "guardrails.yaml")
+        policy = evaluator.load_document(snapshot / POLICY_PATH)
         evidence = build_evidence(
             revision,
             repository_validation,

@@ -23,6 +23,10 @@ class ConfigureGuardrailsTests(unittest.TestCase):
             },
         }
 
+    def test_defaults_use_installed_guardrails_configuration(self) -> None:
+        self.assertEqual(MODULE.DEFAULT_POLICY, Path(".guardrails/policy.yaml"))
+        self.assertEqual(MODULE.DEFAULT_CATALOG, Path(".guardrails/control-catalog.yaml"))
+
     def test_set_advisory_removes_required(self) -> None:
         MODULE.set_mode(self.policy, "build", "advisory", ["change"])
         self.assertEqual(self.policy["operations"]["change"], {"required": [], "advisory": ["build"]})

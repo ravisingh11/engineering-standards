@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scan_repository.py"
@@ -70,23 +71,85 @@ class DependabotEvidenceTests(unittest.TestCase):
 class DefaultConfigurationTests(unittest.TestCase):
     def test_shared_repository_uses_checked_in_configuration_paths(self) -> None:
         self.assertEqual(
-            MODULE.default_config_path(MODULE.ROOT, ".ai/guardrails.yaml", "guardrails/baseline.yaml"),
-            MODULE.ROOT / ".ai/guardrails.yaml",
+            MODULE.default_config_path(MODULE.ROOT, ".guardrails/policy.yaml", "guardrails/baseline.yaml"),
+            MODULE.ROOT / ".guardrails/policy.yaml",
         )
         self.assertEqual(
-            MODULE.default_config_path(MODULE.ROOT, ".ai/control-catalog.yaml", "policies/control-catalog.yaml"),
-            MODULE.ROOT / ".ai/control-catalog.yaml",
+            MODULE.default_config_path(MODULE.ROOT, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml"),
+            MODULE.ROOT / ".guardrails/control-catalog.yaml",
         )
+
+    def test_shared_repository_falls_back_to_source_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy = root / "guardrails" / "baseline.yaml"
+            catalog = root / "policies" / "control-catalog.yaml"
+            policy.parent.mkdir()
+            catalog.parent.mkdir()
+            policy.write_text("{}", encoding="utf-8")
+            catalog.write_text("{}", encoding="utf-8")
+
+            with mock.patch.object(MODULE, "ROOT", root):
+                self.assertEqual(
+                    MODULE.default_config_path(
+                        root,
+                        ".guardrails/policy.yaml",
+                        "guardrails/baseline.yaml",
+                    ),
+                    policy,
+                )
+                self.assertEqual(
+                    MODULE.default_config_path(
+                        root,
+                        ".guardrails/control-catalog.yaml",
+                        "policies/control-catalog.yaml",
+                    ),
+                    catalog,
+                )
+
+    def test_consumer_does_not_use_source_configuration_fallbacks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "standards"
+            target = base / "consumer"
+            (target / "guardrails").mkdir(parents=True)
+            (target / "policies").mkdir()
+            (target / "guardrails" / "baseline.yaml").write_text(
+                "{}",
+                encoding="utf-8",
+            )
+            (target / "policies" / "control-catalog.yaml").write_text(
+                "{}",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(MODULE, "ROOT", root):
+                self.assertEqual(
+                    MODULE.default_config_path(
+                        target,
+                        ".guardrails/policy.yaml",
+                        "guardrails/baseline.yaml",
+                    ),
+                    target / ".guardrails" / "policy.yaml",
+                )
+                self.assertEqual(
+                    MODULE.default_config_path(
+                        target,
+                        ".guardrails/control-catalog.yaml",
+                        "policies/control-catalog.yaml",
+                    ),
+                    target / ".guardrails" / "control-catalog.yaml",
+                )
 
     def test_installed_repository_prefers_consumer_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            policy = target / ".ai" / "guardrails.yaml"
+            policy = target / ".guardrails" / "policy.yaml"
             policy.parent.mkdir()
             policy.write_text("{}", encoding="utf-8")
 
             self.assertEqual(
-                MODULE.default_config_path(target, ".ai/guardrails.yaml", "guardrails/baseline.yaml"),
+                MODULE.default_config_path(target, ".guardrails/policy.yaml", "guardrails/baseline.yaml"),
                 policy,
             )
 

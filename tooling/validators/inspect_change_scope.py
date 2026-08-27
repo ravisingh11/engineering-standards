@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY = ROOT / ".ai" / "change-scope.yaml"
+DEFAULT_POLICY = ROOT / ".guardrails" / "change-scope.yaml"
 LIMIT_KEYS = (
     "max_files",
     "max_added_lines",

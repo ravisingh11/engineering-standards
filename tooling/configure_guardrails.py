@@ -12,6 +12,8 @@ from typing import Any
 
 MODES = ("advisory", "enforced")
 OPERATIONS = ("change", "release")
+DEFAULT_POLICY = Path(".guardrails/policy.yaml")
+DEFAULT_CATALOG = Path(".guardrails/control-catalog.yaml")
 
 
 def load_object(path: Path) -> dict[str, Any]:
@@ -149,8 +151,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Configure guardrail controls as advisory or enforced"
     )
-    parser.add_argument("--policy", type=Path, default=Path(".ai/guardrails.yaml"))
-    parser.add_argument("--catalog", type=Path, default=Path(".ai/control-catalog.yaml"))
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--providers", type=Path, default=Path(".guardrails/providers.yaml"))
     parser.add_argument("--manifest", type=Path, default=Path(".guardrails/producer-manifest.json"))
     parser.add_argument("--operation", choices=OPERATIONS, default="change")

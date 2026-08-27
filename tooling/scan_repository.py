@@ -133,7 +133,7 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         }
 
     ground_truth_validator = target / ".guardrails" / "validate_ground_truth.py"
-    ground_truth_policy = target / ".ai" / "ground-truth.yaml"
+    ground_truth_policy = target / ".guardrails" / "ground-truth-ai.yaml"
     if ground_truth_validator.exists() and ground_truth_policy.exists():
         command = [sys.executable, str(ground_truth_validator), "--policy", str(ground_truth_policy)]
         code, output = run(command, target)
@@ -393,12 +393,12 @@ def main() -> int:
     policy_path = (
         (target / args.policy).resolve()
         if args.policy
-        else default_config_path(target, ".ai/guardrails.yaml", "guardrails/baseline.yaml")
+        else default_config_path(target, ".guardrails/policy.yaml", "guardrails/baseline.yaml")
     )
     catalog_path = (
         (target / args.catalog).resolve()
         if args.catalog
-        else default_config_path(target, ".ai/control-catalog.yaml", "policies/control-catalog.yaml")
+        else default_config_path(target, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml")
     )
     evidence_path = (
         (target / args.evidence).resolve()
