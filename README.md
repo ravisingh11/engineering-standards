@@ -141,19 +141,19 @@ mean that the current revision passed.
 
 | Check | Primarily finds | Runs | Activation | Policy |
 | --- | --- | --- | --- | --- |
-| SonarQube | Code quality, bugs, maintainability, and new-code regressions | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
-| CodeQL / SAST | Vulnerabilities in application code | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| Secrets scan | Credentials, tokens, and authentication material in code | Push and PR | **GREEN ✅** | Advisory by default; promote when mature |
-| FOSSA | Open-source dependency, license, and supply-chain risk | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
-| Snyk Open Source | Dependency vulnerabilities and supply-chain risk | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| Snyk Code | Vulnerabilities in application source code | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| Semgrep | Organization-specific static-analysis and security rules | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
-| Dependency Review | Risk introduced by changed dependencies | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| Dependabot | Automated dependency update and security-update pull requests | Scheduled and event-driven | **GREEN ✅** | Configuration is visible locally; activation and producer evidence must be verified |
+| [SonarQube](docs/control-setup.md#sonarqube--orange-until-configured-then-green-) | Code quality, bugs, maintainability, and new-code regressions | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
+| [CodeQL / SAST](docs/control-setup.md#codeql--sast--green-) | Vulnerabilities in application code | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
+| [Secrets scan](docs/control-setup.md#secrets-scanning--green-) | Credentials, tokens, and authentication material in code | Push and PR | **GREEN ✅** | Advisory by default; promote when mature |
+| [FOSSA](docs/control-setup.md#fossa--orange-until-configured-then-green-) | Open-source dependency, license, and supply-chain risk | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
+| [Snyk Open Source](docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default) | Dependency vulnerabilities and supply-chain risk | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
+| [Snyk Code](docs/control-setup.md#snyk--orange-until-configured-then-green-advisory-by-default) | Vulnerabilities in application source code | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
+| [Semgrep](docs/control-setup.md#semgrep--orange-until-configured-then-green-) | Organization-specific static-analysis and security rules | Every PR when connected | **ORANGE 🟠** | Advisory; promote when mature |
+| [Dependency Review](docs/control-setup.md#dependency-review--green-) | Risk introduced by changed dependencies | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
+| [Dependabot](docs/control-setup.md#dependabot--advisory-until-configured) | Automated dependency update and security-update pull requests | Scheduled and event-driven | **GREEN ✅** | Configuration is visible locally; activation and producer evidence must be verified |
 | [Artifact Provenance](docs/control-setup.md#artifact-provenance--orange-until-configured-then-green-) | Signed evidence of how a release artifact was built | Build and release | **ORANGE 🟠** until configured | Build, attest, and verify the exact promoted artifact; advisory until the release path is verified |
-| Unit Tests | Functional regressions and changed behavior | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
-| Soak Check | Runtime degradation, memory growth, leaks, and performance drift | Pre-release and scheduled | **GRAY ⚪** | Advisory; promote when configured |
-| AI reviews | Engineering, QA, security, and repository-standard findings | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
+| [Unit Tests](docs/control-setup.md#unit-tests--green-) | Functional regressions and changed behavior | Every PR | **GREEN ✅** | Advisory by default; promote when mature |
+| [Soak Check](docs/control-setup.md#soak-check--gray-until-repository-setup-then-green-) | Runtime degradation, memory growth, leaks, and performance drift | Pre-release and scheduled | **GRAY ⚪** | Advisory; promote when configured |
+| [AI reviews](docs/control-setup.md#ai-reviews--orange-until-configured-then-green) | Engineering, QA, security, and repository-standard findings | Every PR | **ORANGE 🟠** | Advisory; promote when configured |
 
 `required_when_configured` is catalog metadata, not a user-facing enforcement
 mode. It means a repository must provide a real producer before that control
