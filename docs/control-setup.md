@@ -234,9 +234,11 @@ workflow cannot enable them.
 The repository API exposes these settings only to an administrator. To have
 the PR scorecard verify them as a `GitHub Secret Scan` check, add a narrowly scoped
 fine-grained GitHub token or GitHub App token as the `SECURITY_SETTINGS_TOKEN`
-Actions secret. The trusted `pull_request_target` verifier does not check out
+Actions secret. Grant only repository `Administration` read and `Secret
+scanning alerts` read access, scoped to the repository being verified. The
+trusted `pull_request_target` evidence probe does not check out
 PR code; it publishes the result explicitly against the PR head SHA. Without
-that credential the verifier publishes `NO RESULT`; it never treats an
+that credential the publisher records `NO RESULT`; it never treats an
 unprivileged token or a workflow's existence as proof of activation. The
 optional organization scanner runs separately on `pull_request`, without
 credentials, and its result is included when configured.

@@ -27,15 +27,16 @@ scanning and the Dependency Graph must be enabled in repository settings before
 their checks can run.
 
 Secret Scanning is a platform capability and does not create a standard PR
-check by itself. The shared `Secret Scan` verifier is therefore conditional on
-the `SECURITY_SETTINGS_TOKEN` Actions secret: use a narrowly scoped GitHub App
-or fine-grained token that can read repository security settings. Without that
-credential, or when the credential cannot read the settings, the verifier
-reports `NO RESULT` and the scorecard remains advisory; this is different from
-Secret Scanning being disabled. The verifier reads settings with the protected
-credential and publishes its PR check with the ordinary Actions token. An
-optional organization scanner is a separate check and cannot prove the GitHub
-platform setting.
+check by itself. The shared `Secret Scan` evidence probe is therefore
+conditional on the `SECURITY_SETTINGS_TOKEN` Actions secret: use a narrowly
+scoped GitHub App or fine-grained token with repository `Administration` read
+and `Secret scanning alerts` read access. Without that credential, or when the
+credential cannot read the settings, the evidence probe reports `NO RESULT`
+and the scorecard remains advisory; this is different from Secret Scanning
+being disabled. The evidence probe reads settings with the protected credential
+and publishes its PR check with the ordinary Actions token. An optional
+organization scanner is a separate check and cannot prove the GitHub platform
+setting.
 
 Artifact provenance is an advisory supply-chain control. The
 `artifact-provenance.yml` template uses GitHub Artifact Attestations to bind a

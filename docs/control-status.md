@@ -21,7 +21,7 @@ GitHub Actions job health is also separate from control evidence. A green
 configuration or publishing job means the workflow successfully reported what
 it found; it does not prove that the control passed. For Secret Scan, the
 authoritative result is the `GitHub Secret Scan` check and its scorecard row.
-When `SECURITY_SETTINGS_TOKEN` is absent, the platform verifier is skipped and
+When `SECURITY_SETTINGS_TOKEN` is absent, the evidence probe is skipped and
 the publisher records `NO RESULT` rather than showing the verifier as green.
 
 ## Activation map

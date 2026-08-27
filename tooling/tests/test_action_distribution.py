@@ -294,7 +294,7 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("secret-scanning/alerts", text)
         self.assertIn("head_sha", text)
         self.assertIn("checks: write", text)
-        self.assertIn("no-checkout verifier", text)
+        self.assertIn("no-checkout evidence probe", text)
         self.assertNotIn("actions/checkout@", text)
         org = (ROOT / ".github" / "workflows" / "organization-secret-scan.yml").read_text(
             encoding="utf-8"
@@ -329,6 +329,14 @@ class ActionDistributionTests(unittest.TestCase):
             'reason="SECURITY_SETTINGS_TOKEN is not configured."',
             verifier,
         )
+
+    def test_secret_scan_job_name_does_not_claim_the_control_passed(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("name: Secret Scan Evidence Probe", text)
+        self.assertNotIn("name: Secret Scan Platform Verifier", text)
 
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
         text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
