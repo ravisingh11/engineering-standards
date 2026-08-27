@@ -52,6 +52,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Repository validation | Broken policy, schema, documentation, and repository contracts | ✅ Green | Run the shared validator or equivalent check. |
 | Documentation validation | Broken internal links and documentation contracts | ✅ Green | Run the shared documentation validator. |
+| Ground Truth | Missing application-owned architecture, standards, testing, security, deployment, or contribution documents | ⚪ Gray | Declare the repository's actual ground-truth files and run the installed validator. |
 | Change Scope | Oversized or unexpectedly broad changes | ✅ Green | Configure thresholds and review advisory findings. |
 | Guardrail evaluator | Missing or failed revision-bound evidence | ✅ Green | Produce evidence using the shared schema and invoke the evaluator. |
 | Build | Compilation, packaging, and build regressions | ✅ Green | Set the build command and runtime/toolchain. |

@@ -34,7 +34,7 @@
       "requiredness": "advisory",
       "activation": "repository",
       "blocking": false,
-      "status_context": "Repository Ground Truth",
+      "status_context": "Validate / ground truth",
       "evidence": "configured ground-truth document inventory"
     },
     {
@@ -106,7 +106,7 @@
       "requiredness": "required",
       "activation": "github-native",
       "blocking": true,
-      "status_context": "Secret Scan",
+      "status_context": "GitHub Secret Scan",
       "evidence": "platform or workflow scan result"
     },
     {
@@ -130,7 +130,7 @@
       "requiredness": "advisory",
       "activation": "github-native",
       "blocking": false,
-      "status_context": "Dependabot",
+      "status_context": "Dependabot Verification",
       "evidence": "Dependabot configuration and enabled repository capability"
     },
     {

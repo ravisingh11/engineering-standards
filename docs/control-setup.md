@@ -32,18 +32,71 @@ pull-request process. Use `--dry-run` to inspect cleanup before applying it.
 
 ## Repository Validation — GREEN ✅
 
-Repository validation checks the repository-owned contracts that can be tested
-without application-specific assumptions: required files exist, policy and
-catalog files parse, selected controls exist in the catalog, and repository
-hygiene checks pass. It does not replace architecture, security, or domain
-testing.
+**Protects:** the repository contracts that make the standards and Guardrails
+safe to consume. The canonical producer is `.github/workflows/validate.yml`;
+its GitHub check name is `Validate / repository`.
+
+In this repository, `tooling/validators/validate_repository.py` verifies:
+
+- skill frontmatter and required agent definitions;
+- control-catalog fields, identifiers, and allowed values;
+- guardrail policy, evidence, and JSON Schema contracts;
+- documentation integrity;
+- the absence of accidentally committed machine-local paths; and
+- commit whitespace through `git show --check` in CI.
+
+`Validate / repository` runs only after documentation, change-scope, and
+ground-truth jobs complete. GREEN means those dependencies and the repository
+validator passed for the exact revision under review.
+
+It does not compile application code, run application tests, judge architecture,
+or perform security analysis. Those belong to separate controls. A consuming
+repository should provide an equivalent repository-owned validator instead of
+copying checks for standards-specific directories it does not have.
+
+Troubleshoot locally with:
+
+```sh
+python3 tooling/validators/validate_repository.py
+git show --check --format= HEAD
+```
 
 ## Documentation Validation — GREEN ✅
 
+**Protects:** documentation navigation and explicit change-to-documentation
+contracts. The canonical producer is `.github/workflows/validate.yml`; its
+GitHub check name is `Validate / docs`.
+
+Configure `.ai/documentation.yaml` with mappings from implementation paths to
+the documentation paths that must change with them. The validator checks:
+
+- that the policy uses the supported version and mapping structure;
+- that configured paths are relative, repository-contained POSIX patterns;
+- that every configured documentation pattern matches a real file;
+- that local Markdown links resolve inside the repository; and
+- on a PR or Git range, that triggered implementation changes include a mapped
+  documentation change.
+
+GREEN means those checks passed for the exact revision or change range. The
+validator does not fetch external links, judge writing quality, or decide
+whether application-specific architecture is correct. Declared repository
+ground truth is handled separately below.
+
+Troubleshoot locally with:
+
+```sh
+python3 tooling/validators/validate_documentation.py
+```
+
 ## Ground Truth — advisory until configured
 
-This is separate from generic documentation validation. An application
-repository may declare the documents that define its local truth in
+**Protects:** the application-owned documents that define architecture,
+engineering constraints, testing, security, deployment, and contribution
+expectations. The producer is `.guardrails/validate_ground_truth.py`; the
+GitHub check name is `Validate / ground truth`.
+
+This control is separate from generic documentation validation. Each
+application repository declares only the documents it treats as local truth in
 `.ai/ground-truth.yaml`:
 
 ```json
@@ -61,14 +114,60 @@ repository may declare the documents that define its local truth in
 }
 ```
 
-The installed validator reports missing declared files as an advisory finding.
-It does not invent application standards and does not require every repository
-to use the same document set. Promote it to enforced only after the repository
-has declared and maintained its own ground truth.
+The validator parses the policy and confirms that every declared path exists as
+a file. GREEN means all declared documents are present at the revision under
+review. A missing file makes the producer fail; keeping the control advisory
+means that failure remains visible without blocking merge unless the repository
+explicitly adds the check to its ruleset.
 
-Documentation validation checks the repository's required guidance and
-documentation contracts. It should verify links and required documentation
-structure without inventing application-specific ground truth.
+The validator does not judge whether a document is accurate, complete, or
+internally consistent. AI Repo Standards Review and human domain review use the
+documents' content. The control does not invent application standards or
+require every repository to use the same document set.
+
+Troubleshoot locally with:
+
+```sh
+python3 .guardrails/validate_ground_truth.py \
+  --policy .ai/ground-truth.yaml
+```
+
+Promote this control to enforced only after the repository has declared and
+maintained its own ground truth.
+
+## Change Scope — advisory by default
+
+**Protects:** review quality and cycle time by identifying unexpectedly broad
+or oversized changes. The producer is
+`tooling/validators/inspect_change_scope.py`; the GitHub check name is
+`Validate / scope`.
+
+Configure `.ai/change-scope.yaml` with repository-appropriate limits for:
+
+- included files;
+- added lines;
+- total changed lines; and
+- added lines in the largest file.
+
+The validator also reports binary-file count and supports exclusions for
+generated, vendored, lock, documentation, or other low-signal paths. It writes
+the measured values, configured thresholds, and one finding for every exceeded
+threshold.
+
+Thresholds are advisory: exceeding one records `failed` scope evidence but does
+not make the inspection command fail. A successful `Validate / scope` workflow
+therefore means the inspection executed; reviewers must still read its metrics
+and findings. Do not interpret it as proof that the PR is small.
+
+The control measures review surface, not correctness or risk. It should prompt
+a split or explicit reviewer judgment, not block legitimate generated changes,
+migrations, or other justified work automatically.
+
+Inspect the staged change locally with:
+
+```sh
+python3 tooling/validators/inspect_change_scope.py
+```
 
 ## Build — GREEN ✅
 
