@@ -271,11 +271,17 @@ python3 /path/to/engineering-standards/tooling/install.py \
 ```
 
 The installer rejects legacy Guardrails configuration before planning any
-install or refresh. If it does, execute every complete `git mv` command it
-prints, review relative schema references in the moved files, and rerun the
-same `--dry-run` command. Run only the commands the installer prints for files
-the repository has. The installer is the canonical exact path map; it does not
-move or delete rejected configuration automatically.
+install or refresh. If it does, create the destination directory first:
+
+```sh
+mkdir -p .guardrails
+```
+
+Then execute every complete `git mv` command it prints, review relative schema
+references in the moved files, and rerun the same `--dry-run` command. Run only
+the commands the installer prints for files the repository has. The installer
+is the canonical exact path map; it does not move or delete rejected
+configuration automatically.
 
 After the dry run succeeds, remove `--dry-run` to refresh installed product
 files. Refresh preserves selected repository validation policies, provider

@@ -108,11 +108,17 @@ python3 ../engineering-standards/tooling/install.py \
   --target . --github-actions --refresh-existing --dry-run
 ```
 
-If the dry run rejects legacy Guardrails configuration, execute every complete
-`git mv` command it prints, review relative schema references in the moved
-files, and rerun `--dry-run`. Run only the printed commands for files the
-repository has. The installer owns the exact path map and does not move or
-delete rejected configuration automatically.
+If the dry run rejects legacy Guardrails configuration, create the destination
+directory first:
+
+```sh
+mkdir -p .guardrails
+```
+
+Then execute every complete `git mv` command it prints, review relative schema
+references in the moved files, and rerun `--dry-run`. Run only the printed
+commands for files the repository has. The installer owns the exact path map
+and does not move or delete rejected configuration automatically.
 
 After the dry run succeeds, rerun the installer command without `--dry-run`.
 Review the diff, run the local scan, and commit the refresh through the normal
