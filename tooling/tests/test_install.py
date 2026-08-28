@@ -362,6 +362,22 @@ class InstallerTests(unittest.TestCase):
             self.assertIn(".guardrails/scan.py", text)
             self.assertIn("checks: read", text)
 
+    def test_fresh_install_does_not_wait_for_optional_provider_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False)
+
+            manifest = json.loads(
+                (target / ".guardrails" / "producer-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            controls = {item["control_id"] for item in manifest["producers"]}
+
+            self.assertNotIn("snyk-code", controls)
+            self.assertNotIn("snyk-open-source", controls)
+            self.assertNotIn("semgrep", controls)
+
     def test_installs_verified_provider_template(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

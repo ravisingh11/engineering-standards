@@ -72,7 +72,7 @@ revision, collects producer check results through
 `.guardrails/github_evidence.py`, and runs the installed scanner.
 Evidence is evaluated against the exact revision named by the pull request,
 not against GitHub's synthetic merge ref. The installed collector waits up to
-180 seconds for selected asynchronous producers such as Semgrep; after that,
+600 seconds for selected asynchronous producers such as Semgrep; after that,
 an unfinished advisory producer is reported as `NO RESULT`, never as passed.
 Existing consumer-owned workflows are preserved during refresh; review and
 retire an older attestation workflow separately if one is already present.

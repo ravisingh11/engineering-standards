@@ -17,7 +17,7 @@ jobs:
   scorecard:
     name: Guardrail Scorecard
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,7 @@ jobs:
             --revision "$REVISION" \
             --manifest .guardrails/producer-manifest.json \
             --output .artifacts/guardrails/evidence/github-checks.json \
-            --wait-seconds 180
+            --wait-seconds 600
 
       - name: Run guardrail scorecard
         env:

@@ -282,7 +282,8 @@ class ActionDistributionTests(unittest.TestCase):
         ):
             with self.subTest(workflow=workflow):
                 text = (ROOT / workflow).read_text(encoding="utf-8")
-                self.assertIn("--wait-seconds 180", text)
+                self.assertIn("--wait-seconds 600", text)
+                self.assertIn("timeout-minutes: 15", text)
 
     def test_attestation_workflow_uses_canonical_policy(self) -> None:
         text = (
@@ -303,6 +304,8 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("secret-scanning/alerts", text)
         self.assertIn("head_sha", text)
         self.assertIn("checks: write", text)
+        self.assertIn("CHECKS_TOKEN: ${{ github.token }}", text)
+        self.assertIn('GH_TOKEN="${CHECKS_TOKEN}" gh api', text)
         self.assertIn("no-checkout evidence probe", text)
         self.assertNotIn("actions/checkout@", text)
         org = (ROOT / ".github" / "workflows" / "organization-secret-scan.yml").read_text(
