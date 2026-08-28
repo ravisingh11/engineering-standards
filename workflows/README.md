@@ -190,6 +190,13 @@ whether CodeQL or Snyk Code is the primary source-code SAST gate.
 Snyk checks are advisory by default; a consuming repository may add the real
 check names to its ruleset after the producer meets the shared promotion rule.
 
+GitHub does not support empty Actions secrets. This repository reserves an
+inactive `SNYK_TOKEN` name with the exact value `GUARDRAILS_NOT_CONFIGURED`;
+the example workflow treats that sentinel as absent and skips both scans.
+Replace the value with a real Snyk credential before enabling the provider.
+Do not use an arbitrary dummy value because any other non-empty value is
+treated as a configured credential.
+
 ### Semgrep
 
 `semgrep.yml` is the verified Semgrep provider template. It runs `semgrep ci`
