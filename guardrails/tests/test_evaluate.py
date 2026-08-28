@@ -38,7 +38,7 @@ def contracts() -> tuple[dict, dict, dict, dict]:
         "display_name": "Alternate Build",
         "activation": "external",
         "capabilities": ["build"],
-        "checks": {"build": {"check_name": "Alternate Build", "workflow": "Build"}},
+        "checks": {"build": {"check_name": "Alternate Build", "workflow": "Build", "app_slug": "alternate-build"}},
         "template": None,
         "template_available": False,
         "secrets": [],
@@ -46,6 +46,18 @@ def contracts() -> tuple[dict, dict, dict, dict]:
     }
     providers["selections"]["build"]["supplemental"] = ["alternate-build"]
     return policy, profiles, catalog, providers
+
+
+class ProviderContractTests(unittest.TestCase):
+    def test_runtime_rejects_actions_check_without_workflow_path(self) -> None:
+        _, _, catalog, providers = contracts()
+        providers["providers"]["repository-build"]["checks"]["build"].pop(
+            "workflow_path", None
+        )
+        controls = {control["id"]: control for control in catalog["controls"]}
+
+        with self.assertRaisesRegex(ValueError, "workflow_path"):
+            MODULE.validate_provider_config(providers, controls)
 
 
 def evidence(
@@ -150,6 +162,22 @@ class EvaluateV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "github release controls must exactly match"):
             MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
 
+    def test_runtime_rejects_invalid_external_id_prefix(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        providers["providers"]["repository-build"]["checks"]["build"]["external_id_prefix"] = ""
+
+        with self.assertRaisesRegex(ValueError, "external_id_prefix"):
+            MODULE.evaluate(
+                policy,
+                profiles,
+                catalog,
+                providers,
+                evidence(),
+                "change",
+                "abc123",
+                "git-commit",
+            )
+
     def test_authoritative_pass_is_the_only_satisfier(self) -> None:
         result = self.evaluate(evidence("passed", "failed"))
 
@@ -222,6 +250,19 @@ class EvaluateV2Tests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "evidence records"):
             self.evaluate(document)
+
+    def test_rejects_evidence_fields_over_schema_maximum_lengths(self) -> None:
+        cases = (
+            ("producer", "p" * 201, "not_run", "producer"),
+            ("evidence", ["e" * 1001], "not_run", "evidence records"),
+            ("reason", "r" * 1001, "passed", "reason"),
+        )
+        for field, value, status, message in cases:
+            with self.subTest(field=field):
+                document = evidence(status)
+                document["results"]["build"]["repository-build"][field] = value
+                with self.assertRaisesRegex(ValueError, message):
+                    self.evaluate(document)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "subject": {
+    "type": "git-commit",
+    "revision": "replace-with-exact-revision"
+  },
+  "results": {}
+}

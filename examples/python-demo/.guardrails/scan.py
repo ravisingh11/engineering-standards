@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,18 @@ def evaluator_module() -> Any:
     spec = importlib.util.spec_from_file_location("guardrails_v2_evaluator", path)
     if not spec or not spec.loader:
         raise ValueError(f"cannot load evaluator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def producer_module() -> Any:
+    path = ROOT / "tooling" / "produce_guardrail_evidence.py"
+    if not path.exists():
+        path = ROOT / ".guardrails" / "produce.py"
+    spec = importlib.util.spec_from_file_location("guardrails_v2_producers", path)
+    if not spec or not spec.loader:
+        raise ValueError(f"cannot load producers: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -88,14 +101,19 @@ def local_binding(target: Path, requested_revision: str) -> tuple[str | None, st
 
 def unavailable_local_evidence(revision: str, reason: str) -> dict[str, Any]:
     results = {}
-    for control_id, producer in (
-        ("repository-validation", "local repository validation"),
-        ("documentation-validation", "local documentation validation"),
-        ("repository-ground-truth", "repository ground-truth validator"),
-        ("change-scope", "local change-scope inspection"),
+    for control_id, provider_id, producer in (
+        ("repository-validation", "repository-validator", "local repository validation"),
+        ("documentation-validation", "repository-validator", "local documentation validation"),
+        ("repository-ground-truth", "repository-validator", "repository ground-truth validator"),
+        ("change-scope", "repository-validator", "local change-scope inspection"),
+        ("build", "repository-build", "Repository Build Command"),
+        ("unit-tests", "repository-unit-tests", "Repository Unit Test Command"),
+        ("changed-code-coverage", "repository-changed-code-coverage", "Repository Changed Code Coverage Command"),
+        ("custom-static-analysis", "semgrep-ce", "Semgrep Community Edition 1.175.0"),
+        ("secret-detection", "gitleaks", "Gitleaks CLI 8.30.1"),
     ):
         results[control_id] = {
-            "repository-validator": {
+            provider_id: {
                 "producer": producer,
                 "status": "not_run",
                 "reason": reason,
@@ -121,6 +139,8 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
     revision = bound_revision
     results: dict[str, dict[str, dict[str, Any]]] = {}
     validators = target / "tooling" / "validators"
+    if not validators.is_dir():
+        validators = target / ".guardrails" / "validators"
     for control_id, filename, producer in (
         ("repository-validation", "validate_repository.py", "local repository validation"),
         ("documentation-validation", "validate_documentation.py", "local documentation validation"),
@@ -180,6 +200,17 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
             "reason": f"{scope_validator.relative_to(target)} is not installed in this repository",
         }
     results["change-scope"] = {"repository-validator": record}
+    producers = producer_module()
+    for control_id, provider_id in (
+        ("build", "repository-build"),
+        ("unit-tests", "repository-unit-tests"),
+        ("changed-code-coverage", "repository-changed-code-coverage"),
+    ):
+        results[control_id] = {
+            provider_id: producers.repository_command_result(control_id, os.environ, target)
+        }
+    results["custom-static-analysis"] = {"semgrep-ce": producers.semgrep_result(target)}
+    results["secret-detection"] = {"gitleaks": producers.gitleaks_result(target)}
     return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
 
 

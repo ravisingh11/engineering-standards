@@ -1,35 +1,10 @@
+# Guardrails v2 installer-owned workflow.
 name: Unit Tests
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_call:
-    inputs:
-      setup-command:
-        description: Optional repository-specific setup command.
-        required: false
-        type: string
-        default: ''
-      unit-test-command:
-        description: Repository-specific unit-test command, including coverage flags when needed.
-        required: false
-        type: string
-        default: ''
-      working-directory:
-        description: Directory in which commands run.
-        required: false
-        type: string
-        default: '.'
-      coverage-path:
-        description: File or directory containing coverage output.
-        required: false
-        type: string
-        default: coverage
-      coverage-required:
-        description: Fail when coverage output is absent.
-        required: false
-        type: boolean
-        default: false
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,60 +12,23 @@ permissions:
 jobs:
   unit-tests:
     name: Unit Tests
+    if: ${{ vars.GUARDRAILS_UNIT_TEST_COMMAND != '' }}
     runs-on: ubuntu-latest
-    env:
-      SETUP_COMMAND: ${{ inputs.setup-command || vars.SETUP_COMMAND }}
-      UNIT_TEST_COMMAND: ${{ inputs.unit-test-command || vars.UNIT_TEST_COMMAND }}
-      WORKING_DIRECTORY: ${{ inputs.working-directory || vars.WORKING_DIRECTORY || '.' }}
-      COVERAGE_PATH: ${{ inputs.coverage-path || vars.COVERAGE_PATH || 'coverage' }}
-      COVERAGE_REQUIRED: ${{ inputs.coverage-required || vars.COVERAGE_REQUIRED == 'true' }}
+    timeout-minutes: 30
     steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-      - name: Validate test configuration
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${UNIT_TEST_COMMAND}" ]]; then
-            echo "UNIT_TEST_COMMAND or workflow_call input unit-test-command must be configured." >&2
-            exit 1
-          fi
-
-      - name: Run repository setup
-        if: ${{ env.SETUP_COMMAND != '' }}
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: bash -euo pipefail -c "${SETUP_COMMAND}"
-
-      - name: Run unit tests
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: bash -euo pipefail -c "${UNIT_TEST_COMMAND}"
-
-      - name: Verify coverage output
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${COVERAGE_REQUIRED}" == "true" && ! -e "${COVERAGE_PATH}" ]]; then
-            echo "Coverage output was required but not found at ${COVERAGE_PATH}." >&2
-            exit 1
-          fi
-          if [[ -e "${COVERAGE_PATH}" ]]; then
-            echo "Coverage output found at ${COVERAGE_PATH}."
-          else
-            echo "Coverage output is not required for this template invocation."
-          fi
-
-      - name: Upload coverage output
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: coverage
-          path: ${{ env.WORKING_DIRECTORY }}/${{ env.COVERAGE_PATH }}
-          if-no-files-found: warn
+      - name: Setup repository
+        if: ${{ vars.GUARDRAILS_SETUP_COMMAND != '' }}
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_SETUP_COMMAND}"
+        env:
+          GUARDRAILS_SETUP_COMMAND: ${{ vars.GUARDRAILS_SETUP_COMMAND }}
+      - name: Unit tests
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_UNIT_TEST_COMMAND}"
+        env:
+          GUARDRAILS_UNIT_TEST_COMMAND: ${{ vars.GUARDRAILS_UNIT_TEST_COMMAND }}
+          GUARDRAILS_WORKING_DIRECTORY: ${{ vars.GUARDRAILS_WORKING_DIRECTORY }}

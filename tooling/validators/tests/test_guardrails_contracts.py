@@ -38,6 +38,71 @@ class GuardrailsContractValidationTests(unittest.TestCase):
             load("policies/provider-config.yaml"), self.catalog()
         )
 
+    def test_changed_code_coverage_uses_its_own_workflow_template(self) -> None:
+        provider = self.providers()["repository-changed-code-coverage"]
+
+        self.assertEqual(provider["template"], "workflows/changed-code-coverage.yml")
+        self.assertEqual(
+            provider["checks"]["changed-code-coverage"]["workflow"],
+            "Changed Code Coverage",
+        )
+
+    def test_provider_check_workflow_names_match_template_names(self) -> None:
+        config = load("policies/provider-config.yaml")
+        self.validator("validate_provider_template_names")(config)
+
+        config["providers"]["repository-build"]["checks"]["build"]["workflow"] = "Duplicate Build Name"
+        with self.assertRaisesRegex(ValueError, "template workflow name"):
+            self.validator("validate_provider_template_names")(config)
+
+    def test_actions_backed_checks_declare_exact_installed_workflow_paths(self) -> None:
+        providers = self.providers()
+
+        for provider_id, provider in providers.items():
+            template = provider["template"]
+            if template is None:
+                continue
+            expected_path = f".github/workflows/{Path(template).name}"
+            for capability, check in provider["checks"].items():
+                with self.subTest(provider_id=provider_id, capability=capability):
+                    self.assertEqual(check.get("workflow_path"), expected_path)
+                    self.assertNotIn("app_slug", check)
+
+    def test_rejects_actions_check_without_exact_workflow_path(self) -> None:
+        providers = load("policies/provider-config.yaml")
+        providers["providers"]["repository-build"]["checks"]["build"].pop(
+            "workflow_path", None
+        )
+
+        with self.assertRaisesRegex(ValueError, "workflow_path"):
+            self.validator("validate_provider_document")(providers, self.catalog())
+
+    def test_non_actions_check_uses_explicit_app_identity_without_fake_path(self) -> None:
+        check = self.providers()["semgrep-app"]["checks"]["custom-static-analysis"]
+
+        self.assertEqual(check.get("app_slug"), "semgrep-app")
+        self.assertNotIn("workflow_path", check)
+
+    def test_custom_probe_external_id_prefixes_are_explicit(self) -> None:
+        providers = load("policies/provider-config.yaml")["providers"]
+        cases = (
+            ("github-secret-protection", "platform-secret-protection", "guardrails:secret-protection:", "guardrails-secret-protection-"),
+            ("github-dependabot", "dependency-remediation", "guardrails:dependabot:", "guardrails-dependabot-"),
+        )
+        for provider_id, control_id, external_prefix, artifact_prefix in cases:
+            with self.subTest(provider_id=provider_id):
+                check = providers[provider_id]["checks"][control_id]
+                self.assertEqual(check["external_id_prefix"], external_prefix)
+                self.assertEqual(check["artifact_name_prefix"], artifact_prefix)
+                self.assertEqual(check["artifact_member"], "guardrails-evidence.json")
+
+    def test_rejects_invalid_external_id_prefix(self) -> None:
+        providers = load("policies/provider-config.yaml")
+        providers["providers"]["repository-build"]["checks"]["build"]["external_id_prefix"] = ""
+
+        with self.assertRaisesRegex(ValueError, "external_id_prefix"):
+            self.validator("validate_provider_document")(providers, self.catalog())
+
     def test_core_and_github_default_providers_are_exact(self) -> None:
         providers = load("policies/provider-config.yaml")["providers"]
         enabled = {
@@ -62,6 +127,16 @@ class GuardrailsContractValidationTests(unittest.TestCase):
                 "github-artifact-attestations",
             },
         )
+
+    def test_default_selections_exclude_disabled_supplementals(self) -> None:
+        document = load("policies/provider-config.yaml")
+        providers = document["providers"]
+
+        for control_id, selection in document["selections"].items():
+            with self.subTest(control_id=control_id):
+                self.assertTrue(
+                    all(providers[provider_id]["enabled_by_default"] for provider_id in selection["supplemental"])
+                )
 
     def test_rejects_unknown_authoritative_provider(self) -> None:
         providers = load("policies/provider-config.yaml")
@@ -102,9 +177,18 @@ class GuardrailsContractValidationTests(unittest.TestCase):
     def test_provider_schema_boundaries_match_handwritten_validation(self) -> None:
         schema = load("guardrails/providers.schema.json")
         properties = schema["$defs"]["provider"]["properties"]
+        check_properties = schema["$defs"]["check"]["properties"]
         self.assertEqual(properties["capabilities"]["minItems"], 1)
         self.assertEqual(properties["template"]["minLength"], 1)
         self.assertEqual(properties["template"]["maxLength"], 200)
+        self.assertEqual(check_properties["external_id_prefix"]["maxLength"], 150)
+        self.assertEqual(check_properties["artifact_name_prefix"]["maxLength"], 150)
+        self.assertEqual(check_properties["artifact_member"]["pattern"], "^[A-Za-z0-9._-]+$")
+        self.assertEqual(check_properties["app_slug"]["maxLength"], 100)
+        self.assertEqual(
+            schema["$defs"]["check"]["oneOf"],
+            [{"required": ["workflow_path"]}, {"required": ["app_slug"]}],
+        )
 
         providers = load("policies/provider-config.yaml")
         providers["providers"]["repository-build"]["capabilities"] = []

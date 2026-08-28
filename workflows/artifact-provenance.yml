@@ -1,22 +1,15 @@
+# Guardrails v2 installer-owned workflow.
 name: Artifact Provenance
 
 on:
-  workflow_call:
+  release:
+    types: [published]
+  workflow_dispatch:
     inputs:
       artifact-path:
-        description: Path or glob for the built artifact to attest.
+        description: Existing release artifact path or glob to attest.
         required: true
         type: string
-      build-command:
-        description: Optional command that creates the artifact before attestation.
-        required: false
-        type: string
-        default: ''
-      working-directory:
-        description: Directory in which the build command runs.
-        required: false
-        type: string
-        default: '.'
 
 permissions:
   contents: read
@@ -27,40 +20,19 @@ permissions:
 jobs:
   attest:
     name: Artifact Provenance
+    if: ${{ inputs.artifact-path != '' || vars.GUARDRAILS_ARTIFACT_PATH != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Artifact attestations record github.sha. On pull_request this is
-          # the synthetic merge revision, so attest that exact source tree.
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      - name: Build artifact
-        if: ${{ inputs.build-command != '' }}
-        working-directory: ${{ inputs.working-directory }}
-        shell: bash
-        run: bash -euo pipefail -c "${{ inputs.build-command }}"
-
-      - name: Verify artifact exists
-        shell: bash
+      - name: Build release artifact
+        if: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND != '' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_ARTIFACT_BUILD_COMMAND}"
         env:
-          ARTIFACT_PATH: ${{ inputs.artifact-path }}
-        run: |
-          set -euo pipefail
-          compgen -G "${ARTIFACT_PATH}" >/dev/null || {
-            echo "No artifact matched ARTIFACT_PATH=${ARTIFACT_PATH}" >&2
-            exit 1
-          }
-
-      - name: Generate artifact attestation
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+          GUARDRAILS_ARTIFACT_BUILD_COMMAND: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND }}
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          subject-path: ${{ inputs.artifact-path }}
-
-      - name: Verify attestation contract
-        run: |
-          echo "Artifact provenance attestation created for: ${{ inputs.artifact-path }}"
-          echo "Verify later with: gh attestation verify <artifact> --repo <owner>/<repository>"
+          subject-path: ${{ inputs.artifact-path || vars.GUARDRAILS_ARTIFACT_PATH }}

@@ -1,0 +1,122 @@
+# Guardrails v2 installer-owned workflow.
+name: Guardrail Scorecard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  checks: read
+
+jobs:
+  scorecard:
+    name: Guardrail Scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted Guardrails runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .guardrails-trusted
+          persist-credentials: false
+      - name: Check out candidate Guardrails configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .guardrails-candidate
+          persist-credentials: false
+          sparse-checkout: |
+            .guardrails/policy.yaml
+          sparse-checkout-cone-mode: false
+      - name: Validate candidate configuration paths
+        run: |
+          set -euo pipefail
+          candidate_root="${PWD}/.guardrails-candidate"
+          for relative in \
+            .guardrails/policy.yaml
+          do
+            current="${candidate_root}"
+            IFS='/' read -r -a components <<< "${relative}"
+            for component in "${components[@]}"; do
+              current="${current}/${component}"
+              if [ -L "${current}" ]; then
+                echo "candidate Guardrails input must be a regular non-symlink file: ${relative}" >&2
+                exit 1
+              fi
+            done
+            if [ ! -f "${current}" ]; then
+              echo "candidate Guardrails input must be a regular non-symlink file: ${relative}" >&2
+              exit 1
+            fi
+          done
+      - name: Collect selected provider checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          TRUSTED_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.sha }}
+          TRUSTED_WORKFLOW_REF: ${{ github.event.pull_request.base.ref && format('refs/heads/{0}', github.event.pull_request.base.ref) || github.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/guardrails
+          GUARDRAILS_TIMESTAMP="$(date -u +%Y%m%d-%H%M%SZ)"
+          echo "GUARDRAILS_TIMESTAMP=${GUARDRAILS_TIMESTAMP}" >> "${GITHUB_ENV}"
+          EVIDENCE_JSON=".artifacts/guardrails/evidence-${GUARDRAILS_TIMESTAMP}.json"
+          python3 .guardrails-trusted/.guardrails/github_evidence.py \
+            --revision "${REVISION}" \
+            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --profiles .guardrails-trusted/.guardrails/profiles.yaml \
+            --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
+            --providers .guardrails-trusted/.guardrails/providers.yaml \
+            --trusted-base-revision "${TRUSTED_BASE_REVISION}" \
+            --trusted-workflow-ref "${TRUSTED_WORKFLOW_REF}" \
+            --output "${EVIDENCE_JSON}" \
+            --wait-seconds 600
+          cp "${EVIDENCE_JSON}" .artifacts/guardrails/evidence.json
+      - name: Render scorecard
+        env:
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          EVIDENCE_JSON=".artifacts/guardrails/evidence-${GUARDRAILS_TIMESTAMP}.json"
+          SCORECARD_JSON=".artifacts/guardrails/scorecard-${GUARDRAILS_TIMESTAMP}.json"
+          SCORECARD_MARKDOWN=".artifacts/guardrails/scorecard-${GUARDRAILS_TIMESTAMP}.md"
+          json_status=0
+          python3 .guardrails-trusted/.guardrails/scorecard.py \
+            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --profiles .guardrails-trusted/.guardrails/profiles.yaml \
+            --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
+            --providers .guardrails-trusted/.guardrails/providers.yaml \
+            --evidence "${EVIDENCE_JSON}" \
+            --operation change \
+            --revision "${REVISION}" \
+            --subject-type git-commit \
+            --json \
+            > "${SCORECARD_JSON}" || json_status=$?
+          markdown_status=0
+          python3 .guardrails-trusted/.guardrails/scorecard.py \
+            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --profiles .guardrails-trusted/.guardrails/profiles.yaml \
+            --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
+            --providers .guardrails-trusted/.guardrails/providers.yaml \
+            --evidence "${EVIDENCE_JSON}" \
+            --operation change \
+            --revision "${REVISION}" \
+            --subject-type git-commit \
+            > "${SCORECARD_MARKDOWN}" || markdown_status=$?
+          cat "${SCORECARD_MARKDOWN}" >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${json_status}" -ne 0 ]; then
+            exit "${json_status}"
+          fi
+          exit "${markdown_status}"
+      - name: Upload scorecard evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: guardrail-scorecard-${{ github.run_id }}
+          path: .artifacts/guardrails
+          if-no-files-found: error

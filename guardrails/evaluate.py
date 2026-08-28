@@ -119,6 +119,69 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
         checks = provider.get("checks")
         if not isinstance(checks, dict) or any(capability not in capabilities for capability in checks):
             raise ValueError(f"provider {provider_id} checks are invalid")
+        for capability, check in checks.items():
+            if (
+                not isinstance(check, dict)
+                or not {"check_name", "workflow"}.issubset(check)
+                or set(check) - {
+                    "check_name", "workflow", "workflow_path", "app_slug", "external_id_prefix",
+                    "artifact_name_prefix", "artifact_member",
+                }
+            ):
+                raise ValueError(f"provider {provider_id} {capability} check is invalid")
+            for field in ("check_name", "workflow"):
+                if not isinstance(check[field], str) or not check[field].strip() or len(check[field]) > 200:
+                    raise ValueError(f"provider {provider_id} {capability} {field} is invalid")
+            prefix = check.get("external_id_prefix")
+            if prefix is not None and (
+                not isinstance(prefix, str) or not prefix.strip() or len(prefix) > 150
+            ):
+                raise ValueError(f"provider {provider_id} {capability} external_id_prefix is invalid")
+            workflow_path = check.get("workflow_path")
+            if workflow_path is not None and (
+                not isinstance(workflow_path, str) or not workflow_path.strip() or len(workflow_path) > 200
+            ):
+                raise ValueError(f"provider {provider_id} {capability} workflow_path is invalid")
+            app_slug = check.get("app_slug")
+            if app_slug is not None and (
+                not isinstance(app_slug, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", app_slug) is None
+                or len(app_slug) > 100
+            ):
+                raise ValueError(f"provider {provider_id} {capability} app_slug is invalid")
+            if (workflow_path is None) == (app_slug is None):
+                raise ValueError(
+                    f"provider {provider_id} {capability} must declare exactly one of workflow_path or app_slug"
+                )
+            artifact_prefix = check.get("artifact_name_prefix")
+            if artifact_prefix is not None and (
+                not isinstance(artifact_prefix, str)
+                or not artifact_prefix.strip()
+                or len(artifact_prefix) > 150
+            ):
+                raise ValueError(f"provider {provider_id} {capability} artifact_name_prefix is invalid")
+            artifact_member = check.get("artifact_member")
+            if artifact_member is not None and (
+                not isinstance(artifact_member, str)
+                or re.fullmatch(r"[A-Za-z0-9._-]+", artifact_member) is None
+                or len(artifact_member) > 100
+            ):
+                raise ValueError(f"provider {provider_id} {capability} artifact_member is invalid")
+            artifact_fields = (artifact_prefix, artifact_member)
+            if prefix is not None and any(value is None for value in artifact_fields):
+                raise ValueError(f"provider {provider_id} {capability} custom check artifact contract is incomplete")
+            if prefix is None and any(value is not None for value in artifact_fields):
+                raise ValueError(f"provider {provider_id} {capability} artifact contract requires external_id_prefix")
+            if prefix is not None and workflow_path is None:
+                raise ValueError(f"provider {provider_id} {capability} artifact contract requires workflow_path")
+        template = provider.get("template")
+        if template is not None:
+            expected_path = f".github/workflows/{Path(template).name}"
+            for capability, check in checks.items():
+                if check.get("workflow_path") != expected_path:
+                    raise ValueError(
+                        f"provider {provider_id} {capability} workflow_path must be {expected_path}"
+                    )
     runnable = {control_id for control_id, control in controls.items() if control["availability"] == "runnable"}
     if set(selections) != runnable:
         raise ValueError("provider selections must cover exactly the runnable controls")
@@ -195,7 +258,11 @@ def validate_evidence(
                 raise ValueError(f"provider {provider_id} does not provide {control_id}")
             if not isinstance(result, dict) or set(result) - {"producer", "status", "evidence", "reason"}:
                 raise ValueError(f"evidence {control_id}.{provider_id} is invalid")
-            if not isinstance(result.get("producer"), str) or not result["producer"].strip():
+            if (
+                not isinstance(result.get("producer"), str)
+                or not result["producer"].strip()
+                or len(result["producer"]) > 200
+            ):
                 raise ValueError(f"evidence {control_id}.{provider_id} producer is invalid")
             status = result.get("status")
             if status not in STATUSES:
@@ -206,11 +273,21 @@ def validate_evidence(
             ):
                 raise ValueError(f"evidence {control_id}.{provider_id} evidence records are required")
             if records is not None and (
-                not isinstance(records, list) or not records or any(not isinstance(item, str) or not item.strip() for item in records)
+                not isinstance(records, list)
+                or not records
+                or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 1_000
+                    for item in records
+                )
             ):
                 raise ValueError(f"evidence {control_id}.{provider_id} evidence records are invalid")
+            reason = result.get("reason")
+            if reason is not None and (
+                not isinstance(reason, str) or not reason.strip() or len(reason) > 1_000
+            ):
+                raise ValueError(f"evidence {control_id}.{provider_id} reason is invalid")
             if status in {"blocked", "not_run"} and (
-                not isinstance(result.get("reason"), str) or not result["reason"].strip()
+                not isinstance(reason, str) or not reason.strip()
             ):
                 raise ValueError(f"evidence {control_id}.{provider_id} reason is required")
 

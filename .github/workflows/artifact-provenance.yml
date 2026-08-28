@@ -1,9 +1,15 @@
+# Guardrails v2 installer-owned workflow.
 name: Artifact Provenance
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      artifact-path:
+        description: Existing release artifact path or glob to attest.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,32 +20,19 @@ permissions:
 jobs:
   attest:
     name: Artifact Provenance
+    if: ${{ inputs.artifact-path != '' || vars.GUARDRAILS_ARTIFACT_PATH != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Attestations record github.sha. On pull_request this is the
-          # synthetic merge revision, so the checked-out source must match it.
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Build source bundle
+      - name: Build release artifact
+        if: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND != '' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_ARTIFACT_BUILD_COMMAND}"
         env:
-          REVISION: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          git archive \
-            --format=tar.gz \
-            --output "dist/engineering-standards-${REVISION}.tar.gz" \
-            "$REVISION"
-      - name: Generate artifact attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+          GUARDRAILS_ARTIFACT_BUILD_COMMAND: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND }}
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          subject-path: dist/engineering-standards-${{ github.sha }}.tar.gz
-      - name: Upload source bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: engineering-standards-${{ github.run_id }}
-          path: dist/*.tar.gz
+          subject-path: ${{ inputs.artifact-path || vars.GUARDRAILS_ARTIFACT_PATH }}

@@ -1,25 +1,10 @@
+# Guardrails v2 installer-owned workflow.
 name: Build
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_call:
-    inputs:
-      setup-command:
-        description: Optional repository-specific setup command.
-        required: false
-        type: string
-        default: ''
-      build-command:
-        description: Repository-specific build command.
-        required: false
-        type: string
-        default: ''
-      working-directory:
-        description: Directory in which commands run.
-        required: false
-        type: string
-        default: '.'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,35 +12,23 @@ permissions:
 jobs:
   build:
     name: Build
+    if: ${{ vars.GUARDRAILS_BUILD_COMMAND != '' }}
     runs-on: ubuntu-latest
-    env:
-      SETUP_COMMAND: ${{ inputs.setup-command || vars.SETUP_COMMAND }}
-      BUILD_COMMAND: ${{ inputs.build-command || vars.BUILD_COMMAND }}
-      WORKING_DIRECTORY: ${{ inputs.working-directory || vars.WORKING_DIRECTORY || '.' }}
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-      - name: Validate build configuration
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${BUILD_COMMAND}" ]]; then
-            echo "BUILD_COMMAND or workflow_call input build-command must be configured." >&2
-            exit 1
-          fi
-
-      - name: Run repository setup
-        if: ${{ env.SETUP_COMMAND != '' }}
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: bash -euo pipefail -c "${SETUP_COMMAND}"
-
-      - name: Run build
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-        shell: bash
-        run: bash -euo pipefail -c "${BUILD_COMMAND}"
+      - name: Setup repository
+        if: ${{ vars.GUARDRAILS_SETUP_COMMAND != '' }}
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_SETUP_COMMAND}"
+        env:
+          GUARDRAILS_SETUP_COMMAND: ${{ vars.GUARDRAILS_SETUP_COMMAND }}
+      - name: Build
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_BUILD_COMMAND}"
+        env:
+          GUARDRAILS_BUILD_COMMAND: ${{ vars.GUARDRAILS_BUILD_COMMAND }}
+          GUARDRAILS_WORKING_DIRECTORY: ${{ vars.GUARDRAILS_WORKING_DIRECTORY }}

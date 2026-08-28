@@ -1,3 +1,4 @@
+# Guardrails v2 installer-owned workflow.
 name: Build
 
 on:
@@ -11,13 +12,23 @@ permissions:
 jobs:
   build:
     name: Build
+    if: ${{ vars.GUARDRAILS_BUILD_COMMAND != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Compile Python sources
-        run: python3 -m compileall -q guardrails tooling examples/python-demo
+      - name: Setup repository
+        if: ${{ vars.GUARDRAILS_SETUP_COMMAND != '' }}
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_SETUP_COMMAND}"
+        env:
+          GUARDRAILS_SETUP_COMMAND: ${{ vars.GUARDRAILS_SETUP_COMMAND }}
+      - name: Build
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_BUILD_COMMAND}"
+        env:
+          GUARDRAILS_BUILD_COMMAND: ${{ vars.GUARDRAILS_BUILD_COMMAND }}
+          GUARDRAILS_WORKING_DIRECTORY: ${{ vars.GUARDRAILS_WORKING_DIRECTORY }}

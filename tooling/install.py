@@ -1,314 +1,341 @@
 #!/usr/bin/env python3
+"""Install the Guardrails v2 runtime and selected advisory profiles."""
+
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "guardrails" / "baseline.yaml"
-CONTROL_CATALOG = ROOT / "policies" / "control-catalog.yaml"
-DOCUMENTATION_POLICY = ROOT / "guardrails" / "defaults" / "documentation.yaml"
-CHANGE_SCOPE_POLICY = ROOT / "guardrails" / "defaults" / "change-scope.yaml"
-GROUND_TRUTH_POLICY = ROOT / "guardrails" / "defaults" / "ground-truth-ai.yaml"
-EVALUATOR = ROOT / "guardrails" / "evaluate.py"
-SCORECARD = ROOT / "tooling" / "guardrail_scorecard.py"
-CONFIGURE = ROOT / "tooling" / "configure_guardrails.py"
-SCAN = ROOT / "tooling" / "scan_repository.py"
-GITHUB_EVIDENCE = ROOT / "tooling" / "github_evidence.py"
-GROUND_TRUTH = ROOT / "tooling" / "validators" / "validate_ground_truth.py"
-PRODUCER_MANIFEST = ROOT / "guardrails" / "default-producer-manifest.json"
-PROVIDER_CONFIG = ROOT / "policies" / "provider-config.yaml"
-SKILL = ROOT / "skills" / "prepare-safe-change"
-GITHUB_WORKFLOW = ROOT / "docs" / "examples" / "guardrails.yml"
-PROVIDER_TEMPLATES = {
-    "snyk": ROOT / ".github" / "workflows" / "snyk.yml",
-    "semgrep": ROOT / "workflows" / "semgrep.yml",
-    "sonarqube": ROOT / "workflows" / "sonar.yml",
-    "fossa": ROOT / ".github" / "workflows" / "fossa.yml",
+PRODUCER = ROOT / "tooling" / "produce_guardrail_evidence.py"
+SEMGREP_IMAGE = "semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796"
+GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+VERSION = "2.0.0"
+INSTALLER_MARKER = "# Guardrails v2 installer-owned workflow."
+
+CORE_WORKFLOWS = {
+    "guardrails-scorecard.yml": ROOT / "workflows" / "guardrails-scorecard.yml",
+    "repository-validation.yml": ROOT / "workflows" / "repository-validation.yml",
+    "build.yml": ROOT / "workflows" / "build.yml",
+    "unit-tests.yml": ROOT / "workflows" / "unit-tests.yml",
+    "changed-code-coverage.yml": ROOT / "workflows" / "changed-code-coverage.yml",
+    "semgrep-ce.yml": ROOT / "workflows" / "semgrep-ce.yml",
+    "gitleaks.yml": ROOT / "workflows" / "gitleaks.yml",
 }
-VERSION = "1.0.0"
-# Older installer-owned paths that may be removed during a refresh. Keep this
-# allowlist narrow: consumer files, workflows, and reports are never inferred.
-LEGACY_RUNTIME_DIR = Path(".agentic-guardrails")
-LEGACY_SCORECARD_WORKFLOW = Path(".github") / "workflows" / "agentic-guardrails-scorecard.yml"
-LEGACY_RUNTIME_FILES = tuple(
-    LEGACY_RUNTIME_DIR / filename
-    for filename in (
-        "configure.py",
-        "evaluate.py",
-        "github_evidence.py",
-        "producer-manifest.json",
-        "providers.yaml",
-        "scan.py",
-        "scorecard.py",
-        "validate_ground_truth.py",
-    )
-)
-LEGACY_FILES = (
-    Path(".ai") / "providers.yaml",
-    Path(".ai") / "producer-manifest.json",
-    *LEGACY_RUNTIME_FILES,
-    LEGACY_SCORECARD_WORKFLOW,
-)
-LEGACY_CONFIG_PATHS = {
-    Path(".ai/guardrails.yaml"): Path(".guardrails/policy.yaml"),
-    Path(".ai/control-catalog.yaml"): Path(".guardrails/control-catalog.yaml"),
-    Path(".ai/documentation.yaml"): Path(".guardrails/documentation.yaml"),
-    Path(".ai/change-scope.yaml"): Path(".guardrails/change-scope.yaml"),
-    Path(".ai/ground-truth.yaml"): Path(".guardrails/ground-truth-ai.yaml"),
+GITHUB_WORKFLOWS = {
+    "codeql.yml": ROOT / "workflows" / "codeql.yml",
+    "dependency-review.yml": ROOT / "workflows" / "dependency-review.yml",
+    "github-secret-protection.yml": ROOT / "workflows" / "github-secret-protection.yml",
+    "dependabot-verification.yml": ROOT / "workflows" / "dependabot-verification.yml",
+    "artifact-provenance.yml": ROOT / "workflows" / "artifact-provenance.yml",
 }
+PRESERVED_CONFIGURATION = {
+    Path(".guardrails/policy.yaml"),
+    Path(".guardrails/providers.yaml"),
+    Path(".guardrails/documentation.yaml"),
+    Path(".guardrails/change-scope.yaml"),
+    Path(".guardrails/ground-truth-ai.yaml"),
+}
+V1_PATHS = (
+    Path(".guardrails/producer-manifest.json"),
+    Path(".agentic-guardrails"),
+    Path(".ai/guardrails.yaml"),
+    Path(".ai/control-catalog.yaml"),
+    Path(".ai/documentation.yaml"),
+    Path(".ai/change-scope.yaml"),
+    Path(".ai/ground-truth.yaml"),
+    Path(".ai/producer-manifest.json"),
+)
 
 
 class InstallItem(NamedTuple):
     source: Path
     destination: Path
-    kind: str
+    kind: str = "file"
 
 
-def reject_legacy_configuration(target: Path) -> None:
-    conflicts = [
-        (old_path, new_path)
-        for old_path, new_path in LEGACY_CONFIG_PATHS.items()
-        if (target / old_path).exists() or (target / old_path).is_symlink()
-    ]
-    if not conflicts:
-        return
-    instructions = "\n".join(
-        f"- git mv {old_path} {new_path}" for old_path, new_path in conflicts
-    )
-    raise ValueError(
-        "legacy Guardrails configuration must be moved before installation:\n"
-        f"{instructions}"
-    )
+def reject_symlink_destinations(target: Path, destinations: list[Path]) -> None:
+    for destination in destinations:
+        relative = destination.relative_to(target)
+        component = target
+        for part in relative.parts:
+            component /= part
+            if component.is_symlink():
+                raise ValueError(
+                    f"refusing installer destination with symlink component: {component}"
+                )
 
 
-def legacy_cleanup_items(target: Path) -> list[InstallItem]:
-    """Return safe, file-only migration removals for a consumer repository."""
-    items: list[InstallItem] = []
-    for relative_path in LEGACY_FILES:
-        path = target / relative_path
-        if path.is_dir() and not path.is_symlink():
-            raise ValueError(f"refusing to clean legacy path because it is a directory: {path}")
-        if path.is_file() or path.is_symlink():
-            items.append(InstallItem(path, path, "remove"))
+def runtime_sources(target: Path) -> list[InstallItem]:
+    files = {
+        "policy.yaml": POLICY,
+        "profiles.yaml": ROOT / "policies/profiles.yaml",
+        "control-catalog.yaml": ROOT / "policies/control-catalog.yaml",
+        "providers.yaml": ROOT / "policies/provider-config.yaml",
+        "policy.schema.json": ROOT / "guardrails/policy.schema.json",
+        "evidence.schema.json": ROOT / "guardrails/evidence.schema.json",
+        "profiles.schema.json": ROOT / "guardrails/profiles.schema.json",
+        "providers.schema.json": ROOT / "guardrails/providers.schema.json",
+        "control-catalog.schema.json": ROOT / "guardrails/control-catalog.schema.json",
+        "documentation.yaml": ROOT / "guardrails/defaults/documentation.yaml",
+        "change-scope.yaml": ROOT / "guardrails/defaults/change-scope.yaml",
+        "ground-truth-ai.yaml": ROOT / "guardrails/defaults/ground-truth-ai.yaml",
+        "evaluate.py": ROOT / "guardrails/evaluate.py",
+        "scorecard.py": ROOT / "tooling/guardrail_scorecard.py",
+        "configure.py": ROOT / "tooling/configure_guardrails.py",
+        "scan.py": ROOT / "tooling/scan_repository.py",
+        "github_evidence.py": ROOT / "tooling/github_evidence.py",
+        "produce.py": PRODUCER,
+        "validate_ground_truth.py": ROOT / "tooling/validators/validate_ground_truth.py",
+        "semgrep-rules.yml": ROOT / "security/semgrep/guardrails.yml",
+    }
+    validators = {
+        "validate_repository.py": ROOT / "guardrails/validate_repository.py",
+        "validate_documentation.py": ROOT / "tooling/validators/validate_documentation.py",
+        "inspect_change_scope.py": ROOT / "tooling/validators/inspect_change_scope.py",
+    }
+    items = [InstallItem(source, target / ".guardrails" / name) for name, source in files.items()]
+    items.extend(InstallItem(source, target / ".guardrails/validators" / name) for name, source in validators.items())
+    for source_root, destination_root in (
+        (ROOT / "security/semgrep/tests/fixtures", target / ".guardrails/semgrep-tests/fixtures"),
+        (ROOT / "skills/prepare-safe-change", target / ".agents/skills/prepare-safe-change"),
+    ):
+        items.extend(
+            InstallItem(source, destination_root / source.relative_to(source_root))
+            for source in sorted(source_root.rglob("*"))
+            if source.is_file()
+        )
     return items
 
 
-def apply_legacy_migrations(
-    plan: list[InstallItem], target: Path, *, github_actions: bool
-) -> list[InstallItem]:
-    """Preserve consumer-owned configuration while adopting canonical names."""
-    migration_sources = {
-        target / ".guardrails" / "providers.yaml": (
-            target / ".agentic-guardrails" / "providers.yaml",
-            target / ".ai" / "providers.yaml",
-        ),
-        target / ".guardrails" / "producer-manifest.json": (
-            target / ".agentic-guardrails" / "producer-manifest.json",
-            target / ".ai" / "producer-manifest.json",
-        ),
-    }
-    if github_actions:
-        migration_sources[target / ".github" / "workflows" / "guardrails-scorecard.yml"] = (
-            target / LEGACY_SCORECARD_WORKFLOW,
-        )
-
-    migrated: list[InstallItem] = []
-    for item in plan:
-        if item.destination.exists() or item.destination not in migration_sources:
-            migrated.append(item)
-            continue
-        source = next(
-            (candidate for candidate in migration_sources[item.destination] if candidate.is_file()),
-            None,
-        )
-        if source is None:
-            migrated.append(item)
-            continue
-        kind = "migrate-text" if item.destination.suffix in {".yml", ".yaml"} else "file"
-        migrated.append(InstallItem(source, item.destination, kind))
-    return migrated
+def load_object(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot identify existing Guardrails configuration at {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"existing Guardrails configuration must be an object: {path}")
+    return value
 
 
-def build_plan(target: Path, *, github_actions: bool = False, providers: list[str] | None = None) -> list[InstallItem]:
-    plan = [
-        InstallItem(POLICY, target / ".guardrails" / "policy.yaml", "file"),
-        InstallItem(CONTROL_CATALOG, target / ".guardrails" / "control-catalog.yaml", "file"),
-        InstallItem(DOCUMENTATION_POLICY, target / ".guardrails" / "documentation.yaml", "file"),
-        InstallItem(CHANGE_SCOPE_POLICY, target / ".guardrails" / "change-scope.yaml", "file"),
-        InstallItem(GROUND_TRUTH_POLICY, target / ".guardrails" / "ground-truth-ai.yaml", "file"),
-        InstallItem(EVALUATOR, target / ".guardrails" / "evaluate.py", "file"),
-        InstallItem(SCORECARD, target / ".guardrails" / "scorecard.py", "file"),
-        InstallItem(CONFIGURE, target / ".guardrails" / "configure.py", "file"),
-        InstallItem(SCAN, target / ".guardrails" / "scan.py", "file"),
-        InstallItem(GITHUB_EVIDENCE, target / ".guardrails" / "github_evidence.py", "file"),
-        InstallItem(PRODUCER_MANIFEST, target / ".guardrails" / "producer-manifest.json", "file"),
-        InstallItem(PROVIDER_CONFIG, target / ".guardrails" / "providers.yaml", "file"),
-        InstallItem(GROUND_TRUTH, target / ".guardrails" / "validate_ground_truth.py", "file"),
-        InstallItem(
-            SKILL,
-            target / ".agents" / "skills" / "prepare-safe-change",
-            "directory",
-        ),
-    ]
-    if github_actions:
-        plan.append(
-            InstallItem(
-                GITHUB_WORKFLOW,
-                target / ".github" / "workflows" / "guardrails-scorecard.yml",
-                "file",
-            )
+def reject_v1(target: Path) -> None:
+    conflicts = [path for relative in V1_PATHS if ((path := target / relative).exists() or path.is_symlink())]
+    for relative in (Path(".guardrails/policy.yaml"), Path(".guardrails/control-catalog.yaml"), Path(".guardrails/providers.yaml")):
+        path = target / relative
+        if path.is_file() and load_object(path).get("version") != 2:
+            conflicts.append(path)
+    if conflicts:
+        rendered = ", ".join(str(path.relative_to(target)) for path in conflicts)
+        raise ValueError(
+            f"Guardrails v1 was detected at {rendered}. Back up and remove the v1 runtime/configuration, then perform a clean reinstall; automatic migration is not supported."
         )
-    for provider_id in providers or []:
-        source = PROVIDER_TEMPLATES.get(provider_id)
-        if source is None or not source.exists():
-            raise ValueError(f"provider template is not available: {provider_id}")
-        destination_name = "semgrep.yml" if provider_id == "semgrep" else f"{provider_id}.yml"
-        plan.append(InstallItem(source, target / ".github" / "workflows" / destination_name, "file"))
+
+
+def policy_bytes(existing: Path | None, profiles: list[str]) -> bytes:
+    policy = load_object(existing) if existing and existing.is_file() else load_object(POLICY)
+    selected = list(policy.get("profiles", ["core"]))
+    if "core" not in selected:
+        selected.insert(0, "core")
+    for profile in profiles:
+        if profile not in {"core", "github"}:
+            raise ValueError(f"unknown runnable profile: {profile}")
+        if profile not in selected:
+            selected.append(profile)
+    policy["profiles"] = selected
+    return (json.dumps(policy, indent=2) + "\n").encode()
+
+
+def build_plan(target: Path, *, profiles: list[str], no_actions: bool) -> list[InstallItem]:
+    plan = runtime_sources(target)
+    if no_actions:
+        return plan
+    workflows = dict(CORE_WORKFLOWS)
+    if "github" in profiles:
+        workflows.update(GITHUB_WORKFLOWS)
+    plan.extend(
+        InstallItem(source, target / ".github/workflows" / name)
+        for name, source in workflows.items()
+    )
     return plan
+
+
+def precommit_config() -> str:
+    return f"""repos:
+  - repo: local
+    hooks:
+      - id: guardrails-semgrep-ce
+        name: Guardrails Semgrep CE
+        language: docker_image
+        entry: {SEMGREP_IMAGE} semgrep scan --error --config .guardrails/semgrep-rules.yml --exclude .guardrails/semgrep-tests/fixtures --exclude security/semgrep/tests/fixtures .
+        pass_filenames: false
+      - id: guardrails-gitleaks
+        name: Guardrails Gitleaks
+        language: docker_image
+        entry: {GITLEAKS_IMAGE} git --redact --no-banner .
+        pass_filenames: false
+"""
+
+
+def prepare_local_hooks(target: Path, *, dry_run: bool) -> tuple[str | None, Path | None]:
+    destination = target / ".pre-commit-config.yaml"
+    if destination.exists() or destination.is_symlink():
+        raise ValueError(".pre-commit-config.yaml already exists; preserve it and perform a manual merge of the Guardrails hooks.")
+    if dry_run:
+        return precommit_config(), None
+    executable = shutil.which("pre-commit")
+    if executable is None:
+        raise ValueError("the pre-commit executable is required before --local-hooks can write hook state")
+    repository = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=target, text=True, capture_output=True)
+    if repository.returncode != 0 or not repository.stdout.strip():
+        raise ValueError("--local-hooks requires the target to be a Git repository")
+    if Path(repository.stdout.strip()).resolve() != target:
+        raise ValueError("--local-hooks requires the target to be the exact Git repository root")
+    temporary = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+    try:
+        temporary.write(precommit_config())
+        temporary.close()
+        validation = subprocess.run([executable, "validate-config", temporary.name], cwd=target, text=True, capture_output=True)
+        if validation.returncode != 0:
+            raise ValueError(f"generated pre-commit configuration is invalid: {(validation.stdout + validation.stderr).strip()}")
+        return precommit_config(), Path(temporary.name)
+    except Exception:
+        Path(temporary.name).unlink(missing_ok=True)
+        raise
+
+
+def installer_owned_workflow(path: Path) -> bool:
+    try:
+        return path.read_text(encoding="utf-8").startswith(INSTALLER_MARKER)
+    except OSError:
+        return False
 
 
 def install(
     target: Path,
     *,
     dry_run: bool,
-    github_actions: bool = False,
+    profiles: list[str] | None = None,
+    no_actions: bool = False,
+    local_hooks: bool = False,
     merge_existing: bool = False,
     refresh_existing: bool = False,
-    providers: list[str] | None = None,
-    cleanup: bool | None = None,
 ) -> list[InstallItem]:
     target = target.resolve()
+    explicit_profiles = list(profiles or [])
+    selected_profiles: list[str] = []
+    policy_destination = target / ".guardrails/policy.yaml"
+    if refresh_existing and policy_destination.is_file():
+        installed_profiles = load_object(policy_destination).get("profiles")
+        if not isinstance(installed_profiles, list) or not all(
+            isinstance(profile, str) and profile in {"core", "github"}
+            for profile in installed_profiles
+        ):
+            raise ValueError("existing Guardrails policy contains invalid runnable profiles")
+        selected_profiles = list(installed_profiles)
+    for profile in explicit_profiles:
+        if profile not in {"core", "github"}:
+            raise ValueError(f"unknown runnable profile: {profile}")
+        if profile not in selected_profiles:
+            selected_profiles.append(profile)
+    complete_plan = build_plan(
+        target, profiles=selected_profiles, no_actions=no_actions
+    )
+    destinations = [item.destination for item in complete_plan]
+    if local_hooks:
+        destinations.append(target / ".pre-commit-config.yaml")
+    reject_symlink_destinations(target, destinations)
     if not target.is_dir():
         raise ValueError(f"target is not a directory: {target}")
-    reject_legacy_configuration(target)
-
-    plan = build_plan(target, github_actions=github_actions, providers=providers)
-    plan = [
-        item for item in plan
-        if item.source.resolve() != item.destination.resolve()
-    ]
     if merge_existing and refresh_existing:
         raise ValueError("--merge-existing and --refresh-existing cannot be combined")
-    should_cleanup = refresh_existing if cleanup is None else cleanup
-    if should_cleanup and not refresh_existing:
-        raise ValueError("cleanup is available only with --refresh-existing")
+    reject_v1(target)
+    hook_text, temporary_hook = prepare_local_hooks(target, dry_run=dry_run) if local_hooks else (None, None)
+    plan = [item for item in complete_plan if item.source.resolve() != item.destination.resolve()]
     existing = [item.destination for item in plan if item.destination.exists()]
     if existing and not merge_existing and not refresh_existing:
-        paths = ", ".join(str(path) for path in existing)
-        raise ValueError(f"refusing to overwrite existing paths: {paths}")
+        raise ValueError("refusing to overwrite existing paths: " + ", ".join(map(str, existing)))
     if merge_existing:
-        plan = [item for item in plan if not item.destination.exists()]
-    elif refresh_existing:
-        plan = apply_legacy_migrations(plan, target, github_actions=github_actions)
-        selected_configuration = {
-            target / ".guardrails" / "policy.yaml",
-            target / ".guardrails" / "documentation.yaml",
-            target / ".guardrails" / "change-scope.yaml",
-            target / ".guardrails" / "ground-truth-ai.yaml",
-        }
-        provider_path = target / ".guardrails" / "providers.yaml"
-        manifest_path = target / ".guardrails" / "producer-manifest.json"
-        scorecard_workflow = target / ".github" / "workflows" / "guardrails-scorecard.yml"
         plan = [
-            item for item in plan
-            if not (
-                item.destination in selected_configuration
-                and item.destination.exists()
-            )
-            and not (item.destination == provider_path and item.destination.exists())
-            and not (item.destination == manifest_path and item.destination.exists())
-            and not (item.destination == scorecard_workflow and item.destination.exists())
-            and not (
-                item.source in PROVIDER_TEMPLATES.values()
-                and item.destination.exists()
-            )
-            and not (item.kind == "directory" and item.destination.exists())
+            item
+            for item in plan
+            if not item.destination.exists()
+            or (item.destination == policy_destination and selected_profiles)
         ]
-        plan.extend(legacy_cleanup_items(target) if should_cleanup else [])
+    elif refresh_existing:
+        filtered: list[InstallItem] = []
+        for item in plan:
+            relative = item.destination.relative_to(target)
+            if relative in PRESERVED_CONFIGURATION and item.destination.exists():
+                continue
+            if relative.parts[:2] == (".github", "workflows") and item.destination.exists() and not installer_owned_workflow(item.destination):
+                continue
+            filtered.append(item)
+        plan = filtered
+    if hook_text is not None:
+        plan.append(InstallItem(Path("<generated>"), target / ".pre-commit-config.yaml", "generated"))
     if dry_run:
+        if temporary_hook:
+            temporary_hook.unlink(missing_ok=True)
         return plan
 
-    for item in plan:
-        if item.kind == "remove":
-            # Unlink only. Never recursively delete consumer directories or
-            # generated scorecards/evidence.
-            item.destination.unlink()
-            continue
-        item.destination.parent.mkdir(parents=True, exist_ok=True)
-        if item.kind == "directory":
-            shutil.copytree(item.source, item.destination)
-        elif item.kind == "migrate-text":
-            text = item.source.read_text(encoding="utf-8")
-            text = text.replace(".agentic-guardrails", ".guardrails")
-            text = text.replace("Agentic Guardrails", "Guardrails")
-            text = text.replace("Agentic Guardrail", "Guardrail")
-            text = text.replace("agentic-guardrails", "guardrails")
-            item.destination.write_text(text, encoding="utf-8")
-        else:
-            shutil.copy2(item.source, item.destination)
-    if should_cleanup:
-        try:
-            (target / LEGACY_RUNTIME_DIR).rmdir()
-        except OSError:
-            # Preserve the directory when it contains consumer-owned files.
-            pass
+    try:
+        for item in plan:
+            item.destination.parent.mkdir(parents=True, exist_ok=True)
+            if item.kind == "directory":
+                shutil.copytree(item.source, item.destination)
+            elif item.kind == "generated":
+                item.destination.write_text(hook_text or "", encoding="utf-8")
+            elif item.destination == policy_destination and selected_profiles:
+                existing_policy = policy_destination if merge_existing else None
+                item.destination.write_bytes(policy_bytes(existing_policy, selected_profiles))
+            else:
+                shutil.copy2(item.source, item.destination)
+        if refresh_existing and "github" in selected_profiles and policy_destination.exists():
+            policy_destination.write_bytes(policy_bytes(policy_destination, selected_profiles))
+        if local_hooks:
+            executable = shutil.which("pre-commit")
+            assert executable is not None
+            installed = subprocess.run([executable, "install"], cwd=target, text=True, capture_output=True)
+            if installed.returncode != 0:
+                (target / ".pre-commit-config.yaml").unlink(missing_ok=True)
+                raise ValueError(f"pre-commit hook installation failed: {(installed.stdout + installed.stderr).strip()}")
+    finally:
+        if temporary_hook:
+            temporary_hook.unlink(missing_ok=True)
     return plan
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Install the guardrail evaluator and preparation skill"
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--target", required=True, type=Path)
+    parser.add_argument("--profile", action="append", choices=("core", "github"), default=[])
+    parser.add_argument("--no-actions", action="store_true")
+    parser.add_argument("--local-hooks", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--github-actions",
-        action="store_true",
-        help="install the aggregate pull-request guardrail scorecard workflow",
-    )
-    parser.add_argument(
-        "--merge-existing",
-        action="store_true",
-        help="preserve existing files and install only missing product files",
-    )
-    parser.add_argument(
-        "--refresh-existing",
-        action="store_true",
-        help="refresh product files, preserve consumer files, and remove known legacy installer files",
-    )
-    parser.add_argument(
-        "--no-cleanup",
-        action="store_true",
-        help="during --refresh-existing, skip known legacy installer cleanup",
-    )
-    parser.add_argument(
-        "--provider",
-        action="append",
-        default=[],
-        help="install a verified provider workflow template; repeatable",
-    )
+    parser.add_argument("--merge-existing", action="store_true")
+    parser.add_argument("--refresh-existing", action="store_true")
     args = parser.parse_args()
-
     try:
         plan = install(
             args.target,
             dry_run=args.dry_run,
-            github_actions=args.github_actions,
+            profiles=args.profile,
+            no_actions=args.no_actions,
+            local_hooks=args.local_hooks,
             merge_existing=args.merge_existing,
             refresh_existing=args.refresh_existing,
-            providers=args.provider,
-            cleanup=False if args.no_cleanup else None,
         )
-        verb = "Would apply" if args.dry_run else "Applied"
-        print(f"{verb} guardrails:")
+        print(("Would apply" if args.dry_run else "Applied") + " Guardrails v2:")
         for item in plan:
-            action = "remove" if item.kind == "remove" else "install"
-            print(f"- {action}: {item.destination}")
+            print(f"- install: {item.destination}")
         return 0
     except (OSError, ValueError) as error:
         print(f"ERROR {error}", file=sys.stderr)

@@ -1,0 +1,60 @@
+# Guardrails v2 installer-owned workflow.
+name: Semgrep CE
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep CE
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Test repository-owned Semgrep rules
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -v "${GITHUB_WORKSPACE}:/src:ro" -w /src \
+            semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796 \
+            semgrep scan --config .guardrails/semgrep-rules.yml --json \
+            .guardrails/semgrep-tests/fixtures/unsafe \
+            > "${RUNNER_TEMP}/semgrep-unsafe.json"
+          docker run --rm --network none \
+            -v "${GITHUB_WORKSPACE}:/src:ro" -w /src \
+            semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796 \
+            semgrep scan --config .guardrails/semgrep-rules.yml --json \
+            .guardrails/semgrep-tests/fixtures/safe \
+            > "${RUNNER_TEMP}/semgrep-safe.json"
+          python3 - "${RUNNER_TEMP}/semgrep-unsafe.json" "${RUNNER_TEMP}/semgrep-safe.json" <<'PY'
+          import json
+          import sys
+
+          unsafe = json.load(open(sys.argv[1], encoding="utf-8"))
+          safe = json.load(open(sys.argv[2], encoding="utf-8"))
+          expected = {
+              "guardrails.python-disabled-tls-verification",
+              "guardrails.javascript-disabled-tls-verification",
+          }
+          actual = {result["check_id"] for result in unsafe["results"]}
+          if actual != expected:
+              raise SystemExit(f"unsafe fixtures produced {sorted(actual)}, expected {sorted(expected)}")
+          if safe["results"]:
+              raise SystemExit("safe fixtures unexpectedly produced Semgrep findings")
+          PY
+      - name: Semgrep scan with repository-owned rules
+        run: >-
+          docker run --rm --network none
+          -v "${GITHUB_WORKSPACE}:/src:ro" -w /src
+          semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
+          semgrep scan --error --config .guardrails/semgrep-rules.yml
+          --exclude .guardrails/semgrep-tests/fixtures
+          --exclude security/semgrep/tests/fixtures .

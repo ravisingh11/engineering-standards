@@ -145,13 +145,70 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
         if not isinstance(checks, dict) or any(capability not in capabilities for capability in checks):
             raise ValueError(f"provider {provider_id} checks are invalid")
         for capability, check in checks.items():
-            if not isinstance(check, dict) or set(check) != {"check_name", "workflow"}:
+            if (
+                not isinstance(check, dict)
+                or not {"check_name", "workflow"}.issubset(check)
+                or set(check) - {
+                    "check_name", "workflow", "workflow_path", "app_slug", "external_id_prefix",
+                    "artifact_name_prefix", "artifact_member",
+                }
+            ):
                 raise ValueError(f"provider {provider_id} {capability} check is invalid")
             require_nonempty_string(check["check_name"], f"provider {provider_id} check_name")
             require_nonempty_string(check["workflow"], f"provider {provider_id} workflow")
+            if "workflow_path" in check:
+                require_nonempty_string(
+                    check["workflow_path"],
+                    f"provider {provider_id} {capability} workflow_path",
+                )
+            if "app_slug" in check:
+                require_nonempty_string(
+                    check["app_slug"],
+                    f"provider {provider_id} {capability} app_slug",
+                    100,
+                )
+                if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", check["app_slug"]) is None:
+                    raise ValueError(f"provider {provider_id} {capability} app_slug is invalid")
+            if ("workflow_path" in check) == ("app_slug" in check):
+                raise ValueError(
+                    f"provider {provider_id} {capability} must declare exactly one of workflow_path or app_slug"
+                )
+            if "external_id_prefix" in check:
+                require_nonempty_string(
+                    check["external_id_prefix"],
+                    f"provider {provider_id} {capability} external_id_prefix",
+                    150,
+                )
+            if "artifact_name_prefix" in check:
+                require_nonempty_string(
+                    check["artifact_name_prefix"],
+                    f"provider {provider_id} {capability} artifact_name_prefix",
+                    150,
+                )
+            if "artifact_member" in check:
+                require_nonempty_string(
+                    check["artifact_member"],
+                    f"provider {provider_id} {capability} artifact_member",
+                    100,
+                )
+                if re.fullmatch(r"[A-Za-z0-9._-]+", check["artifact_member"]) is None:
+                    raise ValueError(f"provider {provider_id} {capability} artifact_member is invalid")
+            artifact_fields = {"artifact_name_prefix", "artifact_member"}
+            if "external_id_prefix" in check and not artifact_fields.issubset(check):
+                raise ValueError(f"provider {provider_id} {capability} custom check artifact contract is incomplete")
+            if "external_id_prefix" not in check and artifact_fields.intersection(check):
+                raise ValueError(f"provider {provider_id} {capability} artifact contract requires external_id_prefix")
+            if "external_id_prefix" in check and "workflow_path" not in check:
+                raise ValueError(f"provider {provider_id} {capability} artifact contract requires workflow_path")
         template = provider["template"]
         if template is not None:
             require_nonempty_string(template, f"provider {provider_id} template")
+            expected_path = f".github/workflows/{Path(template).name}"
+            for capability, check in checks.items():
+                if check.get("workflow_path") != expected_path:
+                    raise ValueError(
+                        f"provider {provider_id} {capability} workflow_path must be {expected_path}"
+                    )
         if not isinstance(provider["template_available"], bool):
             raise ValueError(f"provider {provider_id} template_available must be boolean")
         secrets = provider["secrets"]
@@ -192,6 +249,31 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
                 raise ValueError(f"selection {capability} references unknown provider: {provider_id}")
             if capability not in providers[provider_id]["capabilities"]:
                 raise ValueError(f"provider {provider_id} does not provide {capability}")
+
+
+def validate_provider_template_names(config: dict, root: Path = ROOT) -> None:
+    for provider_id, provider in config["providers"].items():
+        template = provider["template"]
+        if not provider["template_available"] or template is None:
+            continue
+        template_path = root / template
+        if not template_path.is_file():
+            if provider["enabled_by_default"]:
+                raise ValueError(f"provider {provider_id} template does not exist: {template}")
+            continue
+        workflow_name = None
+        for line in template_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("name:"):
+                workflow_name = line.split(":", 1)[1].strip().strip("'\"")
+                break
+        if not workflow_name:
+            raise ValueError(f"provider {provider_id} template workflow name is missing")
+        for capability, check in provider["checks"].items():
+            if check["workflow"] != workflow_name:
+                raise ValueError(
+                    f"provider {provider_id} {capability} template workflow name "
+                    f"{workflow_name!r} does not match contract {check['workflow']!r}"
+                )
 
 
 def validate_policy_document(
@@ -310,6 +392,7 @@ def validate_guardrail_contract() -> None:
     validate_profiles_document(profiles, catalog)
     provider_config = load_json_object(ROOT / "policies" / "provider-config.yaml")
     validate_provider_document(provider_config, catalog)
+    validate_provider_template_names(provider_config)
     validate_policy_document(
         load_json_object(ROOT / "guardrails" / "baseline.yaml"),
         set(profiles["profiles"]),

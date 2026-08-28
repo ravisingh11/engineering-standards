@@ -166,13 +166,26 @@ class LocalEvidenceTests(unittest.TestCase):
             (ground_truth / "validate_ground_truth.py").write_text("# fixture\n", encoding="utf-8")
             (ground_truth / "ground-truth-ai.yaml").write_text("{}\n", encoding="utf-8")
             scope_payload = json.dumps({"status": "passed", "metrics": {"files": 1}})
+            producer = mock.Mock()
+            producer.repository_command_result.side_effect = [
+                result("not_run", "build"),
+                result("not_run", "tests"),
+                result("not_run", "coverage"),
+            ]
+            producer.semgrep_result.return_value = result("passed", "semgrep")
+            producer.gitleaks_result.return_value = result("passed", "gitleaks")
 
             with mock.patch.object(MODULE, "local_binding", return_value=("abc123", None)), mock.patch.object(MODULE, "exact_local_revision", return_value=("base123", None)), mock.patch.object(MODULE, "run", side_effect=[(0, "repository ok"), (0, "docs ok"), (0, "ground truth ok"), (0, scope_payload)]):
-                with mock.patch.object(MODULE, "load", return_value={"status": "passed", "metrics": {"files": 1}}):
+                with mock.patch.object(MODULE, "load", return_value={"status": "passed", "metrics": {"files": 1}}), mock.patch.object(MODULE, "producer_module", return_value=producer):
                     evidence = MODULE.local_evidence(target, "abc123", "HEAD~1")
 
             for control_id in ("repository-validation", "documentation-validation", "repository-ground-truth", "change-scope"):
                 self.assertEqual(set(evidence["results"][control_id]), {"repository-validator"})
+            self.assertEqual(set(evidence["results"]["build"]), {"repository-build"})
+            self.assertEqual(set(evidence["results"]["unit-tests"]), {"repository-unit-tests"})
+            self.assertEqual(set(evidence["results"]["changed-code-coverage"]), {"repository-changed-code-coverage"})
+            self.assertEqual(set(evidence["results"]["custom-static-analysis"]), {"semgrep-ce"})
+            self.assertEqual(set(evidence["results"]["secret-detection"]), {"gitleaks"})
 
     def test_app_only_change_without_mapped_documentation_fails_local_scan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

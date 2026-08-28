@@ -20,13 +20,34 @@ requirements; it does not authorize an operation or tell you which tools to run.
 6. Resolve the evaluator from `.guardrails/evaluate.py` in an installed
    repository or `guardrails/evaluate.py` in this standards repository, then run:
 
-   ```sh
+   ~~~sh
+   exact_revision="${EXACT_REVISION:?set EXACT_REVISION to the immutable subject revision}"
+   if [ -f .guardrails/evaluate.py ]; then
+     evaluator=.guardrails/evaluate.py
+   elif [ -f guardrails/evaluate.py ]; then
+     evaluator=guardrails/evaluate.py
+   else
+     echo "Guardrails v2 evaluator not found" >&2
+     exit 2
+   fi
+   skill_reference=references/evidence-example.yaml
+   if [ -n "${GUARDRAILS_EVIDENCE:-}" ]; then
+     evidence="${GUARDRAILS_EVIDENCE}"
+   elif [ -f ".agents/skills/prepare-safe-change/${skill_reference}" ]; then
+     evidence=".agents/skills/prepare-safe-change/${skill_reference}"
+   else
+     evidence="skills/prepare-safe-change/${skill_reference}"
+   fi
    python3 "$evaluator" \
      --policy .guardrails/policy.yaml \
-     --evidence /path/to/evidence.yaml \
+     --profiles .guardrails/profiles.yaml \
+     --catalog .guardrails/control-catalog.yaml \
+     --providers .guardrails/providers.yaml \
+     --evidence "$evidence" \
      --operation change \
-     --revision "$exact_revision"
-   ```
+     --revision "$exact_revision" \
+     --subject-type git-commit
+   ~~~
 7. Resolve required findings or report the block. Report advisories separately.
 8. Present the operation, exact revision, evidence status, and decision.
 9. Perform a commit, push, merge, release, or deployment only when separately

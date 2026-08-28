@@ -2,434 +2,239 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RETIRED_PATHS = (
-    ".ai/" + "guardrails.yaml",
-    ".ai/" + "control-catalog.yaml",
-    ".ai/" + "documentation.yaml",
-    ".ai/" + "change-scope.yaml",
-    ".ai/" + "ground-truth.yaml",
-)
-EXCLUDED_FILES = {
-    "tooling/install.py",
-    "tooling/tests/test_install.py",
+SEMGREP_IMAGE = "semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796"
+GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+CORE_WORKFLOWS = {
+    "guardrails-scorecard.yml",
+    "repository-validation.yml",
+    "build.yml",
+    "unit-tests.yml",
+    "changed-code-coverage.yml",
+    "semgrep-ce.yml",
+    "gitleaks.yml",
 }
-EXCLUDED_PREFIXES = (
-    "docs/superpowers/specs/",
-    "docs/superpowers/plans/",
-)
-
-
-def retired_path_failures(root: Path) -> list[str]:
-    tracked = set(
-        subprocess.run(
-            ["git", "ls-files", "--cached", "-z"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        ).stdout.decode("utf-8", errors="surrogateescape").split("\0")
-    )
-    untracked = set(
-        subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        ).stdout.decode("utf-8", errors="surrogateescape").split("\0")
-    )
-    tracked.discard("")
-    untracked.discard("")
-
-    failures: set[str] = set()
-    for path in sorted(tracked | untracked):
-        if path in EXCLUDED_FILES or path.startswith(EXCLUDED_PREFIXES):
-            continue
-        if not path.endswith((".md", ".py", ".yml", ".yaml")):
-            continue
-        contents: set[str] = set()
-        if path in tracked:
-            contents.add(
-                subprocess.run(
-                    ["git", "show", f":{path}"],
-                    cwd=root,
-                    check=True,
-                    capture_output=True,
-                ).stdout.decode("utf-8")
-            )
-        candidate = root / path
-        if candidate.is_file():
-            contents.add(candidate.read_text(encoding="utf-8"))
-        for text in contents:
-            for retired_path in RETIRED_PATHS:
-                if retired_path in text:
-                    failures.add(f"{path}: {retired_path}")
-    return sorted(failures)
-
-
-class RetiredPathCandidateTests(unittest.TestCase):
-    def initialize_repository(self, root: Path) -> None:
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=root,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=root,
-            check=True,
-        )
-
-    def commit_file(self, root: Path, path: str, content: str) -> None:
-        candidate = root / path
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        candidate.write_text(content, encoding="utf-8")
-        subprocess.run(["git", "add", path], cwd=root, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "fixture"],
-            cwd=root,
-            check=True,
-        )
-
-    def test_staged_canonical_rename_does_not_scan_removed_index_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.initialize_repository(root)
-            legacy = ".ai/" + "guardrails.yaml"
-            self.commit_file(root, "active.py", f'POLICY = "{legacy}"\n')
-
-            subprocess.run(
-                ["git", "mv", "active.py", "canonical.py"],
-                cwd=root,
-                check=True,
-            )
-            (root / "canonical.py").write_text(
-                'POLICY = ".guardrails/policy.yaml"\n',
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "add", "canonical.py"], cwd=root, check=True)
-
-            self.assertEqual([], retired_path_failures(root))
-
-    def test_unstaged_deletion_scans_tracked_index_content(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.initialize_repository(root)
-            legacy = ".ai/" + "guardrails.yaml"
-            self.commit_file(root, "active.py", f'POLICY = "{legacy}"\n')
-
-            (root / "active.py").unlink()
-
-            self.assertEqual(
-                [f"active.py: {legacy}"],
-                retired_path_failures(root),
-            )
-
-    def test_untracked_non_ignored_file_is_scanned(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.initialize_repository(root)
-            legacy = ".ai/" + "guardrails.yaml"
-            (root / "active.py").write_text(
-                f'POLICY = "{legacy}"\n',
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                [f"active.py: {legacy}"],
-                retired_path_failures(root),
-            )
-
-    def test_staged_retired_reference_is_not_hidden_by_clean_worktree_edit(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.initialize_repository(root)
-            legacy = ".ai/" + "guardrails.yaml"
-            self.commit_file(root, "active.py", 'POLICY = ".guardrails/policy.yaml"\n')
-
-            (root / "active.py").write_text(
-                f'POLICY = "{legacy}"\n',
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "add", "active.py"], cwd=root, check=True)
-            (root / "active.py").write_text(
-                'POLICY = ".guardrails/policy.yaml"\n',
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                [f"active.py: {legacy}"],
-                retired_path_failures(root),
-            )
+GITHUB_WORKFLOWS = {
+    "codeql.yml",
+    "dependency-review.yml",
+    "github-secret-protection.yml",
+    "dependabot-verification.yml",
+    "artifact-provenance.yml",
+}
 
 
 class ActionDistributionTests(unittest.TestCase):
-    def test_installed_runtimes_match_distribution_sources(self) -> None:
-        runtime_copies = {
+    def test_installed_runtime_and_configuration_match_canonical_sources(self) -> None:
+        copies = {
+            ".guardrails/policy.yaml": "guardrails/baseline.yaml",
+            ".guardrails/profiles.yaml": "policies/profiles.yaml",
+            ".guardrails/control-catalog.yaml": "policies/control-catalog.yaml",
+            ".guardrails/providers.yaml": "policies/provider-config.yaml",
+            ".guardrails/policy.schema.json": "guardrails/policy.schema.json",
+            ".guardrails/evidence.schema.json": "guardrails/evidence.schema.json",
+            ".guardrails/profiles.schema.json": "guardrails/profiles.schema.json",
+            ".guardrails/providers.schema.json": "guardrails/providers.schema.json",
+            ".guardrails/control-catalog.schema.json": "guardrails/control-catalog.schema.json",
+            ".guardrails/evaluate.py": "guardrails/evaluate.py",
+            ".guardrails/scorecard.py": "tooling/guardrail_scorecard.py",
             ".guardrails/configure.py": "tooling/configure_guardrails.py",
             ".guardrails/scan.py": "tooling/scan_repository.py",
             ".guardrails/github_evidence.py": "tooling/github_evidence.py",
+            ".guardrails/produce.py": "tooling/produce_guardrail_evidence.py",
             ".guardrails/validate_ground_truth.py": "tooling/validators/validate_ground_truth.py",
-            "examples/python-demo/.guardrails/configure.py": "tooling/configure_guardrails.py",
-            "examples/python-demo/.guardrails/scan.py": "tooling/scan_repository.py",
-            "examples/python-demo/.guardrails/validate_ground_truth.py": "tooling/validators/validate_ground_truth.py",
+            ".guardrails/semgrep-rules.yml": "security/semgrep/guardrails.yml",
+            ".guardrails/validators/validate_repository.py": "guardrails/validate_repository.py",
+            ".guardrails/validators/validate_documentation.py": "tooling/validators/validate_documentation.py",
+            ".guardrails/validators/inspect_change_scope.py": "tooling/validators/inspect_change_scope.py",
         }
-        for installed, source in runtime_copies.items():
+        for installed, source in copies.items():
             with self.subTest(installed=installed):
-                self.assertEqual(
-                    (ROOT / installed).read_bytes(),
-                    (ROOT / source).read_bytes(),
-                )
+                self.assertEqual((ROOT / installed).read_bytes(), (ROOT / source).read_bytes())
 
-    def test_action_is_a_thin_evaluator_adapter(self) -> None:
-        text = (ROOT / "action.yml").read_text(encoding="utf-8")
-        self.assertIn("branding:", text)
-        self.assertIn("icon: shield", text)
-        self.assertIn("title=Missing revision", text)
-        self.assertIn("title=Missing evidence", text)
-        self.assertIn("title=Missing policy", text)
-        self.assertIn("default: .guardrails/policy.yaml", text)
-        self.assertIn(
-            "Commit a repository-local .guardrails/policy.yaml policy.", text
-        )
-        self.assertIn("guardrails/evaluate.py", text)
-        self.assertNotIn("git diff", text)
+    def test_self_repository_is_core_v2_without_a_manifest(self) -> None:
+        policy = json.loads((ROOT / ".guardrails/policy.yaml").read_text())
+        catalog = json.loads((ROOT / ".guardrails/control-catalog.yaml").read_text())
+        providers = json.loads((ROOT / ".guardrails/providers.yaml").read_text())
+        self.assertEqual(policy["version"], 2)
+        self.assertEqual(policy["profiles"], ["core"])
+        self.assertEqual(catalog["version"], 2)
+        self.assertEqual(providers["version"], 2)
+        self.assertFalse((ROOT / ".guardrails/producer-manifest.json").exists())
 
-    def test_starter_workflow_uses_least_privilege_and_pinned_actions(self) -> None:
-        text = (
-            ROOT
-            / "docs"
-            / "examples"
-            / "guardrails.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("permissions:\n  contents: read", text)
-        self.assertIn("persist-credentials: false", text)
-        action_refs = re.findall(r"uses:\s+[^@\s]+@([^\s]+)", text)
-        self.assertTrue(action_refs)
-        self.assertTrue(
-            all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in action_refs)
-        )
-        self.assertIn("checks: read", text)
-        self.assertIn(".guardrails/github_evidence.py", text)
-        self.assertIn(".guardrails/producer-manifest.json", text)
-        self.assertIn(".guardrails/scan.py", text)
-        self.assertIn("--policy .guardrails/policy.yaml", text)
-        self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
-        workflow = (ROOT / "docs" / "examples" / "guardrails.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("publish-scorecard:", workflow)
-        self.assertIn("actions/download-artifact@", workflow)
-        self.assertIn("pull-requests: write", workflow)
-        self.assertIn("<!-- guardrail-scorecard -->", workflow)
-        self.assertIn("<!-- agentic-guardrail-scorecard -->", workflow)
-        self.assertNotIn("pull-requests: write\n\nconcurrency:", workflow)
-        publisher = workflow.split("  publish-scorecard:", 1)[1]
-        self.assertNotIn("actions/checkout@", publisher)
-
-    def test_repository_workflow_checks_ground_truth_docs_and_scope_on_every_push(self) -> None:
-        text = (
-            ROOT / ".github" / "workflows" / "validate.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("permissions:\n  contents: read", text)
-        self.assertIn("  docs:\n", text)
-        self.assertIn("  scope:\n", text)
-        self.assertIn("  ground-truth:\n", text)
-        self.assertIn("name: Validate / docs", text)
-        self.assertIn("name: Validate / scope", text)
-        self.assertIn("name: Validate / ground truth", text)
-        self.assertIn("name: Validate / repository", text)
-        self.assertIn("needs: [docs, scope, ground-truth]", text)
-        self.assertIn(".guardrails/validate_ground_truth.py", text)
-        self.assertIn("--policy .guardrails/ground-truth-ai.yaml", text)
-        self.assertIn("policy-file: .guardrails/policy.yaml", text)
-        self.assertIn("tooling/validators/validate_documentation.py", text)
-        self.assertIn("tooling/validators/inspect_change_scope.py", text)
-        self.assertIn("PUSH_FORCED: ${{ github.event.forced || false }}", text)
-        self.assertIn('[[ "$PUSH_FORCED" != "true"', text)
-        self.assertNotIn("branches: [main]", text)
-
-        documentation_validator = (
-            ROOT / "tooling" / "validators" / "validate_documentation.py"
-        ).read_text(encoding="utf-8")
-        scope_inspector = (
-            ROOT / "tooling" / "validators" / "inspect_change_scope.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn('".guardrails" / "documentation.yaml"', documentation_validator)
-        self.assertIn('".guardrails" / "change-scope.yaml"', scope_inspector)
-
-    def test_scorecard_workflows_use_canonical_configuration(self) -> None:
-        workflows = (
-            ".github/workflows/guardrail-checks.yml",
-            ".github/workflows/dependabot-verification.yml",
-            "docs/examples/guardrails.yml",
-        )
-        for workflow in workflows:
-            with self.subTest(workflow=workflow):
-                text = (ROOT / workflow).read_text(encoding="utf-8")
-                self.assertIn("--policy .guardrails/policy.yaml", text)
-                self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
-
-    def test_scorecard_waits_for_supported_external_producers(self) -> None:
-        for workflow in (
-            ".github/workflows/guardrail-checks.yml",
-            "docs/examples/guardrails.yml",
-        ):
-            with self.subTest(workflow=workflow):
-                text = (ROOT / workflow).read_text(encoding="utf-8")
-                self.assertIn("--wait-seconds 600", text)
-                self.assertIn("timeout-minutes: 15", text)
-
-    def test_attestation_workflow_uses_canonical_policy(self) -> None:
-        text = (
-            ROOT / ".github" / "workflows" / "guardrails-attestation.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("--policy .guardrails/policy.yaml", text)
-
-    def test_active_markdown_python_and_yaml_have_no_retired_paths(self) -> None:
-        self.assertEqual([], retired_path_failures(ROOT))
-
-    def test_secret_scan_workflow_verifies_github_platform_settings(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("Secret Scanning and push protection", text)
-        self.assertIn("security_and_analysis.secret_scanning.status", text)
-        self.assertIn("security_and_analysis.secret_scanning_push_protection.status", text)
-        self.assertIn("secret-scanning/alerts", text)
-        self.assertIn("head_sha", text)
-        self.assertIn("checks: write", text)
-        self.assertIn("CHECKS_TOKEN: ${{ github.token }}", text)
-        self.assertIn('GH_TOKEN="${CHECKS_TOKEN}" gh api', text)
-        self.assertIn("no-checkout evidence probe", text)
-        self.assertNotIn("actions/checkout@", text)
-        org = (ROOT / ".github" / "workflows" / "organization-secret-scan.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("Secret Scan / organization scanner", org)
-        self.assertIn("pull_request:", org)
-        self.assertNotIn("SECURITY_SETTINGS_TOKEN", org)
-
-    def test_secret_scan_verifier_is_skipped_without_a_credential(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(
-            encoding="utf-8"
-        )
-        configuration, verifier = text.split("  verifier:\n", 1)
-
-        self.assertIn("  configuration:\n", configuration)
-        self.assertIn("name: Secret Scan Configuration", configuration)
-        self.assertIn(
-            "token_configured: ${{ steps.detect.outputs.token_configured }}",
-            configuration,
-        )
-        self.assertIn(
-            "if: steps.detect.outputs.token_configured != 'true'",
-            configuration,
-        )
-        self.assertIn('conclusion:"skipped"', configuration)
-        self.assertIn("needs: configuration", verifier)
-        self.assertIn(
-            "if: needs.configuration.outputs.token_configured == 'true'",
-            verifier,
-        )
-        self.assertNotIn(
-            'reason="SECURITY_SETTINGS_TOKEN is not configured."',
-            verifier,
-        )
-
-    def test_secret_scan_job_name_does_not_claim_the_control_passed(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "secret-scan.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("name: Secret Scan Evidence Probe", text)
-        self.assertNotIn("name: Secret Scan Platform Verifier", text)
-
-    def test_snyk_placeholder_secret_does_not_activate_scans(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "snyk.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn(
-            '"${SNYK_TOKEN}" == "GUARDRAILS_NOT_CONFIGURED"',
-            text,
-        )
-
-    def test_semgrep_placeholder_secret_does_not_activate_scans(self) -> None:
-        template = (ROOT / "workflows" / "semgrep.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn(
-            '"${SEMGREP_APP_TOKEN}" == "GUARDRAILS_NOT_CONFIGURED"',
-            template,
-        )
-
-    def test_repository_runs_the_distributed_semgrep_workflow(self) -> None:
-        installed = ROOT / ".github" / "workflows" / "semgrep.yml"
-        template = ROOT / "workflows" / "semgrep.yml"
-
-        self.assertTrue(installed.is_file())
-        self.assertEqual(template.read_bytes(), installed.read_bytes())
-
-    def test_repository_selects_configured_security_providers_as_advisory(self) -> None:
-        policy = json.loads(
-            (ROOT / ".guardrails" / "policy.yaml").read_text(encoding="utf-8")
-        )
-        providers = json.loads(
-            (ROOT / ".guardrails" / "providers.yaml").read_text(encoding="utf-8")
-        )
-        manifest = json.loads(
-            (ROOT / ".guardrails" / "producer-manifest.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        expected_controls = {"snyk-code", "semgrep"}
-        unavailable_controls = {"snyk-open-source"}
-
-        self.assertTrue(providers["providers"]["snyk"]["enabled"])
-        self.assertTrue(providers["providers"]["semgrep"]["enabled"])
-        for operation in ("change", "release"):
-            self.assertTrue(
-                expected_controls.issubset(policy["operations"][operation]["advisory"])
-            )
-            self.assertTrue(
-                unavailable_controls.isdisjoint(
-                    policy["operations"][operation]["advisory"]
-                )
-            )
-        producers = {
-            item["control_id"]: item for item in manifest["producers"]
-        }
-        self.assertTrue(expected_controls.issubset(producers))
-        self.assertTrue(unavailable_controls.isdisjoint(producers))
-        self.assertTrue(producers["semgrep"]["wait_for"])
-
-    def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("name: CodeQL", text)
-        self.assertIn("github/codeql-action/init@", text)
-        self.assertIn("github/codeql-action/analyze@", text)
-        self.assertIn("security-events: write", text)
-        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
-
-    def test_default_ruleset_does_not_define_an_empty_required_check_rule(self) -> None:
-        ruleset = json.loads(
-            (ROOT / "rulesets" / "default-branch-protection.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        required_check_rules = [
-            rule for rule in ruleset["rules"] if rule["type"] == "required_status_checks"
+    def test_no_active_runtime_or_workflow_references_a_producer_manifest(self) -> None:
+        paths = [
+            *(path for path in ROOT.glob("tooling/*.py") if path.name != "install.py"),
+            *ROOT.glob("guardrails/*.py"),
+            *ROOT.glob("workflows/*.yml"),
+            *ROOT.glob(".github/workflows/*.yml"),
+            *ROOT.glob(".guardrails/*"),
         ]
-        self.assertEqual([], required_check_rules)
+        failures = [str(path.relative_to(ROOT)) for path in paths if path.is_file() and "producer-manifest" in path.read_text(errors="ignore")]
+        self.assertEqual(failures, [])
+
+    def test_core_workflows_are_distributed_to_self_repository(self) -> None:
+        for filename in CORE_WORKFLOWS:
+            with self.subTest(filename=filename):
+                self.assertEqual(
+                    (ROOT / ".github/workflows" / filename).read_bytes(),
+                    (ROOT / "workflows" / filename).read_bytes(),
+                )
+
+    def test_all_distributed_workflows_parse(self) -> None:
+        ruby = shutil.which("ruby")
+        if ruby is None:
+            self.skipTest("Ruby stdlib YAML parser is unavailable")
+        for filename in CORE_WORKFLOWS | GITHUB_WORKFLOWS:
+            with self.subTest(filename=filename):
+                completed = subprocess.run(
+                    [ruby, "-e", "require 'yaml'; YAML.load_file(ARGV.fetch(0))", str(ROOT / "workflows" / filename)],
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_workflows_use_pinned_actions_pr_head_no_credentials_and_timeouts(self) -> None:
+        for filename in CORE_WORKFLOWS | (GITHUB_WORKFLOWS - {"artifact-provenance.yml", "github-secret-protection.yml"}):
+            with self.subTest(filename=filename):
+                text = (ROOT / "workflows" / filename).read_text()
+                self.assertIn("timeout-minutes:", text)
+                refs = re.findall(r"uses:\s+[^@\s]+@([^\s]+)", text)
+                self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in refs))
+                if "actions/checkout@" in text:
+                    self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
+                    self.assertIn("persist-credentials: false", text)
+
+    def test_core_producers_use_exact_images_and_safe_modes(self) -> None:
+        semgrep = (ROOT / "workflows/semgrep-ce.yml").read_text()
+        gitleaks = (ROOT / "workflows/gitleaks.yml").read_text()
+        self.assertIn(SEMGREP_IMAGE, semgrep)
+        self.assertIn("semgrep scan", semgrep)
+        self.assertNotIn("semgrep --test", semgrep)
+        self.assertIn("semgrep scan --config .guardrails/semgrep-rules.yml --json", semgrep)
+        self.assertIn("semgrep scan --error", semgrep)
+        self.assertIn(".guardrails/semgrep-rules.yml", semgrep)
+        self.assertIn(".guardrails/semgrep-tests/fixtures", semgrep)
+        self.assertIn("security/semgrep/tests/fixtures", semgrep)
+        self.assertNotIn("--config auto", semgrep)
+        self.assertNotIn("semgrep ci", semgrep)
+        self.assertIn(GITLEAKS_IMAGE, gitleaks)
+        self.assertIn("fetch-depth: 0", gitleaks)
+        self.assertIn(f"{GITLEAKS_IMAGE}\n          git --redact --no-banner .", gitleaks)
+        self.assertNotIn(f"{GITLEAKS_IMAGE}\n          gitleaks git", gitleaks)
+        combined = "\n".join(
+            path.read_text()
+            for directory in (ROOT / "tooling", ROOT / "workflows", ROOT / ".github/workflows", ROOT / ".guardrails")
+            for path in directory.glob("*")
+            if path.is_file() and path.suffix in {".py", ".yml", ".yaml"}
+        )
+        self.assertNotIn("gitleaks/gitleaks-action", combined)
+        self.assertNotIn("semgrep ci", combined)
+        self.assertNotIn("--config auto", combined)
+
+    def test_repository_command_workflows_skip_when_unconfigured(self) -> None:
+        contracts = {
+            "build.yml": "GUARDRAILS_BUILD_COMMAND",
+            "unit-tests.yml": "GUARDRAILS_UNIT_TEST_COMMAND",
+            "changed-code-coverage.yml": "GUARDRAILS_CHANGED_COVERAGE_COMMAND",
+        }
+        for filename, variable in contracts.items():
+            with self.subTest(filename=filename):
+                text = (ROOT / "workflows" / filename).read_text()
+                self.assertIn(f"vars.{variable} != ''", text)
+                self.assertIn("GUARDRAILS_SETUP_COMMAND", text)
+                self.assertIn("GUARDRAILS_WORKING_DIRECTORY", text)
+
+    def test_github_setting_verifiers_are_truthful_and_token_scoped(self) -> None:
+        for filename in ("github-secret-protection.yml", "dependabot-verification.yml"):
+            with self.subTest(filename=filename):
+                text = (ROOT / "workflows" / filename).read_text()
+                self.assertIn("SECURITY_SETTINGS_TOKEN", text)
+                self.assertIn("conclusion=skipped", text)
+                self.assertIn("pull_request_target:", text)
+                self.assertNotIn("actions/checkout@", text)
+                self.assertIn("github.event.pull_request.head.sha || github.sha", text)
+                self.assertIn("GITHUB_SERVER_URL", text)
+                self.assertIn("GITHUB_RUN_ID", text)
+                self.assertIn("github.event_name", text)
+                self.assertIn("github.event.pull_request.base.sha || github.sha", text)
+                self.assertIn("github.event.pull_request.base.ref", text)
+                self.assertIn("details_url", text)
+                self.assertIn("external_id", text)
+                for field in (
+                    "run_id", "event", "base_sha", "base_ref", "head_sha",
+                    "repository", "status",
+                ):
+                    self.assertRegex(text, rf"{field}:\(?\$")
+                self.assertIn('provider_id:"github-', text)
+                self.assertRegex(text, r"actions/upload-artifact@[0-9a-f]{40}")
+                self.assertIn("guardrails-evidence.json", text)
+                self.assertLess(text.index("actions/upload-artifact@"), text.index('"repos/${GITHUB_REPOSITORY}/check-runs"'))
+                self.assertIn("if ", text)
+                self.assertIn("gh api", text)
+                if filename == "github-secret-protection.yml":
+                    self.assertIn('if repository="$(GH_TOKEN=', text)
+                    self.assertIn('if alerts="$(GH_TOKEN=', text)
+
+    def test_scorecard_executes_only_trusted_base_runtime_with_token(self) -> None:
+        for path in (
+            ROOT / "workflows/guardrails-scorecard.yml",
+            ROOT / ".github/workflows/guardrails-scorecard.yml",
+        ):
+            with self.subTest(path=path):
+                text = path.read_text()
+                self.assertIn("pull_request_target:", text)
+                self.assertIn("actions: read", text)
+                self.assertIn("path: .guardrails-trusted", text)
+                self.assertIn("ref: ${{ github.event.pull_request.base.sha || github.sha }}", text)
+                self.assertIn("path: .guardrails-candidate", text)
+                self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
+                self.assertIn("repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}", text)
+                self.assertIn("sparse-checkout:", text)
+                self.assertIn("python3 .guardrails-trusted/.guardrails/github_evidence.py", text)
+                self.assertIn("python3 .guardrails-trusted/.guardrails/scorecard.py", text)
+                self.assertNotIn("python3 .guardrails-candidate/", text)
+                self.assertIn(".guardrails-candidate/.guardrails/policy.yaml", text)
+                for filename in ("profiles.yaml", "control-catalog.yaml", "providers.yaml"):
+                    self.assertNotIn(f".guardrails-candidate/.guardrails/{filename}", text)
+                    self.assertIn(f".guardrails-trusted/.guardrails/{filename}", text)
+                self.assertIn("--trusted-base-revision", text)
+                self.assertIn("--trusted-workflow-ref", text)
+                self.assertIn("candidate Guardrails input must be a regular non-symlink file", text)
+
+    def test_scorecard_writes_paired_timestamped_json_markdown_and_job_summary(self) -> None:
+        text = (ROOT / "workflows/guardrails-scorecard.yml").read_text()
+
+        self.assertIn('GUARDRAILS_TIMESTAMP="$(date -u +%Y%m%d-%H%M%SZ)"', text)
+        self.assertIn("evidence-${GUARDRAILS_TIMESTAMP}.json", text)
+        self.assertIn("scorecard-${GUARDRAILS_TIMESTAMP}.json", text)
+        self.assertIn("scorecard-${GUARDRAILS_TIMESTAMP}.md", text)
+        self.assertIn("--json", text)
+        self.assertIn('cat "${SCORECARD_MARKDOWN}" >> "${GITHUB_STEP_SUMMARY}"', text)
+
+    def test_repository_validation_runs_portable_and_optional_standards_validator(self) -> None:
+        text = (ROOT / "workflows/repository-validation.yml").read_text()
+        self.assertIn("python3 .guardrails/validators/validate_repository.py", text)
+        self.assertIn("hashFiles('tooling/validators/validate_repository.py')", text)
+        self.assertIn("python3 tooling/validators/validate_repository.py", text)
+
+    def test_artifact_provenance_is_release_scoped_not_a_pr_commit_check(self) -> None:
+        text = (ROOT / "workflows/artifact-provenance.yml").read_text()
+        self.assertNotIn("pull_request:", text)
+        self.assertIn("release:", text)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("attestations: write", text)
+        self.assertIn("id-token: write", text)
+        self.assertIn("subject-path:", text)
+
+    def test_default_ruleset_does_not_claim_unactivated_checks(self) -> None:
+        ruleset = json.loads((ROOT / "rulesets/default-branch-protection.json").read_text())
+        required = [rule for rule in ruleset["rules"] if rule["type"] == "required_status_checks"]
+        self.assertEqual(required, [])
 
 
 if __name__ == "__main__":

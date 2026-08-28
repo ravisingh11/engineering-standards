@@ -39,6 +39,62 @@ class GroundTruthValidatorTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("passed (1 documents)", result.stdout)
 
+    def test_valid_nested_repository_path_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "docs" / "standards" / "README.md"
+            document.parent.mkdir(parents=True)
+            document.write_text("# Standards\n", encoding="utf-8")
+            policy = self.write_policy(
+                root,
+                [{"path": "docs/standards/README.md"}],
+            )
+
+            result = self.run_validator(root, "--policy", str(policy))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("passed (1 documents)", result.stdout)
+
+    def test_absolute_document_path_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = root / "README.md"
+            document.write_text("# Fixture\n", encoding="utf-8")
+            policy = self.write_policy(root, [{"path": str(document)}])
+
+            result = self.run_validator(root, "--policy", str(policy))
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("must be repository-relative", result.stdout)
+
+    def test_parent_traversal_outside_repository_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = workspace / "repository"
+            root.mkdir()
+            (workspace / "outside.md").write_text("# Outside\n", encoding="utf-8")
+            policy = self.write_policy(root, [{"path": "../outside.md"}])
+
+            result = self.run_validator(root, "--policy", str(policy))
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("must resolve within repository root", result.stdout)
+
+    def test_symlink_outside_repository_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = workspace / "repository"
+            root.mkdir()
+            outside = workspace / "outside.md"
+            outside.write_text("# Outside\n", encoding="utf-8")
+            (root / "linked.md").symlink_to(outside)
+            policy = self.write_policy(root, [{"path": "linked.md"}])
+
+            result = self.run_validator(root, "--policy", str(policy))
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("must resolve within repository root", result.stdout)
+
     def test_missing_declared_document_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
