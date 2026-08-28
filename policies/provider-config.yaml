@@ -19,7 +19,7 @@
       "template_available": true,
       "secrets": ["SEMGREP_APP_TOKEN"],
       "controls": {
-        "semgrep": {"check_name": "Semgrep", "workflow": "Semgrep", "wait_for": false, "change": "advisory", "release": "advisory"}
+        "semgrep": {"check_name": "Semgrep", "workflow": "Semgrep", "wait_for": true, "change": "advisory", "release": "advisory"}
       }
     },
     "sonarqube": {

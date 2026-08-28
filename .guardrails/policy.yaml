@@ -16,7 +16,10 @@
         "codeql-sast",
         "secrets-scan",
         "dependency-review",
-        "dependabot"
+        "dependabot",
+        "snyk-code",
+        "snyk-open-source",
+        "semgrep"
       ]
     },
     "release": {
@@ -32,7 +35,10 @@
         "codeql-sast",
         "secrets-scan",
         "dependency-review",
-        "dependabot"
+        "dependabot",
+        "snyk-code",
+        "snyk-open-source",
+        "semgrep"
       ]
     }
   }

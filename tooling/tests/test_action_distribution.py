@@ -365,6 +365,32 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertTrue(installed.is_file())
         self.assertEqual(template.read_bytes(), installed.read_bytes())
 
+    def test_repository_selects_configured_security_providers_as_advisory(self) -> None:
+        policy = json.loads(
+            (ROOT / ".guardrails" / "policy.yaml").read_text(encoding="utf-8")
+        )
+        providers = json.loads(
+            (ROOT / ".guardrails" / "providers.yaml").read_text(encoding="utf-8")
+        )
+        manifest = json.loads(
+            (ROOT / ".guardrails" / "producer-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected_controls = {"snyk-code", "snyk-open-source", "semgrep"}
+
+        self.assertTrue(providers["providers"]["snyk"]["enabled"])
+        self.assertTrue(providers["providers"]["semgrep"]["enabled"])
+        for operation in ("change", "release"):
+            self.assertTrue(
+                expected_controls.issubset(policy["operations"][operation]["advisory"])
+            )
+        producers = {
+            item["control_id"]: item for item in manifest["producers"]
+        }
+        self.assertTrue(expected_controls.issubset(producers))
+        self.assertTrue(producers["semgrep"]["wait_for"])
+
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
         text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
             encoding="utf-8"

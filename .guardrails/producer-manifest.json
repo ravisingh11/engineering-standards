@@ -90,6 +90,24 @@
       "check_name": "AI Repo Standards Review",
       "workflow": "AI Repo Standards Review",
       "wait_for": false
+    },
+    {
+      "control_id": "snyk-code",
+      "check_name": "Snyk Code",
+      "workflow": "Snyk",
+      "wait_for": true
+    },
+    {
+      "control_id": "snyk-open-source",
+      "check_name": "Snyk Open Source",
+      "workflow": "Snyk",
+      "wait_for": true
+    },
+    {
+      "control_id": "semgrep",
+      "check_name": "Semgrep",
+      "workflow": "Semgrep",
+      "wait_for": true
     }
   ]
 }

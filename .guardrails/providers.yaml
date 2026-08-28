@@ -3,7 +3,7 @@
   "providers": {
     "snyk": {
       "name": "Snyk",
-      "enabled": false,
+      "enabled": true,
       "template": "workflows/snyk.yml",
       "template_available": true,
       "secrets": [
@@ -28,7 +28,7 @@
     },
     "semgrep": {
       "name": "Semgrep",
-      "enabled": false,
+      "enabled": true,
       "template": "workflows/semgrep.yml",
       "template_available": true,
       "secrets": [
@@ -38,7 +38,7 @@
         "semgrep": {
           "check_name": "Semgrep",
           "workflow": "Semgrep",
-          "wait_for": false,
+          "wait_for": true,
           "change": "advisory",
           "release": "advisory"
         }
