@@ -111,6 +111,34 @@ The installer never copies credentials. It installs workflow and configuration
 interfaces; the consuming repository or organization owns provider accounts,
 credential rotation, and repository access.
 
+### Activate a provider completely
+
+A provider is active only when all three pieces agree:
+
+1. Its real credential is stored as a repository secret.
+2. Its producer workflow exists in `.github/workflows/` and runs successfully.
+3. Its provider is enabled and synchronized into the repository policy and
+   producer manifest.
+
+For example:
+
+```sh
+python3 /path/to/engineering-standards/tooling/install.py \
+  --target . \
+  --github-actions \
+  --provider snyk \
+  --provider semgrep \
+  --refresh-existing
+python3 .guardrails/configure.py \
+  --enable-provider snyk \
+  --enable-provider semgrep \
+  --sync-providers
+```
+
+Then open or update a pull request. A successful configuration job alone is
+not scan evidence: confirm the `Snyk Code`, `Snyk Open Source`, and `Semgrep`
+checks themselves, followed by the updated Guardrail Scorecard.
+
 ## Repository Validation
 
 **Protects:** the repository contracts that make the standards and Guardrails
