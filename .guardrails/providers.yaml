@@ -16,13 +16,6 @@
           "wait_for": true,
           "change": "advisory",
           "release": "advisory"
-        },
-        "snyk-open-source": {
-          "check_name": "Snyk Open Source",
-          "workflow": "Snyk",
-          "wait_for": true,
-          "change": "advisory",
-          "release": "advisory"
         }
       }
     },

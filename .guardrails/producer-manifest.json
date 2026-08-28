@@ -98,12 +98,6 @@
       "wait_for": true
     },
     {
-      "control_id": "snyk-open-source",
-      "check_name": "Snyk Open Source",
-      "workflow": "Snyk",
-      "wait_for": true
-    },
-    {
       "control_id": "semgrep",
       "check_name": "Semgrep",
       "workflow": "Semgrep",

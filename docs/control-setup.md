@@ -136,8 +136,10 @@ python3 .guardrails/configure.py \
 ```
 
 Then open or update a pull request. A successful configuration job alone is
-not scan evidence: confirm the `Snyk Code`, `Snyk Open Source`, and `Semgrep`
-checks themselves, followed by the updated Guardrail Scorecard.
+not scan evidence: confirm the applicable provider checks themselves, followed
+by the updated Guardrail Scorecard. Select `Snyk Open Source` only when the
+repository has a supported dependency manifest; a no-manifest job is not
+dependency-scan evidence.
 
 ## Repository Validation
 

@@ -377,7 +377,8 @@ class ActionDistributionTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        expected_controls = {"snyk-code", "snyk-open-source", "semgrep"}
+        expected_controls = {"snyk-code", "semgrep"}
+        unavailable_controls = {"snyk-open-source"}
 
         self.assertTrue(providers["providers"]["snyk"]["enabled"])
         self.assertTrue(providers["providers"]["semgrep"]["enabled"])
@@ -385,10 +386,16 @@ class ActionDistributionTests(unittest.TestCase):
             self.assertTrue(
                 expected_controls.issubset(policy["operations"][operation]["advisory"])
             )
+            self.assertTrue(
+                unavailable_controls.isdisjoint(
+                    policy["operations"][operation]["advisory"]
+                )
+            )
         producers = {
             item["control_id"]: item for item in manifest["producers"]
         }
         self.assertTrue(expected_controls.issubset(producers))
+        self.assertTrue(unavailable_controls.isdisjoint(producers))
         self.assertTrue(producers["semgrep"]["wait_for"])
 
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:

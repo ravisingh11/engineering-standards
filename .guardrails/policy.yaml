@@ -18,7 +18,6 @@
         "dependency-review",
         "dependabot",
         "snyk-code",
-        "snyk-open-source",
         "semgrep"
       ]
     },
@@ -37,7 +36,6 @@
         "dependency-review",
         "dependabot",
         "snyk-code",
-        "snyk-open-source",
         "semgrep"
       ]
     }
