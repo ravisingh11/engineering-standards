@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run local guardrail producers and render a repository-specific scorecard."""
+"""Run local Guardrails v2 producers and render revision-bound artifacts."""
 
 from __future__ import annotations
 
@@ -14,82 +14,23 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-try:
-    from guardrails.evaluate import validate_evidence
-except ModuleNotFoundError:
-    evaluator_path = ROOT / ".guardrails" / "evaluate.py"
-    evaluator_spec = importlib.util.spec_from_file_location(
-        "installed_guardrails_evaluate", evaluator_path
-    )
-    if evaluator_spec is None or evaluator_spec.loader is None:
-        raise
-    evaluator_module = importlib.util.module_from_spec(evaluator_spec)
-    evaluator_spec.loader.exec_module(evaluator_module)
-    validate_evidence = evaluator_module.validate_evidence
 
 
-EVIDENCE_LABELS = {
-    "passed": "PASSED",
-    "failed": "FAILED",
-    "blocked": "BLOCKED",
-    "not_run": "NO RESULT",
-    "missing": "NOT ACTIVATED",
-    "no_result": "NO RESULT",
-    "not_activated": "NOT ACTIVATED",
-}
-CONTROL_DOCS = {
-    "repository-validation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-validation",
-    "documentation": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#documentation-validation",
-    "repository-ground-truth": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ground-truth",
-    "build": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#build",
-    "unit-tests": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#unit-tests",
-    "codeql-sast": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#codeql--sast",
-    "secrets-scan": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#secrets-scanning",
-    "dependency-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependency-review",
-    "dependabot": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#dependabot",
-    "sonarqube": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#sonarqube",
-    "fossa": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#fossa",
-    "snyk-code": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk",
-    "snyk-open-source": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#snyk",
-    "soak-check": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#soak-check",
-    "ai-engineering-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
-    "ai-qa-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
-    "ai-security-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#ai-reviews",
-    "ai-repo-standards-review": "https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-setup.md#repository-standards-review",
-}
-
-
-def evidence_label(status: str) -> str:
-    return EVIDENCE_LABELS.get(status, status.upper())
+def evaluator_module() -> Any:
+    path = ROOT / "guardrails" / "evaluate.py"
+    if not path.exists():
+        path = ROOT / ".guardrails" / "evaluate.py"
+    spec = importlib.util.spec_from_file_location("guardrails_v2_evaluator", path)
+    if not spec or not spec.loader:
+        raise ValueError(f"cannot load evaluator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run(command: list[str], cwd: Path) -> tuple[int, str]:
     result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
-    output = (result.stdout + result.stderr).strip()
-    return result.returncode, output
-
-
-def dependabot_configuration_evidence(target: Path) -> dict[str, Any] | None:
-    """Report configuration presence without claiming GitHub activation."""
-    config = target / ".github" / "dependabot.yml"
-    if not config.exists():
-        config = target / ".github" / "dependabot.yaml"
-    if not config.exists():
-        return None
-    relative = config.relative_to(target)
-    return {
-        "producer": "repository Dependabot configuration",
-        "status": "not_run",
-        "evidence": [f"configuration: {relative}"],
-        "reason": (
-            "Dependabot configuration is present, but GitHub repository settings "
-            "and a revision-bound Dependabot producer result were not verified by "
-            "this local scan."
-        ),
-    }
+    return result.returncode, (result.stdout + result.stderr).strip()
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -100,396 +41,302 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def default_config_path(target: Path, consumer_path: str, shared_path: str) -> Path:
-    """Resolve defaults for both consumers and this standards repository."""
-    consumer = target / consumer_path
-    if consumer.exists():
-        return consumer
     if target == ROOT and (target / shared_path).exists():
         return target / shared_path
-    return consumer
+    return target / consumer_path
+
+
+def result_for_command(producer: str, command: list[str], code: int, output: str) -> dict[str, Any]:
+    return {
+        "producer": producer,
+        "status": "passed" if code == 0 else "failed",
+        "evidence": [" ".join(command), output[-1000:] or "command completed without output"],
+    }
+
+
+def local_binding(target: Path, requested_revision: str) -> tuple[str | None, str | None]:
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        cwd=target,
+        text=True,
+        capture_output=True,
+    )
+    requested = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{requested_revision}^{{commit}}"],
+        cwd=target,
+        text=True,
+        capture_output=True,
+    )
+    if head.returncode != 0 or requested.returncode != 0:
+        return None, "Local evidence requires an exact immutable commit that resolves in this repository."
+    head_revision = head.stdout.strip()
+    requested_full = requested.stdout.strip()
+    if head_revision != requested_full:
+        return None, "Local evidence requires the requested revision to exactly match HEAD."
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=target,
+        text=True,
+        capture_output=True,
+    )
+    if status.returncode != 0:
+        return None, "Local evidence requires repository cleanliness to be verified."
+    if status.stdout:
+        return None, "Local evidence requires a clean worktree before providers run."
+    return head_revision, None
+
+
+def unavailable_local_evidence(revision: str, reason: str) -> dict[str, Any]:
+    results = {}
+    for control_id, producer in (
+        ("repository-validation", "local repository validation"),
+        ("documentation-validation", "local documentation validation"),
+        ("repository-ground-truth", "repository ground-truth validator"),
+        ("change-scope", "local change-scope inspection"),
+    ):
+        results[control_id] = {
+            "repository-validator": {
+                "producer": producer,
+                "status": "not_run",
+                "reason": reason,
+            }
+        }
+    return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
+
+
+def configuration_presence_evidence(path: Path, target: Path, provider_name: str) -> dict[str, Any]:
+    return {
+        "producer": f"{provider_name} configuration inspection",
+        "status": "not_run",
+        "evidence": [f"configuration: {path.relative_to(target)}"],
+        "reason": "Configuration presence is not revision-bound provider evidence and cannot satisfy this capability.",
+    }
 
 
 def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]:
-    checks: dict[str, Any] = {}
+    bound_revision, binding_error = local_binding(target, revision)
+    if binding_error:
+        return unavailable_local_evidence(revision, binding_error)
+    assert bound_revision is not None
+    revision = bound_revision
+    results: dict[str, dict[str, dict[str, Any]]] = {}
     validators = target / "tooling" / "validators"
-    for check_id, filename, producer in (
+    for control_id, filename, producer in (
         ("repository-validation", "validate_repository.py", "local repository validation"),
-        ("documentation", "validate_documentation.py", "local documentation validation"),
+        ("documentation-validation", "validate_documentation.py", "local documentation validation"),
     ):
         validator = validators / filename
-        if not validator.exists():
-            checks[check_id] = {
+        if validator.exists():
+            command = [sys.executable, str(validator)]
+            code, output = run(command, target)
+            record = result_for_command(producer, command, code, output)
+        else:
+            record = {
                 "producer": producer,
                 "status": "not_run",
                 "reason": f"{validator.relative_to(target)} is not installed in this repository",
             }
-            continue
-        command = [sys.executable, str(validator)]
-        code, output = run(command, target)
-        checks[check_id] = {
-            "producer": producer,
-            "status": "passed" if code == 0 else "failed",
-            "evidence": [" ".join(command), output[-1000:]],
-        }
+        results[control_id] = {"repository-validator": record}
 
     ground_truth_validator = target / ".guardrails" / "validate_ground_truth.py"
     ground_truth_policy = target / ".guardrails" / "ground-truth-ai.yaml"
     if ground_truth_validator.exists() and ground_truth_policy.exists():
         command = [sys.executable, str(ground_truth_validator), "--policy", str(ground_truth_policy)]
         code, output = run(command, target)
-        checks["repository-ground-truth"] = {
+        record = result_for_command("repository ground-truth validator", command, code, output)
+    else:
+        record = {
             "producer": "repository ground-truth validator",
-            "status": "passed" if code == 0 else "failed",
-            "evidence": [" ".join(command), output[-1000:]],
+            "status": "not_run",
+            "reason": "repository ground-truth validator and policy are not both installed",
         }
-
-    dependabot = dependabot_configuration_evidence(target)
-    if dependabot is not None:
-        checks["dependabot"] = dependabot
+    results["repository-ground-truth"] = {"repository-validator": record}
 
     scope_validator = validators / "inspect_change_scope.py"
-    with tempfile.NamedTemporaryFile(suffix=".json") as scope_file:
-        if not scope_validator.exists():
-            checks["change-scope"] = {
-                "producer": "local change-scope inspection",
-                "status": "not_run",
-                "reason": f"{scope_validator.relative_to(target)} is not installed in this repository",
-            }
-            return {"version": 1, "subject": {"type": "git-commit", "revision": revision}, "checks": checks}
-        command = [
-            sys.executable,
-            str(scope_validator),
-            "--base-ref",
-            base_ref,
-            "--head-ref",
-            revision,
-            "--output",
-            scope_file.name,
-        ]
-        code, output = run(command, target)
-        if code == 0:
-            scope = load(Path(scope_file.name))
-            checks["change-scope"] = {
-                "producer": "local change-scope inspection",
-                "status": scope["status"],
-                "evidence": [json.dumps(scope["metrics"], sort_keys=True)],
-            }
-        else:
-            checks["change-scope"] = {
-                "producer": "local change-scope inspection",
-                "status": "not_run",
-                "reason": output[-1000:] or "change scope could not be evaluated",
-            }
-
-    return {"version": 1, "subject": {"type": "git-commit", "revision": revision}, "checks": checks}
+    if scope_validator.exists():
+        with tempfile.NamedTemporaryFile(suffix=".json") as scope_file:
+            command = [
+                sys.executable, str(scope_validator), "--base-ref", base_ref,
+                "--head-ref", revision, "--output", scope_file.name,
+            ]
+            code, output = run(command, target)
+            if code == 0:
+                scope = load(Path(scope_file.name))
+                record = {
+                    "producer": "local change-scope inspection",
+                    "status": scope["status"],
+                    "evidence": [json.dumps(scope["metrics"], sort_keys=True)],
+                }
+            else:
+                record = {
+                    "producer": "local change-scope inspection",
+                    "status": "not_run",
+                    "reason": output[-1000:] or "change scope could not be evaluated",
+                }
+    else:
+        record = {
+            "producer": "local change-scope inspection",
+            "status": "not_run",
+            "reason": f"{scope_validator.relative_to(target)} is not installed in this repository",
+        }
+    results["change-scope"] = {"repository-validator": record}
+    return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
 
 
-def merge_external_evidence(evidence: dict[str, Any], directory: Path | None) -> None:
+def validate_fragment_shape(document: dict[str, Any]) -> None:
+    if document.get("version") != 2 or not isinstance(document.get("subject"), dict) or not isinstance(document.get("results"), dict):
+        raise ValueError("evidence fragment must use the nested v2 evidence contract")
+
+
+def merge_external_evidence(evidence: dict[str, Any], directory: Path | None) -> list[str]:
+    rejected: list[str] = []
     if directory is None or not directory.exists():
-        return
-    seen_external: dict[str, dict[str, Any]] = {}
+        return rejected
     for path in sorted(directory.glob("*.json")):
-        extra = load(path)
-        validate_evidence(extra)
-        if extra["subject"] != evidence["subject"]:
-            # Reports are intentionally reusable across local reruns. Never use
-            # stale evidence, but do not make an old artifact strand the scan.
+        fragment = load(path)
+        validate_fragment_shape(fragment)
+        if fragment["subject"] != evidence["subject"]:
+            rejected.append(path.name)
             continue
-        for check_id, result in extra.get("checks", {}).items():
-            previous_external = seen_external.get(check_id)
-            if previous_external is not None:
-                previous_status = previous_external.get("status")
-                current_status = result.get("status")
-                if previous_status in {"passed", "failed"} and current_status == "not_run":
-                    continue
-                if previous_status == "not_run" and current_status in {"passed", "failed"}:
-                    evidence["checks"][check_id] = result
-                    seen_external[check_id] = result
-                    continue
-                if previous_status == current_status == "not_run":
-                    continue
-                raise ValueError(f"duplicate evidence for check {check_id!r}")
-            existing = evidence["checks"].get(check_id)
-            if existing and existing.get("status") in {"passed", "failed"} and result.get("status") == "not_run":
-                seen_external[check_id] = result
-                continue
-            evidence["checks"][check_id] = result
-            seen_external[check_id] = result
+        for control_id, provider_results in fragment["results"].items():
+            if not isinstance(provider_results, dict):
+                raise ValueError(f"evidence {control_id} provider results must be an object")
+            destination = evidence["results"].setdefault(control_id, {})
+            for provider_id, provider_result in provider_results.items():
+                existing = destination.get(provider_id)
+                if existing is not None and existing != provider_result:
+                    raise ValueError(f"conflicting evidence for {control_id}.{provider_id}")
+                destination[provider_id] = provider_result
+    return rejected
 
 
-def add_missing_policy_checks(evidence: dict[str, Any], policy: dict[str, Any], operation: str) -> None:
-    selected = [*policy["operations"][operation]["required"], *policy["operations"][operation]["advisory"]]
-    for check_id in selected:
-        if check_id not in evidence["checks"]:
-            evidence["checks"][check_id] = {
-                "producer": "not configured for local scan",
-                "status": "not_run",
-                "reason": "Run the configured workflow or external producer and add its evidence file.",
-            }
+def add_authoritative_placeholders(
+    evidence: dict[str, Any],
+    selected: dict[str, dict[str, Any]],
+    providers: dict[str, dict[str, Any]],
+) -> None:
+    for control_id, selection in selected.items():
+        authority = selection["authoritative"]
+        provider_results = evidence["results"].setdefault(control_id, {})
+        provider_results.setdefault(authority, {
+            "producer": providers[authority]["display_name"],
+            "status": "not_run",
+            "reason": "The selected authoritative provider did not produce revision-bound evidence for this scan.",
+        })
 
 
 def detailed_output(card: dict[str, Any], evidence_path: str, report_path: str) -> str:
-    required_controls = [
-        control for control in card["controls"] if control["enforcement"] == "enforced"
-    ]
-    advisory_findings = [
-        finding for finding in card["findings"] if finding["enforcement"] == "advisory"
-    ]
-    inactive_controls = [
-        control for control in card["controls"]
-        if control["enforcement"] == "not_activated"
-    ]
     lines = [
-        "╔══════════════════════════════════════════════════════════════════════╗",
-        "║                            GUARDRAIL SCAN                            ║",
-        "╚══════════════════════════════════════════════════════════════════════╝",
-        f"  RESULT       {card['status']} — {card['decision'].upper()}",
-        f"  ENFORCED     {card['enforced']['passed']}/{card['enforced']['total']} passed ({card['enforced']['percent'] or 0}%)",
-        f"  ADVISORY     {card['advisory']['passed']}/{card['advisory']['total']} passed — non-blocking",
-        f"  READINESS    {card['readiness_status']} (enforced RED: {card['enforced_readiness_red']})",
-        f"  REVISION     {card['subject']['revision']}",
-        f"  POLICY       {card['policy']} / {card['operation']}",
-        "",
-        "What this means",
-        "----------------",
-        "  Enforced controls passed, so this change is allowed to proceed.",
-        "  Orange controls are selected but not fully connected yet.",
-        "  Gray controls are available but not activated for this repository.",
-        "  Advisory findings are visible and do not block this decision.",
-        "",
-        "Enforced controls",
-        "-----------------",
+        f"Guardrail Scan: {card['status']} — {card['decision'].upper()}",
+        f"Subject: {card['subject']['type']}@{card['subject']['revision']}",
+        f"Policy: {card['policy']} / {card['operation']}",
     ]
-    for control in required_controls:
-        icon = "✅" if control["readiness"] == "GREEN" else "🛑"
-        lines.append(f"  {icon} {control['name']} — {evidence_label(control['evidence_status'])}")
-    lines.extend([
-        "",
-        "Advisory findings",
-        "------------------",
-    ])
-    if advisory_findings:
-        for finding in advisory_findings:
-            lines.append(f"  ⚠️  {finding['check']}: {finding['message']}")
-    else:
-        lines.append("  ✅ None")
-    lines.extend([
-        "",
-        "Available but not activated",
-        "----------------------------",
-    ])
-    if inactive_controls:
-        for control in inactive_controls:
-            lines.append(f"  ⚪ {control['name']} — {control['activation']}")
-    else:
-        lines.append("  ✅ None")
-    lines.extend([
-        "",
-        "Next actions",
-        "------------",
-    ])
-    actions = []
-    if any(finding["check"] == "change-scope" for finding in advisory_findings):
-        actions.append("Review the change-scope finding or split the current work.")
-    if any(finding["check"].startswith("snyk-") for finding in advisory_findings):
-        actions.append("Configure SNYK_TOKEN to activate Snyk advisory scans.")
-    if inactive_controls:
-        actions.append("Select additional controls with configure.py when ready.")
-    for number, action in enumerate(actions, start=1):
-        lines.append(f"  {number}. {action}")
-    if not advisory_findings and not inactive_controls:
-        lines.append("  ✅ No further activation actions are required.")
-    lines.extend([
-        "",
-        "Detailed controls",
-        "-----------------",
-        "  Evidence: PASSED = producer reported pass | NO RESULT = selected but producer did not report | NOT ACTIVATED = not selected",
-        f"{'STATUS':<7} {'ENFORCEMENT':<12} {'ACTIVATION':<14} {'EVIDENCE':<10} CONTROL",
-    ])
     for control in card["controls"]:
-        lines.append(
-            f"{control['readiness']:<7} {control['enforcement']:<9} "
-            f"{control['activation']:<14} {evidence_label(control['evidence_status']):<12} "
-            f"{control['id']} — {control['name']}"
-        )
-    lines.extend(["", "Findings", "--------"])
-    if card["findings"]:
-        for finding in card["findings"]:
-            lines.append(
-                f"- [{finding['enforcement']}] {finding['check']}: "
-                f"{evidence_label(finding['status'])} — {finding['message']}"
-            )
-    else:
-        lines.append("- None")
-    lines.extend(["", f"Evidence: {evidence_path}", f"Report: {report_path}"])
+        provider = control["authoritative_provider"]
+        provider_name = provider["display_name"] if provider else "Not activated"
+        lines.append(f"{control['readiness']} {control['name']} — {provider_name}: {control['evidence_status']}")
+    lines.extend([f"Evidence: {evidence_path}", f"Report: {report_path}"])
     return "\n".join(lines) + "\n"
 
 
-def detailed_markdown(card: dict[str, Any], evidence_path: str, report_path: str) -> str:
-    status_icons = {"GREEN": "🟢", "ORANGE": "🟠", "GRAY": "⚪", "RED": "🔴"}
+def detailed_markdown(card: dict[str, Any], evidence_path: str) -> str:
     lines = [
-        "# Guardrail Scan Report",
-        "",
-        f"- Status: **{card['status']}**",
-        f"- Decision: **{card['decision'].upper()}**",
-        f"- Policy: `{card['policy']}` ({card['operation']})",
-        f"- Revision: `{card['subject']['revision']}`",
-        f"- Evidence: `{evidence_path}`",
-        f"- Report: `{report_path}`",
-        "",
-        "## Summary",
-        "",
-        f"- Enforced: **{card['enforced']['passed']}/{card['enforced']['total']}** ({card['enforced']['percent'] or 0}%)",
-        f"- Advisory passed: **{card['advisory']['passed']}/{card['advisory']['total']}** ({card['advisory']['percent'] or 0}%) — non-blocking",
-        f"- Readiness: **{card['readiness_status']}** — enforced RED {card['enforced_readiness_red']}; GREEN {card['readiness']['GREEN']}, ORANGE {card['readiness']['ORANGE']}, GRAY {card['readiness']['GRAY']}, RED {card['readiness']['RED']}",
-        "",
-        "### Status legend",
-        "",
-        "🟢 GREEN = selected and passed  ·  🟠 ORANGE = selected but no result  ·  ⚪ GRAY = available but not activated  ·  🔴 RED = failed or missing enforced evidence",
-        "",
-        "Evidence legend: PASSED = producer reported pass  ·  NO RESULT = selected but producer did not report  ·  NOT ACTIVATED = control not selected",
-        "",
-        "## Controls",
-        "",
-        "| Status | Enforcement | Activation | Evidence | Control |",
-        "| --- | --- | --- | --- | --- |",
+        "# Guardrail Scan Report", "", f"- Status: **{card['status']}**",
+        f"- Decision: **{card['decision'].upper()}**", f"- Evidence: `{evidence_path}`",
+        "", "| Readiness | Mode | Capability — Provider | Evidence |", "| --- | --- | --- | --- |",
     ]
     for control in card["controls"]:
-        lines.append(
-            f"| {status_icons[control['readiness']]} {control['readiness']} | {control['enforcement']} | "
-            f"{control['activation']} | {evidence_label(control['evidence_status'])} | "
-            f"[`{control['id']}` — {control['name']}]({CONTROL_DOCS.get(control['id'], 'https://github.com/ravisingh11/engineering-standards/blob/main/docs/control-status.md#control-map')}) |"
-        )
-    lines.extend(["", "## Findings", ""])
-    if card["findings"]:
-        lines.extend(
-            f"- **{finding['enforcement']}** `{finding['check']}`: {evidence_label(finding['status'])} — {finding['message']}"
-            for finding in card["findings"]
-        )
-    else:
-        lines.append("- None")
+        provider = control["authoritative_provider"]
+        provider_name = provider["display_name"] if provider else "Not activated"
+        lines.append(f"| {control['readiness']} | {control['effective_mode']} | {control['name']} — {provider_name} | {control['evidence_status']} |")
     return "\n".join(lines) + "\n"
+
+
+def default_artifact_paths(target: Path, timestamp: datetime) -> tuple[Path, Path, Path]:
+    stamp = timestamp.astimezone(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    directory = target / ".artifacts" / "guardrails"
+    return (
+        directory / f"evidence-{stamp}.json",
+        directory / "evidence.json",
+        directory / f"scorecard-{stamp}.md",
+    )
+
+
+def add_artifact_locations(card: dict[str, Any], evidence_path: Path, report_path: Path) -> None:
+    card["artifacts"] = {
+        "evidence": str(evidence_path),
+        "report": str(report_path),
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run local producers and render a guardrail scorecard")
+    parser = argparse.ArgumentParser(description="Run local Guardrails v2 producers")
     parser.add_argument("--target", type=Path, default=Path("."))
-    parser.add_argument("--policy", type=Path, default=None)
-    parser.add_argument("--catalog", type=Path, default=None)
-    parser.add_argument("--evidence", type=Path, default=None)
-    parser.add_argument("--evidence-dir", type=Path, default=None)
-    parser.add_argument("--operation", default="change")
+    parser.add_argument("--policy", type=Path)
+    parser.add_argument("--profiles", type=Path)
+    parser.add_argument("--catalog", type=Path)
+    parser.add_argument("--providers", type=Path)
+    parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--operation", choices=("change", "release"), default="change")
     parser.add_argument("--revision", default="")
     parser.add_argument("--base-ref", default="HEAD~1")
     parser.add_argument("--all-catalog-controls", action="store_true")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument(
-        "--report",
-        type=Path,
-        help="Markdown report path; defaults to a UTC timestamped file under .artifacts/guardrails",
-    )
+    parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     target = args.target.resolve()
-    policy_path = (
-        (target / args.policy).resolve()
-        if args.policy
-        else default_config_path(target, ".guardrails/policy.yaml", "guardrails/baseline.yaml")
+    timestamp = datetime.now(timezone.utc)
+    default_evidence_path, latest_evidence_path, default_report_path = default_artifact_paths(
+        target, timestamp
     )
-    catalog_path = (
-        (target / args.catalog).resolve()
-        if args.catalog
-        else default_config_path(target, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml")
-    )
-    evidence_path = (
-        (target / args.evidence).resolve()
-        if args.evidence
-        else target / ".artifacts/guardrails/evidence.json"
-    )
-    evidence_dir = (
-        (target / args.evidence_dir).resolve()
-        if args.evidence_dir
-        else target / ".artifacts/guardrails/evidence"
-    )
+
+    def resolve(explicit: Path | None, consumer: str, shared: str) -> Path:
+        return (target / explicit).resolve() if explicit else default_config_path(target, consumer, shared)
+
+    policy_path = resolve(args.policy, ".guardrails/policy.yaml", "guardrails/baseline.yaml")
+    profiles_path = resolve(args.profiles, ".guardrails/profiles.yaml", "policies/profiles.yaml")
+    catalog_path = resolve(args.catalog, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml")
+    providers_path = resolve(args.providers, ".guardrails/providers.yaml", "policies/provider-config.yaml")
+    evidence_path = (target / args.evidence).resolve() if args.evidence else default_evidence_path
+    evidence_dir = (target / args.evidence_dir).resolve() if args.evidence_dir else target / ".artifacts/guardrails/evidence"
     try:
-        policy = load(policy_path)
+        policy, profiles, catalog, provider_config = map(load, (policy_path, profiles_path, catalog_path, providers_path))
         revision = args.revision or run(["git", "rev-parse", "HEAD"], target)[1]
         evidence = local_evidence(target, revision, args.base_ref)
         merge_external_evidence(evidence, evidence_dir)
-        add_missing_policy_checks(evidence, policy, args.operation)
+        evaluator = evaluator_module()
+        selected, controls, provider_definitions = evaluator.effective_controls(
+            policy, profiles, catalog, provider_config, args.operation, "git-commit"
+        )
+        add_authoritative_placeholders(evidence, selected, provider_definitions)
+        evaluator.validate_evidence(evidence, controls, provider_definitions)
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
-        evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-        scorecard = target / ".guardrails" / "scorecard.py"
-        if not scorecard.exists():
-            scorecard = ROOT / "tooling" / "guardrail_scorecard.py"
+        rendered_evidence = json.dumps(evidence, indent=2) + "\n"
+        evidence_path.write_text(rendered_evidence, encoding="utf-8")
+        if not args.evidence:
+            latest_evidence_path.write_text(rendered_evidence, encoding="utf-8")
+
+        scorecard_path = ROOT / "tooling" / "guardrail_scorecard.py"
+        if not scorecard_path.exists():
+            scorecard_path = target / ".guardrails" / "scorecard.py"
         command = [
-            sys.executable,
-            str(scorecard),
-            "--policy", str(policy_path),
-            "--catalog", str(catalog_path),
-            "--evidence", str(evidence_path),
-            "--operation", args.operation,
-            "--revision", revision,
-            "--subject-type", "git-commit",
+            sys.executable, str(scorecard_path), "--policy", str(policy_path),
+            "--profiles", str(profiles_path), "--catalog", str(catalog_path),
+            "--providers", str(providers_path), "--evidence", str(evidence_path),
+            "--operation", args.operation, "--revision", revision,
+            "--subject-type", "git-commit", "--json",
         ]
         if args.all_catalog_controls:
             command.append("--all-catalog-controls")
-        command.append("--json")
-        result = subprocess.run(command, cwd=target, text=True, capture_output=True)
-        card: dict[str, Any] | None = None
-        try:
-            card = json.loads(result.stdout)
-            if args.json:
-                screen_output = json.dumps(card, indent=2) + "\n"
-            else:
-                screen_output = detailed_output(card, str(evidence_path), "<pending>")
-        except json.JSONDecodeError:
-            screen_output = result.stdout + result.stderr
-        timestamp = datetime.now(timezone.utc)
-        report_path = (
-            (target / args.report).resolve()
-            if args.report
-            else target
-            / ".artifacts"
-            / "guardrails"
-            / f"scorecard-{timestamp.strftime('%Y%m%d-%H%M%SZ')}.md"
-        )
+        completed = subprocess.run(command, cwd=target, text=True, capture_output=True)
+        card = json.loads(completed.stdout)
+        report_path = (target / args.report).resolve() if args.report else default_report_path
+        add_artifact_locations(card, evidence_path, report_path)
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        def report_location(path: Path) -> str:
-            try:
-                return str(path.relative_to(target))
-            except ValueError:
-                return str(path)
-
-        report_location_value = report_location(report_path)
-        if isinstance(card, dict) and "controls" in card:
-            report = (
-                f"# Guardrail Scan Report\n\n"
-                f"- Generated (UTC): `{timestamp.isoformat()}`\n"
-                + detailed_markdown(card, report_location(evidence_path), report_location_value).split("\n", 2)[2]
-            )
-        else:
-            report = (
-            "# Guardrail Scorecard\n\n"
-            f"- Generated (UTC): `{timestamp.isoformat()}`\n"
-            f"- Revision: `{revision}`\n"
-            f"- Operation: `{args.operation}`\n"
-            f"- Policy: `{report_location(policy_path)}`\n"
-            f"- Evidence: `{report_location(evidence_path)}`\n"
-            f"- Report: `{report_location(report_path)}`\n\n"
-            "## Result\n\n"
-            "```text\n"
-            f"{screen_output.rstrip()}\n"
-            "```\n"
-            )
-        report_path.write_text(report, encoding="utf-8")
-        if not args.json and isinstance(card, dict):
-            screen_output = screen_output.replace(
-                "Report: <pending>", f"Report: {report_location_value}"
-            )
-        print(screen_output, end="")
-        if not args.json and isinstance(card, dict):
-            print(f"\nMarkdown report: {report_location_value}")
-        return result.returncode
+        report_path.write_text(detailed_markdown(card, str(evidence_path)), encoding="utf-8")
+        print(json.dumps(card, indent=2) + "\n" if args.json else detailed_output(card, str(evidence_path), str(report_path)), end="")
+        return completed.returncode
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

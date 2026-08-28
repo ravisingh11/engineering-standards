@@ -1,105 +1,227 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "evaluate.py"
-SPEC = importlib.util.spec_from_file_location("agent_safe_evaluate", SCRIPT)
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location("guardrails_v2_evaluate", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
-def policy() -> dict:
-    return {
-        "version": 1,
+def contracts() -> tuple[dict, dict, dict, dict]:
+    profiles = json.loads((ROOT / "policies" / "profiles.yaml").read_text(encoding="utf-8"))
+    catalog = json.loads((ROOT / "policies" / "control-catalog.yaml").read_text(encoding="utf-8"))
+    providers = json.loads((ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8"))
+    selected_change_controls = {
+        control_id
+        for profile in profiles["profiles"].values()
+        for control_id in profile["defaults"]["change"]
+    }
+    policy = {
+        "version": 2,
         "name": "test",
-        "operations": {
+        "profiles": ["core"],
+        "overrides": {
             "change": {
-                "required": ["regression"],
-                "advisory": ["sast"],
-            }
+                control_id: "not_activated"
+                for control_id in selected_change_controls - {"build", "deep-sast"}
+            },
+            "release": {},
         },
     }
+    providers["providers"]["alternate-build"] = {
+        "display_name": "Alternate Build",
+        "activation": "external",
+        "capabilities": ["build"],
+        "checks": {"build": {"check_name": "Alternate Build", "workflow": "Build"}},
+        "template": None,
+        "template_available": False,
+        "secrets": [],
+        "enabled_by_default": False,
+    }
+    providers["selections"]["build"]["supplemental"] = ["alternate-build"]
+    return policy, profiles, catalog, providers
 
 
 def evidence(
+    authority: str | None = "passed",
+    supplemental: str | None = None,
     *,
-    regression: str = "passed",
-    sast: str = "passed",
     revision: str = "abc123",
+    subject_type: str = "git-commit",
 ) -> dict:
-    records = {
-        "regression": {
-            "producer": "tests",
-            "status": regression,
-        },
-        "sast": {
-            "producer": "scanner",
-            "status": sast,
-        },
-    }
-    for record in records.values():
-        if record["status"] in {"passed", "failed"}:
-            record["evidence"] = ["artifact: result.json"]
+    provider_results = {}
+    for provider_id, status in (
+        ("repository-build", authority),
+        ("alternate-build", supplemental),
+    ):
+        if status is None:
+            continue
+        result = {"producer": provider_id, "status": status}
+        if status in {"passed", "failed"}:
+            result["evidence"] = [f"run: {provider_id}"]
         else:
-            record["reason"] = "producer was unavailable"
+            result["reason"] = "provider did not produce a result"
+        provider_results[provider_id] = result
     return {
-        "version": 1,
-        "subject": {"type": "git-commit", "revision": revision},
-        "checks": records,
+        "version": 2,
+        "subject": {"type": subject_type, "revision": revision},
+        "results": {"build": provider_results} if provider_results else {},
     }
 
 
-class EvaluateTests(unittest.TestCase):
-    def test_allows_when_required_checks_pass(self) -> None:
-        result = MODULE.evaluate(policy(), evidence(), "change", "abc123")
-        self.assertEqual(result["decision"], "allow")
-        self.assertEqual(result["summary"]["required"], {"passed": 1, "total": 1})
-
-    def test_blocks_missing_required_evidence(self) -> None:
-        document = evidence()
-        del document["checks"]["regression"]
-        result = MODULE.evaluate(policy(), document, "change", "abc123")
-        self.assertEqual(result["decision"], "block")
-        self.assertEqual(result["findings"][0]["status"], "missing")
-
-    def test_non_passing_status_does_not_satisfy_required_check(self) -> None:
-        for status in ("failed", "blocked", "not_run"):
-            with self.subTest(status=status):
-                result = MODULE.evaluate(
-                    policy(), evidence(regression=status), "change", "abc123"
-                )
-                self.assertEqual(result["decision"], "block")
-
-    def test_advisory_failure_does_not_block(self) -> None:
-        result = MODULE.evaluate(
-            policy(), evidence(sast="failed"), "change", "abc123"
+class EvaluateV2Tests(unittest.TestCase):
+    def evaluate(self, document: dict, *, policy_document: dict | None = None, all_controls: bool = False) -> dict:
+        policy, profiles, catalog, providers = contracts()
+        return MODULE.evaluate(
+            policy_document or policy,
+            profiles,
+            catalog,
+            providers,
+            document,
+            "change",
+            "abc123",
+            "git-commit",
+            all_catalog_controls=all_controls,
         )
-        self.assertEqual(result["decision"], "allow")
-        self.assertEqual(result["findings"][0]["enforcement"], "advisory")
 
-    def test_revision_mismatch_blocks(self) -> None:
-        result = MODULE.evaluate(policy(), evidence(), "change", "different")
+    def test_profile_default_is_advisory_and_override_takes_precedence(self) -> None:
+        policy, _, _, _ = contracts()
+        policy["overrides"]["change"]["build"] = "enforced"
+
+        result = self.evaluate(evidence("failed"), policy_document=policy)
+
         self.assertEqual(result["decision"], "block")
-        self.assertEqual(result["findings"][0]["check"], "_revision")
+        self.assertEqual(result["summary"]["enforced"], {"passed": 0, "total": 1})
+        self.assertEqual(result["controls"][0]["effective_mode"], "enforced")
 
-    def test_rejects_passed_check_without_evidence_record(self) -> None:
+    def test_selected_profiles_are_additive(self) -> None:
+        policy, _, _, _ = contracts()
+        policy["profiles"].append("github")
         document = evidence()
-        del document["checks"]["regression"]["evidence"]
-        with self.assertRaisesRegex(ValueError, "must contain at least one"):
-            MODULE.evaluate(policy(), document, "change", "abc123")
+        document["results"]["deep-sast"] = {
+            "github-codeql": {
+                "producer": "GitHub CodeQL",
+                "status": "passed",
+                "evidence": ["run: 42"],
+            }
+        }
 
-    def test_rejects_check_in_both_enforcement_levels(self) -> None:
-        document = policy()
-        document["operations"]["change"]["advisory"].append("regression")
-        with self.assertRaisesRegex(ValueError, "both required and advisory"):
-            MODULE.evaluate(document, evidence(), "change", "abc123")
+        result = self.evaluate(document, policy_document=policy)
 
-    def test_rejects_unknown_operation(self) -> None:
-        with self.assertRaisesRegex(ValueError, "does not define operation"):
-            MODULE.evaluate(policy(), evidence(), "release", "abc123")
+        self.assertEqual({row["id"] for row in result["controls"]}, {"build", "deep-sast"})
+        self.assertEqual(result["summary"]["advisory"], {"passed": 2, "total": 2})
+
+    def test_runtime_requires_exact_core_and_github_profile_definitions(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        profiles["profiles"]["extra"] = profiles["profiles"]["github"]
+
+        with self.assertRaisesRegex(ValueError, "exactly core and github"):
+            MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
+
+        del profiles["profiles"]["extra"]
+        del profiles["profiles"]["github"]
+        with self.assertRaisesRegex(ValueError, "exactly core and github"):
+            MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
+
+    def test_runtime_rejects_non_advisory_profile_defaults(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        profiles["profiles"]["core"]["defaults"]["change"]["build"] = "enforced"
+
+        with self.assertRaisesRegex(ValueError, "defaults must be advisory"):
+            MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
+
+    def test_runtime_rejects_missing_control_from_exact_profile_operation_set(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        del profiles["profiles"]["core"]["defaults"]["change"]["build"]
+
+        with self.assertRaisesRegex(ValueError, "core change controls must exactly match"):
+            MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
+
+    def test_runtime_rejects_extra_control_in_exact_profile_operation_set(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        profiles["profiles"]["github"]["defaults"]["release"]["deep-sast"] = "advisory"
+
+        with self.assertRaisesRegex(ValueError, "github release controls must exactly match"):
+            MODULE.evaluate(policy, profiles, catalog, providers, evidence(), "change", "abc123", "git-commit")
+
+    def test_authoritative_pass_is_the_only_satisfier(self) -> None:
+        result = self.evaluate(evidence("passed", "failed"))
+
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["status"], "GREEN")
+        row = result["controls"][0]
+        self.assertEqual(row["authoritative_provider"]["id"], "repository-build")
+        self.assertEqual(row["authoritative_evidence_status"], "passed")
+        self.assertEqual(row["supplemental"][0]["status"], "failed")
+
+    def test_supplemental_pass_cannot_satisfy_missing_authority(self) -> None:
+        result = self.evaluate(evidence(None, "passed"))
+
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["status"], "ORANGE")
+        self.assertEqual(result["summary"]["advisory"], {"passed": 0, "total": 1})
+
+    def test_authoritative_non_pass_is_orange_in_advisory_and_red_in_enforced(self) -> None:
+        for status in ("failed", "blocked", "not_run", None):
+            with self.subTest(status=status, mode="advisory"):
+                result = self.evaluate(evidence(status))
+                self.assertEqual(result["decision"], "allow")
+                self.assertEqual(result["status"], "ORANGE")
+            with self.subTest(status=status, mode="enforced"):
+                policy, _, _, _ = contracts()
+                policy["overrides"]["change"]["build"] = "enforced"
+                result = self.evaluate(evidence(status), policy_document=policy)
+                self.assertEqual(result["decision"], "block")
+                self.assertEqual(result["status"], "RED")
+
+    def test_exact_revision_and_subject_type_mismatches_block(self) -> None:
+        wrong_subject = evidence(subject_type="artifact")
+        wrong_subject["results"] = {}
+        for document in (
+            evidence(revision="different"),
+            wrong_subject,
+        ):
+            with self.subTest(subject=document["subject"]):
+                result = self.evaluate(document)
+                self.assertEqual(result["decision"], "block")
+                self.assertEqual(result["status"], "RED")
+                self.assertEqual(result["findings"][0]["kind"], "subject_mismatch")
+
+    def test_subject_mismatch_makes_all_authoritative_and_supplemental_results_unusable(self) -> None:
+        document = evidence("passed", "passed", revision="stale123")
+
+        result = self.evaluate(document)
+
+        row = result["controls"][0]
+        self.assertEqual(row["authoritative_evidence_status"], "missing")
+        self.assertIsNone(row["authoritative_result"])
+        self.assertEqual(row["supplemental"][0]["status"], "missing")
+        self.assertIsNone(row["supplemental"][0]["result"])
+        mismatch = result["findings"][0]
+        self.assertEqual(mismatch["expected_subject"], {"type": "git-commit", "revision": "abc123"})
+        self.assertEqual(mismatch["observed_subject"], {"type": "git-commit", "revision": "stale123"})
+
+    def test_unselected_full_catalog_rows_are_gray_and_not_activated(self) -> None:
+        result = self.evaluate(evidence(), all_controls=True)
+        unselected = {row["id"]: row for row in result["controls"] if row["id"] != "build"}
+
+        self.assertEqual(unselected["deep-sast"]["readiness"], "GRAY")
+        self.assertEqual(unselected["deep-sast"]["effective_mode"], "not_activated")
+        self.assertEqual(unselected["artifact-sbom"]["readiness"], "GRAY")
+
+    def test_rejects_malformed_nested_evidence_before_evaluation(self) -> None:
+        document = evidence()
+        document["results"]["build"]["repository-build"]["status"] = "passed"
+        del document["results"]["build"]["repository-build"]["evidence"]
+
+        with self.assertRaisesRegex(ValueError, "evidence records"):
+            self.evaluate(document)
 
 
 if __name__ == "__main__":

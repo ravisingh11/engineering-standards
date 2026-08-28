@@ -2,299 +2,280 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scan_repository.py"
-SPEC = importlib.util.spec_from_file_location("agentic_scan_repository", SCRIPT)
+SPEC = importlib.util.spec_from_file_location("guardrails_v2_scan", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
-class ControlDocumentationLinkTests(unittest.TestCase):
-    def test_control_links_use_stable_heading_anchors(self) -> None:
-        expected = {
-            "repository-validation": "repository-validation",
-            "documentation": "documentation-validation",
-            "repository-ground-truth": "ground-truth",
-            "build": "build",
-            "unit-tests": "unit-tests",
-            "codeql-sast": "codeql--sast",
-            "secrets-scan": "secrets-scanning",
-            "dependency-review": "dependency-review",
-            "dependabot": "dependabot",
-            "sonarqube": "sonarqube",
-            "fossa": "fossa",
-            "snyk-code": "snyk",
-            "snyk-open-source": "snyk",
-            "soak-check": "soak-check",
-            "ai-engineering-review": "ai-reviews",
-            "ai-qa-review": "ai-reviews",
-            "ai-security-review": "ai-reviews",
-            "ai-repo-standards-review": "repository-standards-review",
-        }
-
-        self.assertEqual(set(MODULE.CONTROL_DOCS), set(expected))
-        for control_id, anchor in expected.items():
-            with self.subTest(control_id=control_id):
-                self.assertEqual(
-                    MODULE.CONTROL_DOCS[control_id].rsplit("#", 1)[1],
-                    anchor,
-                )
+def base_evidence(revision: str = "abc123", subject_type: str = "git-commit") -> dict:
+    return {"version": 2, "subject": {"type": subject_type, "revision": revision}, "results": {}}
 
 
-class DependabotEvidenceTests(unittest.TestCase):
-    def test_configuration_is_not_claimed_as_a_pass(self) -> None:
+def result(status: str = "passed", producer: str = "producer") -> dict:
+    value = {"producer": producer, "status": status}
+    if status in {"passed", "failed"}:
+        value["evidence"] = ["run: 42"]
+    else:
+        value["reason"] = "no result"
+    return value
+
+
+class NestedEvidenceMergeTests(unittest.TestCase):
+    def write(self, directory: Path, name: str, document: dict) -> None:
+        (directory / name).write_text(json.dumps(document), encoding="utf-8")
+
+    def test_merges_multiple_providers_for_one_control_without_collapsing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fragments = Path(directory)
+            first = base_evidence()
+            first["results"] = {"deep-sast": {"github-codeql": result()}}
+            second = base_evidence()
+            second["results"] = {"deep-sast": {"snyk-code": result("failed")}}
+            self.write(fragments, "a.json", first)
+            self.write(fragments, "b.json", second)
+            merged = base_evidence()
+
+            MODULE.merge_external_evidence(merged, fragments)
+
+            self.assertEqual(set(merged["results"]["deep-sast"]), {"github-codeql", "snyk-code"})
+
+    def test_rejects_conflicting_results_for_same_control_and_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fragments = Path(directory)
+            for name, status in (("a.json", "passed"), ("b.json", "failed")):
+                document = base_evidence()
+                document["results"] = {"build": {"repository-build": result(status)}}
+                self.write(fragments, name, document)
+
+            with self.assertRaisesRegex(ValueError, "conflicting evidence"):
+                MODULE.merge_external_evidence(base_evidence(), fragments)
+
+    def test_stale_revision_or_subject_type_fragments_are_rejected_from_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fragments = Path(directory)
+            for name, document in (
+                ("revision.json", base_evidence("old")),
+                ("subject.json", base_evidence(subject_type="artifact")),
+            ):
+                document["results"] = {"build": {"repository-build": result()}}
+                self.write(fragments, name, document)
+            merged = base_evidence()
+
+            rejected = MODULE.merge_external_evidence(merged, fragments)
+
+            self.assertEqual(rejected, ["revision.json", "subject.json"])
+            self.assertEqual(merged["results"], {})
+
+
+class LocalEvidenceTests(unittest.TestCase):
+    def producer(self) -> mock.Mock:
+        producer = mock.Mock()
+        producer.repository_command_result.side_effect = [
+            result("not_run", "build"),
+            result("not_run", "tests"),
+            result("not_run", "coverage"),
+        ]
+        producer.semgrep_result.return_value = result("passed", "semgrep")
+        producer.gitleaks_result.return_value = result("passed", "gitleaks")
+        return producer
+
+    def commit(self, target: Path, message: str) -> str:
+        subprocess.run(["git", "add", "."], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", message], cwd=target, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=target,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+
+    def initialize_documentation_repository(self, target: Path) -> str:
+        subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=target, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=target, check=True)
+        validators = target / "tooling" / "validators"
+        validators.mkdir(parents=True)
+        (validators / "validate_repository.py").write_text(
+            "print('repository ok')\n",
+            encoding="utf-8",
+        )
+        (validators / "validate_documentation.py").write_text(
+            (SCRIPT.parent / "validators" / "validate_documentation.py").read_text(
+                encoding="utf-8"
+            ),
+            encoding="utf-8",
+        )
+        guardrails = target / ".guardrails"
+        guardrails.mkdir()
+        (guardrails / "documentation.yaml").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "mappings": [
+                        {
+                            "name": "application-code",
+                            "triggers": ["app.py"],
+                            "documents": ["README.md"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (target / "README.md").write_text("# Fixture\n", encoding="utf-8")
+        return self.commit(target, "base")
+
+    def initialize_repository(self, target: Path) -> str:
+        subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=target, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=target, check=True)
+        validators = target / "tooling" / "validators"
+        validators.mkdir(parents=True)
+        for filename in ("validate_repository.py", "validate_documentation.py", "inspect_change_scope.py"):
+            (validators / filename).write_text("raise SystemExit('local validator must not run')\n", encoding="utf-8")
+        guardrails = target / ".guardrails"
+        guardrails.mkdir()
+        (guardrails / "validate_ground_truth.py").write_text("raise SystemExit('ground truth must not run')\n", encoding="utf-8")
+        (guardrails / "ground-truth-ai.yaml").write_text("{}\n", encoding="utf-8")
+        (target / "README.md").write_text("clean\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=target, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=target, check=True, text=True, capture_output=True
+        ).stdout.strip()
+
+    def test_available_validators_use_canonical_core_provider_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            validators = target / "tooling" / "validators"
+            validators.mkdir(parents=True)
+            for filename in ("validate_repository.py", "validate_documentation.py", "inspect_change_scope.py"):
+                (validators / filename).write_text("# fixture\n", encoding="utf-8")
+            ground_truth = target / ".guardrails"
+            ground_truth.mkdir()
+            (ground_truth / "validate_ground_truth.py").write_text("# fixture\n", encoding="utf-8")
+            (ground_truth / "ground-truth-ai.yaml").write_text("{}\n", encoding="utf-8")
+            scope_payload = json.dumps({"status": "passed", "metrics": {"files": 1}})
+
+            with mock.patch.object(MODULE, "local_binding", return_value=("abc123", None)), mock.patch.object(MODULE, "exact_local_revision", return_value=("base123", None)), mock.patch.object(MODULE, "run", side_effect=[(0, "repository ok"), (0, "docs ok"), (0, "ground truth ok"), (0, scope_payload)]):
+                with mock.patch.object(MODULE, "load", return_value={"status": "passed", "metrics": {"files": 1}}):
+                    evidence = MODULE.local_evidence(target, "abc123", "HEAD~1")
+
+            for control_id in ("repository-validation", "documentation-validation", "repository-ground-truth", "change-scope"):
+                self.assertEqual(set(evidence["results"][control_id]), {"repository-validator"})
+
+    def test_app_only_change_without_mapped_documentation_fails_local_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            self.initialize_documentation_repository(target)
+            (target / "app.py").write_text("print('changed')\n", encoding="utf-8")
+            head = self.commit(target, "application change")
+
+            with mock.patch.object(MODULE, "producer_module", return_value=self.producer()):
+                evidence = MODULE.local_evidence(target, head, "HEAD~1")
+
+            documentation = evidence["results"]["documentation-validation"]["repository-validator"]
+            self.assertEqual(documentation["status"], "failed")
+            self.assertIn("application-code", documentation["evidence"][1])
+
+    def test_local_scan_supplies_resolved_base_and_head_to_documentation_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            base = self.initialize_documentation_repository(target)
+            (target / "app.py").write_text("print('changed')\n", encoding="utf-8")
+            (target / "README.md").write_text("# Fixture\n\nChanged.\n", encoding="utf-8")
+            head = self.commit(target, "documented application change")
+
+            with mock.patch.object(MODULE, "producer_module", return_value=self.producer()):
+                evidence = MODULE.local_evidence(target, head, "HEAD~1")
+
+            documentation = evidence["results"]["documentation-validation"]["repository-validator"]
+            self.assertEqual(documentation["status"], "passed")
+            self.assertIn(f"--base-ref {base}", documentation["evidence"][0])
+            self.assertIn(f"--head-ref {head}", documentation["evidence"][0])
+
+    def test_selected_authority_placeholders_are_not_run_and_unselected_controls_are_absent(self) -> None:
+        evidence = base_evidence()
+        selected = {"build": {"mode": "advisory", "authoritative": "repository-build", "supplemental": []}}
+        providers = {"repository-build": {"display_name": "Repository Build"}}
+
+        MODULE.add_authoritative_placeholders(evidence, selected, providers)
+
+        self.assertEqual(evidence["results"]["build"]["repository-build"]["status"], "not_run")
+        self.assertEqual(set(evidence["results"]), {"build"})
+
+    def test_configuration_presence_is_never_passing_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             config = target / ".github" / "dependabot.yml"
             config.parent.mkdir()
             config.write_text("version: 2\n", encoding="utf-8")
 
-            evidence = MODULE.dependabot_configuration_evidence(target)
+            evidence = MODULE.configuration_presence_evidence(config, target, "GitHub Dependabot")
 
-            self.assertIsNotNone(evidence)
-            assert evidence is not None
             self.assertEqual(evidence["status"], "not_run")
-            self.assertIn("configuration: .github/dependabot.yml", evidence["evidence"])
-            self.assertIn("settings", evidence["reason"])
+            self.assertIn("configuration", evidence["reason"].lower())
 
-    def test_missing_configuration_has_no_local_evidence(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            self.assertIsNone(MODULE.dependabot_configuration_evidence(Path(directory)))
-
-
-class DefaultConfigurationTests(unittest.TestCase):
-    def test_shared_repository_uses_checked_in_configuration_paths(self) -> None:
-        self.assertEqual(
-            MODULE.default_config_path(MODULE.ROOT, ".guardrails/policy.yaml", "guardrails/baseline.yaml"),
-            MODULE.ROOT / ".guardrails/policy.yaml",
-        )
-        self.assertEqual(
-            MODULE.default_config_path(MODULE.ROOT, ".guardrails/control-catalog.yaml", "policies/control-catalog.yaml"),
-            MODULE.ROOT / ".guardrails/control-catalog.yaml",
-        )
-
-    def test_shared_repository_falls_back_to_source_configuration(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            policy = root / "guardrails" / "baseline.yaml"
-            catalog = root / "policies" / "control-catalog.yaml"
-            policy.parent.mkdir()
-            catalog.parent.mkdir()
-            policy.write_text("{}", encoding="utf-8")
-            catalog.write_text("{}", encoding="utf-8")
-
-            with mock.patch.object(MODULE, "ROOT", root):
-                self.assertEqual(
-                    MODULE.default_config_path(
-                        root,
-                        ".guardrails/policy.yaml",
-                        "guardrails/baseline.yaml",
-                    ),
-                    policy,
-                )
-                self.assertEqual(
-                    MODULE.default_config_path(
-                        root,
-                        ".guardrails/control-catalog.yaml",
-                        "policies/control-catalog.yaml",
-                    ),
-                    catalog,
-                )
-
-    def test_consumer_does_not_use_source_configuration_fallbacks(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            root = base / "standards"
-            target = base / "consumer"
-            (target / "guardrails").mkdir(parents=True)
-            (target / "policies").mkdir()
-            (target / "guardrails" / "baseline.yaml").write_text(
-                "{}",
-                encoding="utf-8",
-            )
-            (target / "policies" / "control-catalog.yaml").write_text(
-                "{}",
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(MODULE, "ROOT", root):
-                self.assertEqual(
-                    MODULE.default_config_path(
-                        target,
-                        ".guardrails/policy.yaml",
-                        "guardrails/baseline.yaml",
-                    ),
-                    target / ".guardrails" / "policy.yaml",
-                )
-                self.assertEqual(
-                    MODULE.default_config_path(
-                        target,
-                        ".guardrails/control-catalog.yaml",
-                        "policies/control-catalog.yaml",
-                    ),
-                    target / ".guardrails" / "control-catalog.yaml",
-                )
-
-    def test_installed_repository_prefers_consumer_configuration(self) -> None:
+    def test_fake_requested_revision_makes_all_local_provider_results_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            policy = target / ".guardrails" / "policy.yaml"
-            policy.parent.mkdir()
-            policy.write_text("{}", encoding="utf-8")
+            self.initialize_repository(target)
 
-            self.assertEqual(
-                MODULE.default_config_path(target, ".guardrails/policy.yaml", "guardrails/baseline.yaml"),
-                policy,
-            )
+            evidence = MODULE.local_evidence(target, "f" * 40, "HEAD~1")
 
+            statuses = [
+                provider_result["status"]
+                for control_results in evidence["results"].values()
+                for provider_result in control_results.values()
+            ]
+            self.assertEqual(set(statuses), {"not_run"})
+            self.assertIn("exact", next(iter(evidence["results"]["repository-validation"].values()))["reason"])
 
-class ExternalEvidenceTests(unittest.TestCase):
-    def _base_evidence(self) -> dict:
-        return {
-            "version": 1,
-            "subject": {"type": "git-commit", "revision": "abc123"},
-            "checks": {},
-        }
-
-    def _write_fragment(self, directory: Path, name: str, evidence: dict) -> None:
-        (directory / name).write_text(json.dumps(evidence), encoding="utf-8")
-
-    def test_ignores_evidence_for_a_different_revision(self) -> None:
+    def test_dirty_worktree_makes_all_local_provider_results_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            fragment = self._base_evidence()
-            fragment["subject"]["revision"] = "wrong-revision"
-            fragment["checks"] = {
-                "build": {
-                    "producer": "build workflow",
-                    "status": "passed",
-                    "evidence": ["run: 42"],
-                }
-            }
-            self._write_fragment(evidence_dir, "build.json", fragment)
+            target = Path(directory)
+            revision = self.initialize_repository(target)
+            (target / "README.md").write_text("dirty\n", encoding="utf-8")
 
-            merged = self._base_evidence()
-            MODULE.merge_external_evidence(merged, evidence_dir)
+            evidence = MODULE.local_evidence(target, revision, "HEAD~1")
 
-            self.assertNotIn("build", merged["checks"])
+            statuses = [
+                provider_result["status"]
+                for control_results in evidence["results"].values()
+                for provider_result in control_results.values()
+            ]
+            self.assertEqual(set(statuses), {"not_run"})
+            self.assertIn("clean worktree", next(iter(evidence["results"]["repository-validation"].values()))["reason"])
 
-    def test_rejects_conflicting_duplicate_check_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            first = self._base_evidence()
-            first["checks"] = {
-                "build": {
-                    "producer": "build workflow",
-                    "status": "passed",
-                    "evidence": ["run: 42"],
-                }
-            }
-            second = self._base_evidence()
-            second["checks"] = {
-                "build": {
-                    "producer": "another build workflow",
-                    "status": "failed",
-                    "evidence": ["run: 43"],
-                }
-            }
-            self._write_fragment(evidence_dir, "a.json", first)
-            self._write_fragment(evidence_dir, "b.json", second)
 
-            with self.assertRaisesRegex(ValueError, "duplicate evidence"):
-                MODULE.merge_external_evidence(self._base_evidence(), evidence_dir)
+class ArtifactPathTests(unittest.TestCase):
+    def test_default_markdown_and_json_artifacts_share_one_utc_timestamp(self) -> None:
+        timestamp = datetime(2026, 8, 28, 12, 3, 4, tzinfo=timezone.utc)
 
-    def test_merges_valid_revision_bound_fragment(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            fragment = self._base_evidence()
-            fragment["checks"] = {
-                "build": {
-                    "producer": "build workflow",
-                    "status": "passed",
-                    "evidence": ["run: 42"],
-                }
-            }
-            self._write_fragment(evidence_dir, "build.json", fragment)
+        evidence, latest, report = MODULE.default_artifact_paths(Path("/repo"), timestamp)
 
-            merged = self._base_evidence()
-            MODULE.merge_external_evidence(merged, evidence_dir)
+        self.assertEqual(evidence, Path("/repo/.artifacts/guardrails/evidence-20260828-120304Z.json"))
+        self.assertEqual(latest, Path("/repo/.artifacts/guardrails/evidence.json"))
+        self.assertEqual(report, Path("/repo/.artifacts/guardrails/scorecard-20260828-120304Z.md"))
 
-            self.assertEqual(merged["checks"]["build"]["status"], "passed")
+    def test_json_output_card_identifies_primary_timestamped_artifacts(self) -> None:
+        card = {"version": 2, "status": "ORANGE"}
+        evidence = Path("/repo/.artifacts/guardrails/evidence-20260828-120304Z.json")
+        report = Path("/repo/.artifacts/guardrails/scorecard-20260828-120304Z.md")
 
-    def test_does_not_replace_local_pass_with_missing_external_check(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            fragment = self._base_evidence()
-            fragment["checks"] = {
-                "build": {
-                    "producer": "GitHub Check: Build",
-                    "status": "not_run",
-                    "reason": "The configured producer check did not report this revision.",
-                }
-            }
-            self._write_fragment(evidence_dir, "github.json", fragment)
+        MODULE.add_artifact_locations(card, evidence, report)
 
-            merged = self._base_evidence()
-            merged["checks"]["build"] = {
-                "producer": "local build",
-                "status": "passed",
-                "evidence": ["compile succeeded"],
-            }
-            MODULE.merge_external_evidence(merged, evidence_dir)
-
-            self.assertEqual(merged["checks"]["build"]["status"], "passed")
-
-    def test_reconciles_local_pass_and_external_no_result_fragments(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            local = self._base_evidence()
-            local["checks"] = {
-                "documentation": {
-                    "producer": "local documentation validation",
-                    "status": "passed",
-                    "evidence": ["local validation"],
-                }
-            }
-            external = self._base_evidence()
-            external["checks"] = {
-                "documentation": {
-                    "producer": "GitHub Check: Validate / docs",
-                    "status": "not_run",
-                    "reason": "The configured producer check did not report this revision.",
-                }
-            }
-            self._write_fragment(evidence_dir, "a-local.json", local)
-            self._write_fragment(evidence_dir, "z-github.json", external)
-
-            merged = self._base_evidence()
-            MODULE.merge_external_evidence(merged, evidence_dir)
-
-            self.assertEqual(merged["checks"]["documentation"]["status"], "passed")
-
-    def test_reconciles_duplicate_no_result_fragments(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            evidence_dir = Path(directory)
-            for name, producer in (("a.json", "local AI review"), ("b.json", "GitHub Check: AI Engineering Review")):
-                fragment = self._base_evidence()
-                fragment["checks"] = {
-                    "ai-engineering-review": {
-                        "producer": producer,
-                        "status": "not_run",
-                        "reason": "No review was found for this revision.",
-                    }
-                }
-                self._write_fragment(evidence_dir, name, fragment)
-
-            merged = self._base_evidence()
-            MODULE.merge_external_evidence(merged, evidence_dir)
-
-            self.assertEqual(merged["checks"]["ai-engineering-review"]["status"], "not_run")
+        self.assertEqual(card["artifacts"], {"evidence": str(evidence), "report": str(report)})
 
 
 if __name__ == "__main__":

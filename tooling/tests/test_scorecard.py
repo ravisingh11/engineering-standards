@@ -6,123 +6,89 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "guardrail_scorecard.py"
+ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("guardrail_scorecard", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
-class ScorecardTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.policy = {
-            "version": 1,
-            "name": "test",
-            "operations": {
-                "change": {"required": ["build"], "advisory": ["fossa"]}
+def fixture(authority: str | None = "passed", supplemental: str | None = "failed", mode: str = "advisory") -> tuple:
+    profiles = json.loads((ROOT / "policies" / "profiles.yaml").read_text(encoding="utf-8"))
+    catalog = json.loads((ROOT / "policies" / "control-catalog.yaml").read_text(encoding="utf-8"))
+    providers = json.loads((ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8"))
+    policy = {
+        "version": 2,
+        "name": "test",
+        "profiles": ["github"],
+        "overrides": {
+            "change": {
+                "deep-sast": mode,
+                "dependency-change-review": "not_activated",
+                "platform-secret-protection": "not_activated",
+                "dependency-remediation": "not_activated",
             },
-        }
-        self.evidence = {
-            "version": 1,
-            "subject": {"type": "git-commit", "revision": "abc123"},
-            "checks": {
-                "build": {
-                    "producer": "CI",
-                    "status": "passed",
-                    "evidence": ["job: build"],
-                },
-                "fossa": {
-                    "producer": "FOSSA",
-                    "status": "not_run",
-                    "reason": "not configured",
-                },
-            },
-        }
-        self.catalog = {
-            "version": 1,
-            "controls": [
-                {"id": "build", "activation": "github-native"},
-                {"id": "fossa", "activation": "external"},
-            ],
-        }
+            "release": {},
+        },
+    }
+    providers["selections"]["deep-sast"]["supplemental"] = ["snyk-code"]
+    results = {}
+    for provider_id, status in (("github-codeql", authority), ("snyk-code", supplemental)):
+        if status is None:
+            continue
+        result = {"producer": provider_id, "status": status}
+        if status in {"passed", "failed"}:
+            result["evidence"] = [f"run: {provider_id}"]
+        else:
+            result["reason"] = "no result"
+        results[provider_id] = result
+    evidence = {"version": 2, "subject": {"type": "git-commit", "revision": "abc123"}, "results": {"deep-sast": results}}
+    return policy, profiles, catalog, providers, evidence
 
-    def test_reports_orange_for_advisory_gap(self) -> None:
-        card = MODULE.scorecard(
-            self.policy, self.evidence, "change", "abc123", catalog=self.catalog
-        )
-        self.assertEqual(card["status"], "ORANGE")
-        self.assertEqual(card["decision"], "allow")
-        self.assertEqual(card["enforced"]["percent"], 100.0)
-        self.assertEqual(card["activation"]["external"], 1)
-        self.assertEqual(card["readiness_status"], "ORANGE")
-        self.assertEqual(card["readiness"]["ORANGE"], 1)
-        fossa = next(control for control in card["controls"] if control["id"] == "fossa")
-        self.assertEqual(fossa["enforcement"], "advisory")
-        self.assertEqual(fossa["evidence_status"], "no_result")
-        self.assertEqual(card["findings"][0]["status"], "no_result")
-        self.assertNotIn("not_run", json.dumps(card))
-        self.assertNotIn("required", json.dumps(card["findings"]))
-        fossa = next(control for control in card["controls"] if control["id"] == "fossa")
-        self.assertEqual(fossa["enforcement"], "advisory")
-        self.assertEqual(fossa["evidence_status"], "no_result")
-        self.assertEqual(card["findings"][0]["status"], "no_result")
-        self.assertNotIn("not_run", json.dumps(card))
-        self.assertNotIn("required", json.dumps(card["findings"]))
 
-    def test_reports_red_for_required_gap(self) -> None:
-        self.evidence["checks"]["build"]["status"] = "not_run"
-        self.evidence["checks"]["build"].pop("evidence")
-        self.evidence["checks"]["build"]["reason"] = "not configured"
-        card = MODULE.scorecard(
-            self.policy, self.evidence, "change", "abc123", catalog=self.catalog
-        )
-        self.assertEqual(card["status"], "RED")
-        self.assertEqual(card["decision"], "block")
+class ScorecardV2Tests(unittest.TestCase):
+    def card(self, authority: str | None = "passed", supplemental: str | None = "failed", mode: str = "advisory", all_controls: bool = False) -> dict:
+        policy, profiles, catalog, providers, evidence = fixture(authority, supplemental, mode)
+        return MODULE.scorecard(policy, profiles, catalog, providers, evidence, "change", "abc123", subject_type="git-commit", all_catalog_controls=all_controls)
 
-    def test_reports_green_when_all_findings_are_clear(self) -> None:
-        self.evidence["checks"]["fossa"] = {
-            "producer": "FOSSA",
-            "status": "passed",
-            "evidence": ["artifact: fossa.json"],
-        }
-        card = MODULE.scorecard(
-            self.policy, self.evidence, "change", "abc123", catalog=self.catalog
-        )
+    def test_authoritative_pass_stays_green_despite_supplemental_failure(self) -> None:
+        card = self.card()
+
+        self.assertEqual(card["version"], 2)
         self.assertEqual(card["status"], "GREEN")
-        self.assertEqual(card["advisory"]["percent"], 100.0)
-        self.assertEqual(card["readiness_status"], "GREEN")
-
-    def test_advisory_failure_does_not_make_readiness_red(self) -> None:
-        self.evidence["checks"]["fossa"] = {
-            "producer": "FOSSA",
-            "status": "failed",
-            "evidence": ["artifact: fossa.json"],
-        }
-        card = MODULE.scorecard(
-            self.policy, self.evidence, "change", "abc123", catalog=self.catalog
-        )
         self.assertEqual(card["decision"], "allow")
-        self.assertEqual(card["readiness_status"], "ORANGE")
-        self.assertEqual(card["enforced_readiness_red"], 0)
+        self.assertEqual(card["controls"][0]["evidence_status"], "passed")
+        self.assertEqual(card["controls"][0]["supplemental"][0]["status"], "failed")
 
-    def test_all_catalog_controls_exposes_unconfigured_services(self) -> None:
-        self.catalog["controls"].append(
-            {"id": "sonarqube", "name": "SonarQube", "activation": "external"}
-        )
-        card = MODULE.scorecard(
-            self.policy,
-            self.evidence,
-            "change",
-            "abc123",
-            catalog=self.catalog,
-            all_catalog_controls=True,
-        )
-        self.assertEqual(card["readiness"]["ORANGE"], 1)
-        self.assertEqual(card["readiness"]["GRAY"], 1)
-        self.assertFalse(card["controls"][-1]["in_policy"])
-        self.assertEqual(card["controls"][-1]["enforcement"], "not_activated")
-        self.assertEqual(card["controls"][-1]["evidence_status"], "not_activated")
-        self.assertEqual(card["controls"][-1]["enforcement"], "not_activated")
-        self.assertEqual(card["controls"][-1]["evidence_status"], "not_activated")
+    def test_missing_authority_is_orange_advisory_and_red_enforced(self) -> None:
+        advisory = self.card(None, "passed", "advisory")
+        enforced = self.card(None, "passed", "enforced")
+
+        self.assertEqual((advisory["status"], advisory["decision"]), ("ORANGE", "allow"))
+        self.assertEqual((enforced["status"], enforced["decision"]), ("RED", "block"))
+        self.assertEqual(advisory["controls"][0]["evidence_status"], "no_result")
+
+    def test_full_catalog_marks_unselected_control_gray(self) -> None:
+        card = self.card(all_controls=True)
+        row = next(control for control in card["controls"] if control["id"] == "static-quality")
+
+        self.assertEqual(row["readiness"], "GRAY")
+        self.assertEqual(row["evidence_status"], "not_activated")
+
+    def test_human_output_renders_capability_and_authoritative_provider_names(self) -> None:
+        output = MODULE.render(self.card())
+
+        self.assertIn("Deep SAST — GitHub CodeQL", output)
+        self.assertIn("supplemental: Snyk Code=failed", output)
+        self.assertNotIn("Activation:", output)
+
+    def test_public_json_recursively_excludes_raw_producer_statuses(self) -> None:
+        card = self.card("not_run", None)
+
+        encoded = json.dumps(card, sort_keys=True)
+        self.assertNotIn('"not_run"', encoded)
+        self.assertNotIn('"missing"', encoded)
+        self.assertIn('"no_result"', encoded)
 
 
 if __name__ == "__main__":

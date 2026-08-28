@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guardrails v2 Providers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "providers", "selections"],
+  "properties": {
+    "version": {"const": 2},
+    "providers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/provider"}
+    },
+    "selections": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/selection"}
+    }
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "maxLength": 80},
+    "identifierList": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_name", "workflow"],
+      "properties": {
+        "check_name": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+        "workflow": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"}
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "activation", "capabilities", "checks", "template", "template_available", "secrets", "enabled_by_default"],
+      "properties": {
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+        "activation": {"enum": ["repository", "github", "external"]},
+        "capabilities": {"$ref": "#/$defs/identifierList", "minItems": 1},
+        "checks": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/check"}
+        },
+        "template": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+        "template_available": {"type": "boolean"},
+        "secrets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "enabled_by_default": {"type": "boolean"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authoritative", "supplemental"],
+      "properties": {
+        "authoritative": {"$ref": "#/$defs/identifier"},
+        "supplemental": {"$ref": "#/$defs/identifierList"}
+      }
+    }
+  }
+}

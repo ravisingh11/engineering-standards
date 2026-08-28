@@ -1,15 +1,10 @@
 {
   "$schema": "./policy.schema.json",
-  "version": 1,
+  "version": 2,
   "name": "baseline",
-  "operations": {
-    "change": {
-      "required": [],
-      "advisory": ["repository-validation", "documentation", "repository-ground-truth", "change-scope", "build", "unit-tests", "sonarqube", "codeql-sast", "secrets-scan", "dependency-review", "dependabot", "snyk-open-source", "snyk-code", "semgrep", "fossa", "soak-check", "ai-engineering-review", "ai-qa-review", "ai-security-review", "ai-repo-standards-review"]
-    },
-    "release": {
-      "required": [],
-      "advisory": ["repository-validation", "documentation", "repository-ground-truth", "change-scope", "build", "unit-tests", "sonarqube", "codeql-sast", "secrets-scan", "dependency-review", "dependabot", "snyk-open-source", "snyk-code", "semgrep", "fossa", "soak-check", "ai-engineering-review", "ai-qa-review", "ai-security-review", "ai-repo-standards-review"]
-    }
+  "profiles": ["core"],
+  "overrides": {
+    "change": {},
+    "release": {}
   }
 }

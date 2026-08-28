@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
-"""Select guardrail controls and enforcement levels for a repository policy."""
+"""Mutate Guardrails v2 policy and provider selections."""
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
-
-MODES = ("advisory", "enforced")
+ROOT = Path(__file__).resolve().parents[1]
+MODES = ("advisory", "enforced", "not_activated")
 OPERATIONS = ("change", "release")
 DEFAULT_POLICY = Path(".guardrails/policy.yaml")
+DEFAULT_PROFILES = Path(".guardrails/profiles.yaml")
 DEFAULT_CATALOG = Path(".guardrails/control-catalog.yaml")
+DEFAULT_PROVIDERS = Path(".guardrails/providers.yaml")
+
+
+def evaluator_module() -> Any:
+    path = ROOT / "guardrails" / "evaluate.py"
+    if not path.exists():
+        path = ROOT / ".guardrails" / "evaluate.py"
+    spec = importlib.util.spec_from_file_location("guardrails_v2_evaluator", path)
+    if not spec or not spec.loader:
+        raise ValueError(f"cannot load evaluator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_object(path: Path) -> dict[str, Any]:
@@ -26,243 +43,274 @@ def load_object(path: Path) -> dict[str, Any]:
     return value
 
 
-def catalog_controls(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    controls = catalog.get("controls")
-    if not isinstance(controls, list):
-        raise ValueError("catalog must contain a controls list")
-    result: dict[str, dict[str, Any]] = {}
-    for control in controls:
-        if not isinstance(control, dict) or not isinstance(control.get("id"), str):
-            raise ValueError("every catalog control must have a string id")
-        result[control["id"]] = control
-    return result
+def write_temp_file(path: Path, content: str, mode: int | None) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    if mode is not None:
+        os.chmod(temporary, mode)
+    return temporary
 
 
-def validate_policy(policy: dict[str, Any]) -> None:
-    operations = policy.get("operations")
-    if not isinstance(operations, dict) or not operations:
-        raise ValueError("policy must contain at least one operation")
-    for operation, rules in operations.items():
-        if not isinstance(rules, dict):
-            raise ValueError(f"policy operation {operation} must be an object")
-        for key in ("required", "advisory"):
-            if not isinstance(rules.get(key), list) or not all(
-                isinstance(value, str) for value in rules[key]
-            ):
-                raise ValueError(f"policy operation {operation}.{key} must be a list of ids")
-        overlap = set(rules["required"]) & set(rules["advisory"])
-        if overlap:
-            raise ValueError(
-                f"policy operation {operation} lists controls in both modes: "
-                + ", ".join(sorted(overlap))
-            )
+def restore_file(path: Path, existed: bool, content: bytes, mode: int | None) -> None:
+    if not existed:
+        if path.exists():
+            path.unlink()
+        return
+    temporary = write_temp_file(path, content.decode("utf-8"), mode)
+    os.replace(temporary, path)
 
 
-def set_mode(policy: dict[str, Any], control_id: str, mode: str, operations: list[str]) -> None:
-    if mode not in MODES:
-        raise ValueError(f"mode must be one of: {', '.join(MODES)}")
-    for operation in operations:
-        if operation not in policy["operations"]:
-            raise ValueError(f"policy does not define operation: {operation}")
-        rules = policy["operations"][operation]
-        rules["required"] = [item for item in rules["required"] if item != control_id]
-        rules["advisory"] = [item for item in rules["advisory"] if item != control_id]
-        if mode == "enforced":
-            rules["required"].append(control_id)
-        elif mode == "advisory":
-            rules["advisory"].append(control_id)
-
-
-def current_mode(policy: dict[str, Any], control_id: str, operation: str) -> str:
-    rules = policy["operations"].get(operation, {})
-    if control_id in rules.get("required", []):
-        return "enforced"
-    if control_id in rules.get("advisory", []):
-        return "advisory"
-    return "not_activated"
-
-
-def validate_provider_config(config: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> None:
-    if config.get("version") != 1 or not isinstance(config.get("providers"), dict):
-        raise ValueError("provider config must contain version 1 and a providers object")
-    for provider_id, provider in config["providers"].items():
-        if not isinstance(provider_id, str) or not isinstance(provider, dict):
-            raise ValueError("provider entries must be objects")
-        if not isinstance(provider.get("enabled"), bool):
-            raise ValueError(f"provider {provider_id} enabled must be boolean")
-        controls = provider.get("controls")
-        if not isinstance(controls, dict) or not controls:
-            raise ValueError(f"provider {provider_id} must define controls")
-        for control_id, definition in controls.items():
-            if control_id not in catalog:
-                raise ValueError(f"provider {provider_id} references unknown control: {control_id}")
-            if not isinstance(definition, dict):
-                raise ValueError(f"provider {provider_id} control {control_id} must be an object")
-            for operation in OPERATIONS:
-                if definition.get(operation) not in MODES:
-                    raise ValueError(
-                        f"provider {provider_id} control {control_id} {operation} must be advisory or enforced"
-                    )
-            for field in ("check_name", "workflow"):
-                if not isinstance(definition.get(field), str) or not definition[field].strip():
-                    raise ValueError(f"provider {provider_id} control {control_id} requires {field}")
-            if not isinstance(definition.get("wait_for"), bool):
-                raise ValueError(f"provider {provider_id} control {control_id} wait_for must be boolean")
-
-
-def sync_provider_configuration(
-    policy: dict[str, Any], manifest: dict[str, Any], config: dict[str, Any]
+def write_configuration_pair(
+    policy_path: Path,
+    provider_path: Path,
+    policy: dict[str, Any],
+    providers: dict[str, Any],
 ) -> None:
-    """Synchronize enabled providers into the existing runtime policy files."""
-    producers = manifest.get("producers")
-    if not isinstance(producers, list):
-        raise ValueError("producer manifest must contain a producers list")
-    configured_controls = {
-        control_id: (provider, definition)
-        for provider in config["providers"].values()
-        if isinstance(provider, dict)
-        for control_id, definition in provider["controls"].items()
-    }
-    for control_id, (provider, definition) in configured_controls.items():
-        for operation in policy["operations"]:
-            if operation not in OPERATIONS:
-                continue
-            rules = policy["operations"][operation]
-            rules["required"] = [item for item in rules["required"] if item != control_id]
-            rules["advisory"] = [item for item in rules["advisory"] if item != control_id]
-            if provider["enabled"]:
-                target_list = "required" if definition[operation] == "enforced" else "advisory"
-                rules[target_list].append(control_id)
-        producers[:] = [item for item in producers if item.get("control_id") != control_id]
-        if provider["enabled"]:
-            # The workflow/check contract is provider-owned and stays stable in
-            # the manifest even while enforcement mode changes independently.
-            producers.append(
-                {
-                    "control_id": control_id,
-                    "check_name": definition["check_name"],
-                    "workflow": definition["workflow"],
-                    "wait_for": definition["wait_for"],
-                }
+    if policy_path.resolve() == provider_path.resolve():
+        raise ValueError("policy and provider configuration must use different paths")
+    policy_content = json.dumps(policy, indent=2) + "\n"
+    provider_content = json.dumps(providers, indent=2) + "\n"
+    originals = {}
+    for path in (policy_path, provider_path):
+        existed = path.exists()
+        originals[path] = (
+            existed,
+            path.read_bytes() if existed else b"",
+            (path.stat().st_mode & 0o7777) if existed else None,
+        )
+    policy_temp = write_temp_file(policy_path, policy_content, originals[policy_path][2])
+    provider_temp = write_temp_file(provider_path, provider_content, originals[provider_path][2])
+    try:
+        os.replace(policy_temp, policy_path)
+        policy_temp = None
+        os.replace(provider_temp, provider_path)
+        provider_temp = None
+    except OSError:
+        rollback_errors = []
+        for path in (policy_path, provider_path):
+            try:
+                restore_file(path, *originals[path])
+            except OSError as error:
+                rollback_errors.append(f"{path}: {error}")
+        if rollback_errors:
+            raise RuntimeError(
+                "configuration pair write failed and rollback was incomplete: "
+                + "; ".join(rollback_errors)
             )
+        raise
+    finally:
+        for temporary in (policy_temp, provider_temp):
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+
+
+def parse_choice(choice: str, label: str) -> tuple[str, str]:
+    if "=" not in choice:
+        raise ValueError(f"invalid {label} {choice!r}; expected CONTROL=VALUE")
+    control_id, value = choice.split("=", 1)
+    if not control_id or not value:
+        raise ValueError(f"invalid {label} {choice!r}; expected CONTROL=VALUE")
+    return control_id, value
+
+
+def validate_documents(
+    policy: dict[str, Any], profiles: dict[str, Any], catalog: dict[str, Any], providers: dict[str, Any]
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    evaluator = evaluator_module()
+    controls = evaluator.catalog_map(catalog)
+    profile_definitions = evaluator.validate_profiles(profiles, controls)
+    provider_definitions, _ = evaluator.validate_provider_config(providers, controls)
+    evaluator.validate_policy(policy, set(profile_definitions), controls)
+    return controls, profile_definitions, provider_definitions
+
+
+def provider_for_capability(
+    provider_definitions: dict[str, dict[str, Any]], control_id: str, provider_id: str
+) -> dict[str, Any]:
+    if provider_id not in provider_definitions:
+        raise ValueError(f"unknown provider: {provider_id}")
+    provider = provider_definitions[provider_id]
+    if control_id not in provider["capabilities"]:
+        raise ValueError(f"provider {provider_id} does not provide {control_id}")
+    return provider
+
+
+def apply_changes(
+    policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
+    *,
+    operation: str,
+    all_operations: bool,
+    enable_profiles: list[str] | None = None,
+    disable_profiles: list[str] | None = None,
+    select_providers: list[str] | None = None,
+    add_supplemental: list[str] | None = None,
+    remove_supplemental: list[str] | None = None,
+    sets: list[str] | None = None,
+) -> None:
+    controls, profile_definitions, provider_definitions = validate_documents(
+        policy, profiles, catalog, provider_config
+    )
+    enable_profiles = enable_profiles or []
+    disable_profiles = disable_profiles or []
+    select_providers = select_providers or []
+    add_supplemental = add_supplemental or []
+    remove_supplemental = remove_supplemental or []
+    sets = sets or []
+    if operation not in OPERATIONS:
+        raise ValueError(f"unknown operation: {operation}")
+
+    for profile_id in enable_profiles:
+        if profile_id not in profile_definitions:
+            raise ValueError(f"unknown profile: {profile_id}")
+        if profile_id not in policy["profiles"]:
+            policy["profiles"].append(profile_id)
+    for profile_id in disable_profiles:
+        if profile_id not in profile_definitions:
+            raise ValueError(f"unknown profile: {profile_id}")
+        if profile_id not in policy["profiles"]:
+            raise ValueError(f"profile is not enabled: {profile_id}")
+        if len(policy["profiles"]) == 1:
+            raise ValueError("cannot remove the last profile")
+        policy["profiles"].remove(profile_id)
+
+    for choice in remove_supplemental:
+        control_id, provider_id = parse_choice(choice, "supplemental removal")
+        if control_id not in provider_config["selections"]:
+            raise ValueError(f"unknown control: {control_id}")
+        supplemental = provider_config["selections"][control_id]["supplemental"]
+        if provider_id not in supplemental:
+            raise ValueError(f"provider {provider_id} is not supplemental for {control_id}")
+        supplemental.remove(provider_id)
+
+    for choice in select_providers:
+        control_id, provider_id = parse_choice(choice, "provider selection")
+        if control_id not in provider_config["selections"]:
+            raise ValueError(f"unknown control: {control_id}")
+        provider_for_capability(provider_definitions, control_id, provider_id)
+        selection = provider_config["selections"][control_id]
+        if provider_id in selection["supplemental"]:
+            raise ValueError(f"remove it from supplemental before selecting {provider_id} as authority for {control_id}")
+        selection["authoritative"] = provider_id
+
+    for choice in add_supplemental:
+        control_id, provider_id = parse_choice(choice, "supplemental provider")
+        if control_id not in provider_config["selections"]:
+            raise ValueError(f"unknown control: {control_id}")
+        provider_for_capability(provider_definitions, control_id, provider_id)
+        selection = provider_config["selections"][control_id]
+        if provider_id == selection["authoritative"]:
+            raise ValueError(f"provider {provider_id} is authoritative for {control_id}")
+        if provider_id in selection["supplemental"]:
+            raise ValueError(f"duplicate supplemental provider {provider_id} for {control_id}")
+        selection["supplemental"].append(provider_id)
+
+    target_operations = list(OPERATIONS) if all_operations else [operation]
+    for choice in sets:
+        control_id, mode = parse_choice(choice, "mode selection")
+        if control_id not in controls:
+            raise ValueError(f"unknown control: {control_id}")
+        if controls[control_id]["availability"] == "evidence-only":
+            raise ValueError(f"cannot set evidence-only control: {control_id}")
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of: {', '.join(MODES)}")
+        for target_operation in target_operations:
+            policy["overrides"][target_operation][control_id] = mode
+
+    validate_documents(policy, profiles, catalog, provider_config)
+
+
+def effective_modes(policy: dict[str, Any], profile_definitions: dict[str, dict[str, Any]], operation: str) -> dict[str, str]:
+    modes: dict[str, str] = {}
+    for profile_id in policy["profiles"]:
+        for control_id, mode in profile_definitions[profile_id]["defaults"][operation].items():
+            previous = modes.get(control_id)
+            if previous is not None and previous != mode:
+                raise ValueError(f"conflicting profile defaults for {control_id}")
+            modes[control_id] = mode
+    modes.update(policy["overrides"][operation])
+    return modes
+
+
+def render_listing(
+    policy: dict[str, Any], profiles: dict[str, Any], catalog: dict[str, Any],
+    provider_config: dict[str, Any], operation: str,
+) -> str:
+    controls, profile_definitions, provider_definitions = validate_documents(
+        policy, profiles, catalog, provider_config
+    )
+    modes = effective_modes(policy, profile_definitions, operation)
+    lines = [f"Profiles: {', '.join(policy['profiles'])}", f"Operation: {operation}"]
+    for control_id, control in controls.items():
+        mode = modes.get(control_id, "not_activated")
+        selection = provider_config["selections"].get(control_id)
+        if selection:
+            authority = provider_definitions[selection["authoritative"]]["display_name"]
+            supplemental = ", ".join(provider_definitions[item]["display_name"] for item in selection["supplemental"]) or "none"
+        else:
+            authority = supplemental = "evidence-only"
+        lines.append(f"{mode:13} {control['name']} — {authority} (supplemental: {supplemental})")
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Configure guardrail controls as advisory or enforced"
-    )
+    parser = argparse.ArgumentParser(description="Configure Guardrails v2 profiles, modes, and providers")
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    parser.add_argument("--profiles", type=Path, default=DEFAULT_PROFILES)
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
-    parser.add_argument("--providers", type=Path, default=Path(".guardrails/providers.yaml"))
-    parser.add_argument("--manifest", type=Path, default=Path(".guardrails/producer-manifest.json"))
+    parser.add_argument("--providers", type=Path, default=DEFAULT_PROVIDERS)
+    parser.add_argument("--enable-profile", action="append", default=[])
+    parser.add_argument("--disable-profile", action="append", default=[])
+    parser.add_argument("--select-provider", action="append", default=[], metavar="CONTROL=PROVIDER")
+    parser.add_argument("--add-supplemental", action="append", default=[], metavar="CONTROL=PROVIDER")
+    parser.add_argument("--remove-supplemental", action="append", default=[], metavar="CONTROL=PROVIDER")
+    parser.add_argument("--set", action="append", default=[], metavar="CONTROL=MODE")
     parser.add_argument("--operation", choices=OPERATIONS, default="change")
-    parser.add_argument(
-        "--all-operations",
-        action="store_true",
-        help="apply each --set choice to every operation in the policy",
-    )
-    parser.add_argument(
-        "--set",
-        action="append",
-        metavar="CONTROL=MODE",
-        help="set a control to advisory or enforced; repeatable",
-    )
-    parser.add_argument("--enable-provider", action="append", default=[])
-    parser.add_argument("--disable-provider", action="append", default=[])
-    parser.add_argument(
-        "--set-provider-mode",
-        action="append",
-        metavar="CONTROL=MODE",
-        help="set a provider control to advisory or enforced in both operations",
-    )
-    parser.add_argument(
-        "--sync-providers",
-        action="store_true",
-        help="synchronize .guardrails/providers.yaml into policy and producer manifest",
-    )
-    parser.add_argument("--list", action="store_true", help="list catalog controls and current modes")
-    parser.add_argument("--dry-run", action="store_true", help="show changes without writing the policy")
+    parser.add_argument("--all-operations", action="store_true")
+    parser.add_argument("--list", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-
     try:
         policy = load_object(args.policy)
-        catalog = catalog_controls(load_object(args.catalog))
-        validate_policy(policy)
-        provider_config = None
-        provider_changed = bool(
-            args.enable_provider
-            or args.disable_provider
-            or args.set_provider_mode
-            or args.sync_providers
-        )
-        if provider_changed or args.list:
-            provider_config = load_object(args.providers)
-            validate_provider_config(provider_config, catalog)
-        operations = list(policy["operations"]) if args.all_operations else [args.operation]
+        profiles = load_object(args.profiles)
+        catalog = load_object(args.catalog)
+        providers = load_object(args.providers)
         if args.list:
-            if provider_config is not None:
-                for provider_id, provider in provider_config["providers"].items():
-                    state = "enabled" if provider["enabled"] else "disabled"
-                    print(f"{state:9} {provider_id:28} {provider.get('name', provider_id)}")
-            for control_id, control in catalog.items():
-                mode = current_mode(policy, control_id, args.operation)
-                print(
-                    f"{mode:9} {control_id:28} {control.get('name', control_id)} "
-                    f"[{control.get('activation', 'unknown')}]"
-                )
+            print(render_listing(policy, profiles, catalog, providers, args.operation), end="")
             return 0
-        for provider_id in args.enable_provider:
-            if provider_id not in provider_config["providers"]:
-                raise ValueError(f"unknown provider: {provider_id}")
-            provider_config["providers"][provider_id]["enabled"] = True
-        for provider_id in args.disable_provider:
-            if provider_id not in provider_config["providers"]:
-                raise ValueError(f"unknown provider: {provider_id}")
-            provider_config["providers"][provider_id]["enabled"] = False
-        for choice in args.set_provider_mode or []:
-            if "=" not in choice:
-                raise ValueError(f"invalid provider mode {choice!r}; expected CONTROL=MODE")
-            control_id, mode = choice.split("=", 1)
-            found = False
-            for provider in provider_config["providers"].values():
-                if control_id in provider["controls"]:
-                    for operation in OPERATIONS:
-                        provider["controls"][control_id][operation] = mode
-                    found = True
-            if not found:
-                raise ValueError(f"unknown provider control: {control_id}")
-            if mode not in MODES:
-                raise ValueError(f"mode must be one of: {', '.join(MODES)}")
-        if not args.set and not provider_changed:
-            raise ValueError("provide --set CONTROL=MODE, a provider operation, or use --list")
-        for choice in args.set or []:
-            if "=" not in choice:
-                raise ValueError(f"invalid selection {choice!r}; expected CONTROL=MODE")
-            control_id, mode = choice.split("=", 1)
-            if control_id not in catalog:
-                raise ValueError(f"unknown catalog control: {control_id}")
-            set_mode(policy, control_id, mode, operations)
-        if provider_changed:
-            manifest = load_object(args.manifest)
-            sync_provider_configuration(policy, manifest, provider_config)
-        validate_policy(policy)
-        rendered = json.dumps(policy, indent=2) + "\n"
+        mutations = [
+            *args.enable_profile, *args.disable_profile, *args.select_provider,
+            *args.add_supplemental, *args.remove_supplemental, *args.set,
+        ]
+        if not mutations:
+            raise ValueError("provide a v2 configuration mutation or use --list")
+        apply_changes(
+            policy, profiles, catalog, providers, operation=args.operation,
+            all_operations=args.all_operations,
+            enable_profiles=args.enable_profile, disable_profiles=args.disable_profile,
+            select_providers=args.select_provider, add_supplemental=args.add_supplemental,
+            remove_supplemental=args.remove_supplemental, sets=args.set,
+        )
         if args.dry_run:
-            print(rendered, end="")
+            print(json.dumps({"policy": policy, "provider_config": providers}, indent=2) + "\n")
         else:
-            args.policy.write_text(rendered, encoding="utf-8")
-            if provider_changed:
-                args.providers.write_text(json.dumps(provider_config, indent=2) + "\n", encoding="utf-8")
-                args.manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-            print(f"Updated {args.policy}")
-            for choice in args.set or []:
-                print(f"- {choice} for {', '.join(operations)}")
-            for provider_id in args.enable_provider:
-                print(f"- enabled provider {provider_id}")
-            for provider_id in args.disable_provider:
-                print(f"- disabled provider {provider_id}")
+            write_configuration_pair(args.policy, args.providers, policy, providers)
+            print(f"Updated {args.policy} and {args.providers}")
         return 0
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
 

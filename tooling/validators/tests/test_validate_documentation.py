@@ -46,6 +46,23 @@ class DocumentationValidatorTests(unittest.TestCase):
         )
         self.assertEqual(failures, [])
 
+    def test_app_only_change_requires_mapped_documentation(self) -> None:
+        policy = {
+            "version": 1,
+            "mappings": [
+                {
+                    "name": "application-code",
+                    "triggers": ["app.py"],
+                    "documents": ["README.md"],
+                }
+            ],
+        }
+
+        failures = MODULE.validate_changed_files(policy, ["app.py"])
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn("application-code", failures[0])
+
     def test_missing_local_markdown_link_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

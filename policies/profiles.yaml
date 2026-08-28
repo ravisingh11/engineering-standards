@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "profiles": {
+    "core": {
+      "display_name": "Core",
+      "description": "Portable repository-owned validation, build, test, static analysis, and secret detection",
+      "runnable": true,
+      "defaults": {
+        "change": {
+          "repository-validation": "advisory",
+          "documentation-validation": "advisory",
+          "repository-ground-truth": "advisory",
+          "change-scope": "advisory",
+          "build": "advisory",
+          "unit-tests": "advisory",
+          "changed-code-coverage": "advisory",
+          "custom-static-analysis": "advisory",
+          "secret-detection": "advisory"
+        },
+        "release": {
+          "repository-validation": "advisory",
+          "documentation-validation": "advisory",
+          "repository-ground-truth": "advisory",
+          "build": "advisory",
+          "unit-tests": "advisory",
+          "custom-static-analysis": "advisory",
+          "secret-detection": "advisory"
+        }
+      }
+    },
+    "github": {
+      "display_name": "GitHub",
+      "description": "GitHub-native code, dependency, secret-protection, remediation, and provenance controls",
+      "runnable": true,
+      "defaults": {
+        "change": {
+          "deep-sast": "advisory",
+          "dependency-change-review": "advisory",
+          "platform-secret-protection": "advisory",
+          "dependency-remediation": "advisory"
+        },
+        "release": {
+          "artifact-provenance": "advisory"
+        }
+      }
+    }
+  }
+}

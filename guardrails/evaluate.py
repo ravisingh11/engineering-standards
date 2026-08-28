@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Evaluate Guardrails v2 capability evidence against an effective policy."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,304 +11,406 @@ from pathlib import Path
 from typing import Any
 
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+OPERATIONS = ("change", "release")
+MODES = {"advisory", "enforced", "not_activated"}
 STATUSES = {"passed", "failed", "blocked", "not_run"}
+PROFILE_CONTROL_SETS = {
+    "core": {
+        "change": {
+            "repository-validation", "documentation-validation", "repository-ground-truth",
+            "change-scope", "build", "unit-tests", "changed-code-coverage",
+            "custom-static-analysis", "secret-detection",
+        },
+        "release": {
+            "repository-validation", "documentation-validation", "repository-ground-truth",
+            "build", "unit-tests", "custom-static-analysis", "secret-detection",
+        },
+    },
+    "github": {
+        "change": {
+            "deep-sast", "dependency-change-review", "platform-secret-protection",
+            "dependency-remediation",
+        },
+        "release": {"artifact-provenance"},
+    },
+}
 
 
 def load_document(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
-        raise ValueError(
-            f"{path} must use JSON-compatible YAML: {error}"
-        ) from error
+        raise ValueError(f"{path} must use JSON-compatible YAML: {error}") from error
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain an object")
     return value
 
 
-def require_keys(
-    value: dict[str, Any],
-    *,
-    required: set[str],
-    allowed: set[str],
-    label: str,
-) -> None:
-    missing = sorted(required - set(value))
-    unknown = sorted(set(value) - allowed)
-    failures = [
-        *[f"{label}.{key} is required" for key in missing],
-        *[f"{label}.{key} is not supported" for key in unknown],
-    ]
-    if failures:
-        raise ValueError("; ".join(failures))
-
-
 def valid_identifier(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) <= 80
-        and IDENTIFIER.fullmatch(value) is not None
-    )
+    return isinstance(value, str) and len(value) <= 80 and IDENTIFIER.fullmatch(value) is not None
 
 
-def validate_check_list(value: Any, label: str) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError(f"{label} must be a list")
-    if not all(valid_identifier(item) for item in value):
-        raise ValueError(f"{label} contains an invalid check identifier")
-    if len(value) != len(set(value)):
-        raise ValueError(f"{label} contains duplicate checks")
-    return value
+def catalog_map(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if catalog.get("version") != 2 or not isinstance(catalog.get("controls"), list):
+        raise ValueError("control catalog must contain version 2 and controls")
+    controls: dict[str, dict[str, Any]] = {}
+    for control in catalog["controls"]:
+        if not isinstance(control, dict) or not valid_identifier(control.get("id")):
+            raise ValueError("control catalog contains an invalid control")
+        control_id = control["id"]
+        if control_id in controls:
+            raise ValueError(f"duplicate control: {control_id}")
+        if control.get("availability") not in {"runnable", "evidence-only"}:
+            raise ValueError(f"control {control_id} availability is invalid")
+        if control.get("evidence_subject") not in {"git-commit", "artifact", "environment"}:
+            raise ValueError(f"control {control_id} evidence subject is invalid")
+        controls[control_id] = control
+    return controls
 
 
-def validate_policy(policy: dict[str, Any]) -> None:
-    require_keys(
-        policy,
-        required={"version", "name", "operations"},
-        allowed={"$schema", "version", "name", "operations"},
-        label="policy",
-    )
-    if policy["version"] != 1:
-        raise ValueError("policy.version must be 1")
-    if (
-        not isinstance(policy["name"], str)
-        or not policy["name"].strip()
-        or len(policy["name"]) > 100
-    ):
-        raise ValueError("policy.name must be 1-100 characters")
-    if "$schema" in policy and not isinstance(policy["$schema"], str):
-        raise ValueError("policy.$schema must be a string")
-    operations = policy["operations"]
-    if not isinstance(operations, dict) or not operations:
-        raise ValueError("policy.operations must be a non-empty object")
-    for operation, rules in operations.items():
-        if not valid_identifier(operation):
-            raise ValueError(f"policy operation {operation!r} is invalid")
-        if not isinstance(rules, dict):
-            raise ValueError(f"policy.operations.{operation} must be an object")
-        require_keys(
-            rules,
-            required={"required", "advisory"},
-            allowed={"required", "advisory"},
-            label=f"policy.operations.{operation}",
-        )
-        required = validate_check_list(
-            rules["required"], f"policy.operations.{operation}.required"
-        )
-        advisory = validate_check_list(
-            rules["advisory"], f"policy.operations.{operation}.advisory"
-        )
-        overlap = sorted(set(required) & set(advisory))
-        if overlap:
-            raise ValueError(
-                f"policy operation {operation} lists checks as both required "
-                f"and advisory: {', '.join(overlap)}"
-            )
-
-
-def validate_evidence(evidence: dict[str, Any]) -> None:
-    require_keys(
-        evidence,
-        required={"version", "subject", "checks"},
-        allowed={"$schema", "version", "subject", "checks"},
-        label="evidence",
-    )
-    if evidence["version"] != 1:
-        raise ValueError("evidence.version must be 1")
-    if "$schema" in evidence and not isinstance(evidence["$schema"], str):
-        raise ValueError("evidence.$schema must be a string")
-    subject = evidence["subject"]
-    if not isinstance(subject, dict):
-        raise ValueError("evidence.subject must be an object")
-    require_keys(
-        subject,
-        required={"type", "revision"},
-        allowed={"type", "revision"},
-        label="evidence.subject",
-    )
-    if not valid_identifier(subject["type"]):
-        raise ValueError("evidence.subject.type is invalid")
-    if (
-        not isinstance(subject["revision"], str)
-        or not subject["revision"]
-        or len(subject["revision"]) > 200
-    ):
-        raise ValueError("evidence.subject.revision must be 1-200 characters")
-
-    checks = evidence["checks"]
-    if not isinstance(checks, dict):
-        raise ValueError("evidence.checks must be an object")
-    for name, check in checks.items():
-        if not valid_identifier(name):
-            raise ValueError(f"evidence check {name!r} is invalid")
-        if not isinstance(check, dict):
-            raise ValueError(f"evidence.checks.{name} must be an object")
-        require_keys(
-            check,
-            required={"producer", "status"},
-            allowed={"producer", "status", "evidence", "reason"},
-            label=f"evidence.checks.{name}",
-        )
-        if (
-            not isinstance(check["producer"], str)
-            or not check["producer"].strip()
-            or len(check["producer"]) > 200
-        ):
-            raise ValueError(
-                f"evidence.checks.{name}.producer must be 1-200 characters"
-            )
-        status = check["status"]
-        if status not in STATUSES:
-            raise ValueError(
-                f"evidence.checks.{name}.status must be one of "
-                f"{', '.join(sorted(STATUSES))}"
-            )
-        if status in {"passed", "failed"}:
-            records = check.get("evidence")
-            if (
-                not isinstance(records, list)
-                or not records
-                or not all(
-                    isinstance(item, str) and item and len(item) <= 1000
-                    for item in records
-                )
-            ):
+def validate_profiles(profiles: dict[str, Any], controls: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    definitions = profiles.get("profiles")
+    if profiles.get("version") != 2 or not isinstance(definitions, dict):
+        raise ValueError("profiles must contain version 2 and profile definitions")
+    if set(definitions) != {"core", "github"}:
+        raise ValueError("runtime profiles must define exactly core and github")
+    for profile_id, profile in definitions.items():
+        if not valid_identifier(profile_id) or not isinstance(profile, dict) or profile.get("runnable") is not True:
+            raise ValueError(f"profile {profile_id!r} is invalid")
+        defaults = profile.get("defaults")
+        if not isinstance(defaults, dict) or set(defaults) != set(OPERATIONS):
+            raise ValueError(f"profile {profile_id} must define change and release defaults")
+        for operation, modes in defaults.items():
+            if not isinstance(modes, dict):
+                raise ValueError(f"profile {profile_id} {operation} defaults must be an object")
+            expected_controls = PROFILE_CONTROL_SETS[profile_id][operation]
+            if set(modes) != expected_controls:
+                missing = sorted(expected_controls - set(modes))
+                extra = sorted(set(modes) - expected_controls)
                 raise ValueError(
-                    f"evidence.checks.{name}.evidence must contain at least "
-                    f"one record when status is {status}"
+                    f"profile {profile_id} {operation} controls must exactly match the v2 contract; "
+                    f"missing={missing}, extra={extra}"
                 )
-        if status in {"blocked", "not_run"} and (
-            not isinstance(check.get("reason"), str)
-            or not check["reason"].strip()
-            or len(check["reason"]) > 1000
-        ):
-            raise ValueError(
-                f"evidence.checks.{name}.reason is required when status is {status}"
-            )
+            for control_id, mode in modes.items():
+                if control_id not in controls:
+                    raise ValueError(f"profile {profile_id} references unknown control: {control_id}")
+                if controls[control_id]["availability"] != "runnable":
+                    raise ValueError(f"profile {profile_id} selects evidence-only control: {control_id}")
+                if mode != "advisory":
+                    raise ValueError(f"profile {profile_id} defaults must be advisory")
+    return definitions
+
+
+def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    providers = config.get("providers")
+    selections = config.get("selections")
+    if config.get("version") != 2 or not isinstance(providers, dict) or not isinstance(selections, dict):
+        raise ValueError("provider config must contain version 2, providers, and selections")
+    for provider_id, provider in providers.items():
+        if not valid_identifier(provider_id) or not isinstance(provider, dict):
+            raise ValueError("provider config contains an invalid provider")
+        capabilities = provider.get("capabilities")
+        if not isinstance(capabilities, list) or not capabilities or len(capabilities) != len(set(capabilities)):
+            raise ValueError(f"provider {provider_id} capabilities are invalid")
+        if any(capability not in controls for capability in capabilities):
+            raise ValueError(f"provider {provider_id} references an unknown capability")
+        if not isinstance(provider.get("display_name"), str) or not provider["display_name"].strip():
+            raise ValueError(f"provider {provider_id} display name is invalid")
+        checks = provider.get("checks")
+        if not isinstance(checks, dict) or any(capability not in capabilities for capability in checks):
+            raise ValueError(f"provider {provider_id} checks are invalid")
+    runnable = {control_id for control_id, control in controls.items() if control["availability"] == "runnable"}
+    if set(selections) != runnable:
+        raise ValueError("provider selections must cover exactly the runnable controls")
+    for control_id, selection in selections.items():
+        if not isinstance(selection, dict) or set(selection) != {"authoritative", "supplemental"}:
+            raise ValueError(f"selection {control_id} is invalid")
+        authority = selection["authoritative"]
+        supplemental = selection["supplemental"]
+        if authority not in providers or control_id not in providers[authority]["capabilities"]:
+            raise ValueError(f"selection {control_id} has an invalid authoritative provider")
+        if not isinstance(supplemental, list) or len(supplemental) != len(set(supplemental)):
+            raise ValueError(f"selection {control_id} has duplicate supplemental providers")
+        if authority in supplemental:
+            raise ValueError(f"selection {control_id} authority is also supplemental")
+        for provider_id in supplemental:
+            if provider_id not in providers or control_id not in providers[provider_id]["capabilities"]:
+                raise ValueError(f"selection {control_id} has an invalid supplemental provider")
+    return providers, selections
+
+
+def validate_policy(policy: dict[str, Any], profile_ids: set[str], controls: dict[str, dict[str, Any]]) -> None:
+    if policy.get("version") != 2:
+        raise ValueError("policy.version must be 2")
+    selected = policy.get("profiles")
+    if not isinstance(selected, list) or not selected or len(selected) != len(set(selected)):
+        raise ValueError("policy profiles must be a non-empty unique list")
+    unknown = [profile for profile in selected if profile not in profile_ids]
+    if unknown:
+        raise ValueError(f"policy references unknown profile: {unknown[0]}")
+    overrides = policy.get("overrides")
+    if not isinstance(overrides, dict) or set(overrides) != set(OPERATIONS):
+        raise ValueError("policy overrides must define change and release")
+    for operation, modes in overrides.items():
+        if not isinstance(modes, dict):
+            raise ValueError(f"policy {operation} overrides must be an object")
+        for control_id, mode in modes.items():
+            if control_id not in controls:
+                raise ValueError(f"policy references unknown control: {control_id}")
+            if controls[control_id]["availability"] != "runnable":
+                raise ValueError(f"policy cannot select evidence-only control: {control_id}")
+            if mode not in MODES:
+                raise ValueError(f"policy override for {control_id} is invalid")
+
+
+def validate_evidence(
+    evidence: dict[str, Any],
+    controls: dict[str, dict[str, Any]],
+    providers: dict[str, dict[str, Any]],
+) -> None:
+    if evidence.get("version") != 2 or set(evidence) not in (
+        {"version", "subject", "results"},
+        {"$schema", "version", "subject", "results"},
+    ):
+        raise ValueError("evidence must use the v2 nested evidence contract")
+    subject = evidence.get("subject")
+    if not isinstance(subject, dict) or set(subject) != {"type", "revision"}:
+        raise ValueError("evidence subject is invalid")
+    if subject["type"] not in {"git-commit", "artifact", "environment"}:
+        raise ValueError("evidence subject type is invalid")
+    if not isinstance(subject["revision"], str) or not subject["revision"].strip() or len(subject["revision"]) > 200:
+        raise ValueError("evidence subject revision is invalid")
+    results = evidence.get("results")
+    if not isinstance(results, dict):
+        raise ValueError("evidence results must be an object")
+    for control_id, provider_results in results.items():
+        if control_id not in controls or not isinstance(provider_results, dict) or not provider_results:
+            raise ValueError(f"evidence control {control_id} is invalid")
+        if subject["type"] != controls[control_id]["evidence_subject"]:
+            raise ValueError(f"evidence {control_id} requires {controls[control_id]['evidence_subject']} subject")
+        for provider_id, result in provider_results.items():
+            if provider_id not in providers:
+                raise ValueError(f"evidence references unknown provider: {provider_id}")
+            if control_id not in providers[provider_id]["capabilities"]:
+                raise ValueError(f"provider {provider_id} does not provide {control_id}")
+            if not isinstance(result, dict) or set(result) - {"producer", "status", "evidence", "reason"}:
+                raise ValueError(f"evidence {control_id}.{provider_id} is invalid")
+            if not isinstance(result.get("producer"), str) or not result["producer"].strip():
+                raise ValueError(f"evidence {control_id}.{provider_id} producer is invalid")
+            status = result.get("status")
+            if status not in STATUSES:
+                raise ValueError(f"evidence {control_id}.{provider_id} status is invalid")
+            records = result.get("evidence")
+            if status in {"passed", "failed"} and (
+                not isinstance(records, list) or not records or any(not isinstance(item, str) or not item.strip() for item in records)
+            ):
+                raise ValueError(f"evidence {control_id}.{provider_id} evidence records are required")
+            if records is not None and (
+                not isinstance(records, list) or not records or any(not isinstance(item, str) or not item.strip() for item in records)
+            ):
+                raise ValueError(f"evidence {control_id}.{provider_id} evidence records are invalid")
+            if status in {"blocked", "not_run"} and (
+                not isinstance(result.get("reason"), str) or not result["reason"].strip()
+            ):
+                raise ValueError(f"evidence {control_id}.{provider_id} reason is required")
+
+
+def operation_applies(control: dict[str, Any], operation: str, subject_type: str) -> bool:
+    stage = control.get("stage", "")
+    operation_stage = (
+        stage in {"change", "change-and-release"}
+        if operation == "change"
+        else stage in {"release", "pre-release", "change-and-release"}
+    )
+    return operation_stage and control.get("evidence_subject") == subject_type
+
+
+def effective_controls(
+    policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
+    operation: str,
+    subject_type: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    controls = catalog_map(catalog)
+    profile_definitions = validate_profiles(profiles, controls)
+    providers, selections = validate_provider_config(provider_config, controls)
+    validate_policy(policy, set(profile_definitions), controls)
+    if operation not in OPERATIONS:
+        raise ValueError(f"unknown operation: {operation}")
+
+    defaults: dict[str, str] = {}
+    for profile_id in policy["profiles"]:
+        for control_id, mode in profile_definitions[profile_id]["defaults"][operation].items():
+            previous = defaults.get(control_id)
+            if previous is not None and previous != mode:
+                raise ValueError(f"conflicting profile defaults for {control_id}")
+            defaults[control_id] = mode
+    modes = {**defaults, **policy["overrides"][operation]}
+    selected: dict[str, dict[str, Any]] = {}
+    for control_id, mode in modes.items():
+        if mode == "not_activated" or not operation_applies(controls[control_id], operation, subject_type):
+            continue
+        selection = selections[control_id]
+        selected[control_id] = {
+            "mode": mode,
+            "authoritative": selection["authoritative"],
+            "supplemental": list(selection["supplemental"]),
+        }
+    return selected, controls, providers
 
 
 def evaluate(
     policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
     evidence: dict[str, Any],
     operation: str,
     expected_revision: str,
-    expected_subject_type: str | None = None,
+    expected_subject_type: str,
+    *,
+    all_catalog_controls: bool = False,
 ) -> dict[str, Any]:
-    validate_policy(policy)
-    validate_evidence(evidence)
     if not expected_revision or len(expected_revision) > 200:
         raise ValueError("expected revision must be 1-200 characters")
-    if expected_subject_type and not valid_identifier(expected_subject_type):
+    if expected_subject_type not in {"git-commit", "artifact", "environment"}:
         raise ValueError("expected subject type is invalid")
-    operations = policy["operations"]
-    if operation not in operations:
-        raise ValueError(f"policy does not define operation {operation!r}")
-
-    subject = evidence["subject"]
-    rules = operations[operation]
-    checks = evidence["checks"]
-    findings: list[dict[str, str]] = []
-
-    if subject["revision"] != expected_revision:
-        findings.append(
-            {
-                "check": "_revision",
-                "enforcement": "required",
-                "status": "mismatch",
-                "message": "evidence revision does not match the evaluated revision",
-            }
-        )
-    if expected_subject_type and subject["type"] != expected_subject_type:
-        findings.append(
-            {
-                "check": "_subject_type",
-                "enforcement": "required",
-                "status": "mismatch",
-                "message": "evidence subject type does not match the evaluated subject",
-            }
-        )
-
-    counts: dict[str, dict[str, int]] = {}
-    for enforcement in ("required", "advisory"):
-        passed = 0
-        for name in rules[enforcement]:
-            status = checks.get(name, {}).get("status", "missing")
-            if status == "passed":
-                passed += 1
-                continue
-            findings.append(
-                {
-                    "check": name,
-                    "enforcement": enforcement,
-                    "status": status,
-                    "message": (
-                        f"{enforcement} check {name!r} is {status}; "
-                        "only passed evidence satisfies a check"
-                    ),
-                }
-            )
-        counts[enforcement] = {
-            "passed": passed,
-            "total": len(rules[enforcement]),
-        }
-
-    blocked = any(
-        finding["enforcement"] == "required" for finding in findings
+    selected, controls, providers = effective_controls(
+        policy, profiles, catalog, provider_config, operation, expected_subject_type
     )
+    validate_evidence(evidence, controls, providers)
+    subject = evidence["subject"]
+    subject_matches = subject == {"type": expected_subject_type, "revision": expected_revision}
+    findings: list[dict[str, Any]] = []
+    if not subject_matches:
+        findings.append({
+            "kind": "subject_mismatch",
+            "status": "mismatch",
+            "expected_subject": {"type": expected_subject_type, "revision": expected_revision},
+            "observed_subject": dict(subject),
+            "message": "evidence subject type and revision must exactly match the evaluated subject",
+        })
+
+    rows: list[dict[str, Any]] = []
+    counts = {mode: {"passed": 0, "total": 0} for mode in ("enforced", "advisory")}
+    control_ids = list(controls) if all_catalog_controls else list(selected)
+    for control_id in control_ids:
+        control = controls[control_id]
+        selection = selected.get(control_id)
+        if selection is None:
+            rows.append({
+                "id": control_id,
+                "name": control.get("name", control_id),
+                "effective_mode": "not_activated",
+                "authoritative_provider": None,
+                "authoritative_evidence_status": "missing",
+                "readiness": "GRAY",
+                "supplemental": [],
+            })
+            continue
+        mode = selection["mode"]
+        authority_id = selection["authoritative"]
+        authority_result = (
+            evidence["results"].get(control_id, {}).get(authority_id)
+            if subject_matches
+            else None
+        )
+        authority_status = authority_result.get("status", "missing") if authority_result else "missing"
+        passed = subject_matches and authority_status == "passed"
+        counts[mode]["total"] += 1
+        if passed:
+            counts[mode]["passed"] += 1
+        readiness = "GREEN" if passed else "RED" if mode == "enforced" else "ORANGE"
+        supplemental = []
+        for provider_id in selection["supplemental"]:
+            provider_result = (
+                evidence["results"].get(control_id, {}).get(provider_id)
+                if subject_matches
+                else None
+            )
+            supplemental.append({
+                "id": provider_id,
+                "display_name": providers[provider_id]["display_name"],
+                "status": provider_result.get("status", "missing") if provider_result else "missing",
+                "result": provider_result,
+                "advisory": True,
+            })
+        row = {
+            "id": control_id,
+            "name": control.get("name", control_id),
+            "effective_mode": mode,
+            "authoritative_provider": {"id": authority_id, "display_name": providers[authority_id]["display_name"]},
+            "authoritative_evidence_status": authority_status,
+            "authoritative_result": authority_result,
+            "readiness": readiness,
+            "supplemental": supplemental,
+        }
+        rows.append(row)
+        if not passed:
+            findings.append({
+                "kind": "authoritative_result",
+                "control_id": control_id,
+                "provider_id": authority_id,
+                "mode": mode,
+                "status": authority_status,
+                "message": f"only fresh passed evidence from {providers[authority_id]['display_name']} satisfies {control.get('name', control_id)}",
+            })
+
+    blocked = not subject_matches or any(row["readiness"] == "RED" for row in rows)
+    status = "RED" if blocked else "ORANGE" if any(row["readiness"] == "ORANGE" for row in rows) else "GREEN"
     return {
-        "version": 1,
+        "version": 2,
         "decision": "block" if blocked else "allow",
+        "status": status,
         "policy": policy["name"],
         "operation": operation,
         "subject": subject,
         "summary": counts,
+        "controls": rows,
         "findings": findings,
     }
 
 
 def render(result: dict[str, Any]) -> str:
     subject = result["subject"]
-    required = result["summary"]["required"]
-    advisory = result["summary"]["advisory"]
     lines = [
-        f"{result['decision'].upper()} {result['operation']} "
-        f"{subject['type']}@{subject['revision']}",
-        f"Required: {required['passed']}/{required['total']} passed",
-        f"Advisory: {advisory['passed']}/{advisory['total']} passed",
+        f"{result['decision'].upper()} {result['operation']} {subject['type']}@{subject['revision']}",
+        f"Status: {result['status']}",
+        f"Enforced: {result['summary']['enforced']['passed']}/{result['summary']['enforced']['total']} passed",
+        f"Advisory: {result['summary']['advisory']['passed']}/{result['summary']['advisory']['total']} passed",
     ]
-    for finding in result["findings"]:
-        lines.append(
-            f"- {finding['enforcement']} {finding['check']}: "
-            f"{finding['status']}"
-        )
+    for row in result["controls"]:
+        provider = row["authoritative_provider"]
+        provider_name = provider["display_name"] if provider else "Not activated"
+        lines.append(f"- {row['readiness']} {row['name']} — {provider_name}: {row['authoritative_evidence_status']}")
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Evaluate revision-bound evidence against a guardrail policy"
-    )
+    parser = argparse.ArgumentParser(description="Evaluate Guardrails v2 evidence")
     parser.add_argument("--policy", required=True, type=Path)
+    parser.add_argument("--profiles", required=True, type=Path)
+    parser.add_argument("--catalog", required=True, type=Path)
+    parser.add_argument("--providers", required=True, type=Path)
     parser.add_argument("--evidence", required=True, type=Path)
-    parser.add_argument("--operation", required=True)
+    parser.add_argument("--operation", required=True, choices=OPERATIONS)
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--subject-type")
+    parser.add_argument("--subject-type", required=True, choices=("git-commit", "artifact", "environment"))
+    parser.add_argument("--all-catalog-controls", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-
     try:
         result = evaluate(
-            load_document(args.policy),
-            load_document(args.evidence),
-            args.operation,
-            args.revision,
-            args.subject_type,
+            load_document(args.policy), load_document(args.profiles), load_document(args.catalog),
+            load_document(args.providers), load_document(args.evidence), args.operation,
+            args.revision, args.subject_type, all_catalog_controls=args.all_catalog_controls,
         )
     except (OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
-    output = json.dumps(result, indent=2) + "\n" if args.json else render(result)
-    print(output, end="")
+    print(json.dumps(result, indent=2) + "\n" if args.json else render(result), end="")
     return 0 if result["decision"] == "allow" else 1
 
 

@@ -1,19 +1,24 @@
 {
-  "version": 1,
+  "$schema": "./evidence.schema.json",
+  "version": 2,
   "subject": {
     "type": "git-commit",
     "revision": "0123456789abcdef0123456789abcdef01234567"
   },
-  "checks": {
+  "results": {
     "unit-tests": {
-      "producer": "repository test suite",
-      "status": "passed",
-      "evidence": ["command: python3 -m unittest"]
+      "repository-unit-tests": {
+        "producer": "repository test command",
+        "status": "passed",
+        "evidence": ["command: python3 -m unittest"]
+      }
     },
-    "codeql-sast": {
-      "producer": "repository SAST workflow",
-      "status": "not_run",
-      "reason": "SAST is not configured for this repository"
+    "deep-sast": {
+      "github-codeql": {
+        "producer": "GitHub CodeQL",
+        "status": "not_run",
+        "reason": "GitHub profile is not selected for this repository"
+      }
     }
   }
 }
