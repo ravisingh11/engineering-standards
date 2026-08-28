@@ -1,72 +1,64 @@
-# Ruleset Import Notes
+# Ruleset import notes
 
-The [architecture diagrams](../docs/architecture.md) show the difference
-between a ruleset template and an active merge gate. The [control status
-guide](../docs/control-status.md) lists the setup required before activation.
+`default-branch-protection.json` is an import-oriented baseline for pull-request
+protection. It requires a PR, resolved review threads, no force push, and no
+branch deletion. It intentionally contains no required status checks because a
+shared template cannot know which providers are activated in a consumer.
 
-`default-branch-protection.json` is an import-oriented repository ruleset
-template for baseline PR protection. This canonical repository has an active `main-safety` ruleset using
-the checks produced by its own validation workflow. GitHub rulesets are still
-repository configuration: each consuming organization must review and create
-the template in the target repository.
+## Activate the baseline
 
-## Required status checks are opt-in
+Review the JSON against the current GitHub ruleset schema, import or create it
+for the target repository, and verify `~DEFAULT_BRANCH` resolves as intended.
+The template has no bypass actors and requires zero approving reviews so a solo
+maintainer can use it without a standing bypass.
 
-The default JSON intentionally omits the `required_status_checks` rule. GitHub's
-ruleset API rejects that rule when its context list is empty. The template
-therefore enforces pull requests, conversation resolution, force-push
-prevention, and branch-deletion prevention without inventing contexts for
-producers that may not be activated in a consuming repository.
+Repositories can raise `required_approving_review_count`, require code-owner
+review after adding a real `CODEOWNERS` file, or enable last-push approval based
+on their ownership model.
 
-Add a `required_status_checks` rule and status context only after all of the
-following are true:
+## Add status checks only after proof
 
-1. The producer is activated in the consuming repository.
-2. The exact check has run on a representative pull request.
-3. The check reports a real pass/fail result, not a configuration or skipped
-   state.
-4. The team has chosen `enforced` mode for that control.
+For each capability:
 
-This prevents an unset variable or skipped optional job from satisfying a
-required context. Add the exact names produced by the repository, such as
-`Build`, `Unit Tests`, `CodeQL`, `Dependency Review`, `SonarQube Quality Gate`,
-or an AI review context, only after activation.
+1. Select the profile or explicit mode override.
+2. Configure its authoritative provider.
+3. Run it on representative pull requests.
+4. Confirm exact-subject evidence and truthful skip/failure behavior.
+5. Record the exact stable check context GitHub displays.
+6. Set the capability to `enforced`.
+7. Add that exact context to `required_status_checks`.
 
-GitHub may display a workflow check as `Workflow name / Job name` depending on
-how the workflow is installed and invoked. After the first successful run,
-inspect the actual check-run names and update the ruleset contexts before
-turning the ruleset active.
+Do not require a setup job, configuration probe, supplemental provider, or
+scorecard aggregation as a substitute for authoritative capability evidence.
+An unset variable or missing token must remain `NO RESULT`.
 
-The default ruleset requires a pull request and resolved review threads, but
-does not require an approving reviewer. This supports a single-developer
-repository without creating a bypass. Teams can raise
-`required_approving_review_count` to `1` or more, and enable
-`require_last_push_approval` or
-`require_extra_approval_for_unattributed_changes`, as their staffing and risk
-require. It does not
-enable CODEOWNER approval because CODEOWNERS is repository-specific. A
-consuming repository can set `require_code_owner_review` to `true` after adding
-and validating its own `.github/CODEOWNERS` file.
+## Current v2 check names
 
-The ruleset blocks direct updates, force pushes, and branch deletion for the
-default branch. The shared default has no bypass actors, so normal development
-must use a pull request, including in a single-developer repository. If an
-organization later approves emergency exceptions, configure them narrowly and
-audit every use; do not place organization-specific actor IDs in this shared
-template.
+| Profile | Capability check names |
+| --- | --- |
+| Core | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `Validate / scope`, `Build`, `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, `Gitleaks` |
+| GitHub overlay | `CodeQL`, `Dependency Review`, `GitHub Secret Scan`, `Dependabot Verification` |
 
-The JSON cannot configure repository-specific CODEOWNERS files, enable GitHub
-secret scanning, choose external scanner credentials, or guarantee that a
-workflow will produce a particular check context. Install and run the
-workflows first, then update the required-status-check contexts to match the
-actual GitHub check names.
+`Artifact Provenance` is a release/dispatch attestation job, not a pull-request
+check, and it does not yet produce nested artifact evidence for a Guardrails
+release scorecard. Do not add it to branch-protection required checks.
 
-Use the smallest useful protection that matches the repository’s risk. Add a
-required check only after the check exists, has passed consistently, and has a
-stable context name. Treat third-party Actions and reusable workflows as
-supply-chain dependencies, and review sensitive workflow changes through
-CODEOWNERS or an equivalent ownership gate.
+GitHub can render a workflow/job combination differently depending on how a
+workflow is installed. Always copy the context from a real check run rather
+than relying only on this table.
 
-See the current [GitHub ruleset REST schema](https://docs.github.com/en/rest/repos/rules)
-before importing if GitHub changes the export format or supported rule
-parameters.
+## Provider and policy separation
+
+Policy mode and branch protection are separate controls. `enforced` policy
+without a required GitHub context does not protect merge. A required context
+without a reliable authoritative provider can deadlock merge.
+
+Supplemental providers remain advisory and should not be required for the same
+capability merely because they are visible in the scorecard.
+
+Rulesets cannot configure credentials, enable GitHub security settings, create
+external vendor projects, or prove a provider ran. Complete those activation
+steps first.
+
+See [control setup](../docs/control-setup.md), [status](../docs/control-status.md),
+and [workflow guidance](../workflows/README.md).

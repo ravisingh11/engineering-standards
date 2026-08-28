@@ -4,20 +4,32 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from typing import Any
 
 SCRIPT = Path(__file__).resolve().parents[1] / "guardrail_scorecard.py"
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("guardrail_scorecard", SCRIPT)
+if SPEC is None or SPEC.loader is None:
+    raise AssertionError(f"cannot load module spec: {SCRIPT}")
 MODULE = importlib.util.module_from_spec(SPEC)
-assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
-def fixture(authority: str | None = "passed", supplemental: str | None = "failed", mode: str = "advisory") -> tuple:
+def fixture(
+    authority: str | None = "passed",
+    supplemental: str | None = "failed",
+    mode: str = "advisory",
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
     profiles = json.loads((ROOT / "policies" / "profiles.yaml").read_text(encoding="utf-8"))
     catalog = json.loads((ROOT / "policies" / "control-catalog.yaml").read_text(encoding="utf-8"))
     providers = json.loads((ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8"))
-    policy = {
+    policy: dict[str, Any] = {
         "version": 2,
         "name": "test",
         "profiles": ["github"],
@@ -32,11 +44,11 @@ def fixture(authority: str | None = "passed", supplemental: str | None = "failed
         },
     }
     providers["selections"]["deep-sast"]["supplemental"] = ["snyk-code"]
-    results = {}
+    results: dict[str, Any] = {}
     for provider_id, status in (("github-codeql", authority), ("snyk-code", supplemental)):
         if status is None:
             continue
-        result = {"producer": provider_id, "status": status}
+        result: dict[str, Any] = {"producer": provider_id, "status": status}
         if status in {"passed", "failed"}:
             result["evidence"] = [f"run: {provider_id}"]
         else:
@@ -47,7 +59,13 @@ def fixture(authority: str | None = "passed", supplemental: str | None = "failed
 
 
 class ScorecardV2Tests(unittest.TestCase):
-    def card(self, authority: str | None = "passed", supplemental: str | None = "failed", mode: str = "advisory", all_controls: bool = False) -> dict:
+    def card(
+        self,
+        authority: str | None = "passed",
+        supplemental: str | None = "failed",
+        mode: str = "advisory",
+        all_controls: bool = False,
+    ) -> dict[str, Any]:
         policy, profiles, catalog, providers, evidence = fixture(authority, supplemental, mode)
         return MODULE.scorecard(policy, profiles, catalog, providers, evidence, "change", "abc123", subject_type="git-commit", all_catalog_controls=all_controls)
 
@@ -74,6 +92,14 @@ class ScorecardV2Tests(unittest.TestCase):
 
         self.assertEqual(row["readiness"], "GRAY")
         self.assertEqual(row["evidence_status"], "not_activated")
+
+    def test_default_output_omits_unselected_and_evidence_only_controls(self) -> None:
+        card = self.card()
+        control_ids = {control["id"] for control in card["controls"]}
+
+        self.assertEqual(control_ids, {"deep-sast"})
+        self.assertNotIn("static-quality", control_ids)
+        self.assertNotIn("artifact-sbom", control_ids)
 
     def test_human_output_renders_capability_and_authoritative_provider_names(self) -> None:
         output = MODULE.render(self.card())

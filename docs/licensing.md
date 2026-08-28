@@ -2,39 +2,45 @@
 
 ## Repository license
 
-First-party source, documentation, policies, workflow templates, guardrail
-schemas, prompts, and agent skills in this repository are released under the
-[MIT License](../LICENSE). The repository is public, but public
-visibility alone does not grant reuse rights; use the license terms and
-preserve the required notices.
+First-party source, documentation, policies, workflow templates, schemas,
+prompts, rules, and agent skills in this repository are released under the
+[MIT License](../LICENSE). Preserve the copyright and license notice when
+redistributing substantial portions. [NOTICE](../NOTICE) records attribution
+and does not grant trademark or endorsement rights.
 
-The copyright and attribution notice is in [NOTICE](../NOTICE). The notice
-does not grant permission to use Ravi Singh, NaviVision, repository, product,
-or project names as trademarks or endorsements.
+## Core scanner boundary
 
-## Contributions
+Guardrails invokes third-party scanner containers; it does not relicense them.
 
-Contributions are accepted under the MIT License terms as described in the
-license. Contributors should not add material they do not have the right to
-license, and should preserve third-party attribution when adapting examples,
-actions, schemas, or documentation.
+| Component used by Core | Upstream license boundary | Guardrails usage |
+| --- | --- | --- |
+| [Semgrep Community Edition](https://github.com/semgrep/semgrep/blob/develop/LICENSE) | LGPL-2.1 | Pinned CLI container, local `semgrep scan`, repository-owned tested rules, no platform token |
+| [Gitleaks CLI](https://github.com/gitleaks/gitleaks/blob/master/LICENSE) | MIT | Pinned CLI container, local Git-history scan |
+| [Gitleaks Action](https://github.com/gitleaks/gitleaks-action/blob/master/LICENSE.txt) | Separate Gitleaks Action EULA | Not used by Core |
 
-## Third-party material
+The Gitleaks CLI and Gitleaks Action are different products with different
+license terms. Core invokes the CLI directly and does not require an Action
+license key.
 
-This repository does not vendor application dependencies or scanner binaries.
-Referenced GitHub Actions, SonarQube, CodeQL, FOSSA, Semgrep, and other
-external services retain their own licenses and terms. A consuming repository
-must review those terms before copying or pinning an integration.
+Semgrep rules can have licenses independent of the Semgrep engine. The bundled
+rules are first-party MIT content. Review and preserve the license of any rule
+pack copied from another source.
 
-If third-party source is added later, keep its original license in the copied
-directory or add a corresponding attribution entry to `NOTICE`; do not relabel
-third-party material as MIT without a documented license basis.
+## Optional integrations
 
-## Package metadata
+GitHub Actions, CodeQL, Dependency Review, Artifact Attestations, SonarQube,
+Snyk, Semgrep AppSec Platform, FOSSA, and other services retain their own terms.
+Provider definitions and links in this repository do not grant service access
+or replace a consuming organization's legal and procurement review.
 
-The repository currently has no publishable package manifest. If one is added,
-declare `MIT` or `MIT License` in its metadata and keep it aligned with the root
-`LICENSE` and `NOTICE`. Generated artifacts must preserve the applicable
-license and attribution information.
+Pinning an Action or container makes execution reproducible; it does not change
+the component's license.
 
-This document describes repository practice; it is not legal advice.
+## Contributions and generated copies
+
+Contributors must have the right to license submitted material and must retain
+third-party notices. Installed Guardrails files remain under their applicable
+source licenses. Generated evidence and scorecards may contain provider output;
+review that provider's terms before redistributing reports.
+
+This document describes repository practice and is not legal advice.

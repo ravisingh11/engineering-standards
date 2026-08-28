@@ -1,727 +1,198 @@
-# Control setup guide
+# Control setup
 
-This guide connects each control to the configuration required in an
-application repository. A control is GREEN only after its real producer runs
-against the exact revision and writes `passed` evidence.
-See [Guardrails directories](../README.md#guardrails-directories) for the
-shared-source, repository-installation, and AI-owned configuration boundary.
+Guardrails selects capabilities through profiles and records the provider that
+produced each result. Configure the producer first, verify exact-subject
+evidence, then consider enforcement.
 
-## Before adding controls
+## Core profile
 
-Install the shared evaluator, catalog, producer manifest, GitHub Checks
-collector, and aggregate scorecard workflow:
+Core is selected by default. A normal install deploys its runtime and workflows.
 
-```sh
-python3 /path/to/engineering-standards/tooling/install.py \
-  --target . \
-  --github-actions
-```
-
-Then:
-
-1. Keep application ground truth in the application repository.
-2. Copy the relevant templates from `workflows/` into `.github/workflows/`.
-3. Set repository variables and secrets listed below.
-4. Run a representative pull request.
-5. Confirm the real GitHub check name.
-6. Add the check to the repository ruleset only after it passes reliably.
-
-Do not add a check to the policy until its producer is real. Do not describe a
-missing or `not_run` result as a pass. Before using `--refresh-existing`, follow
-the [refresh procedure](compliance.md#install-it-in-an-application-repository)
-so required manual configuration moves happen before any known-artifact
-cleanup. Refresh preserves an existing consumer workflow; update workflow files
-through the consuming repository's normal pull-request process.
-
-## Secrets and variables checklist
-
-Create credentials only for controls the repository has selected. A secret's
-presence is not evidence that its producer ran, and a placeholder credential
-can turn an intentionally inactive workflow into a failing one.
-
-GitHub does not support an empty Actions secret. This standards repository may
-reserve an inactive provider secret name with the exact value
-`GUARDRAILS_NOT_CONFIGURED`; replace that value before enabling the provider.
-Do not use any other dummy value: workflows can mistake an arbitrary non-empty
-value for an active credential. Consumer repositories should normally create
-the secret only when the real provider credential is available.
-
-### GitHub Actions secrets
-
-| Secret | Used by | Create the credential | Minimum access |
+| Capability | Authoritative provider | Check | Repository setup |
 | --- | --- | --- | --- |
-| `SECURITY_SETTINGS_TOKEN` | GitHub Secret Scan evidence probe | Create a fine-grained GitHub PAT or GitHub App token. Select only the repository being verified. | Repository `Administration: read` and `Secret scanning alerts: read`; `Metadata: read` is added automatically. No account permissions. |
-| `SONAR_TOKEN` | SonarQube | Generate a project analysis token or a narrowly scoped user analysis token in SonarQube. | Execute Analysis for the configured project. |
-| `SNYK_TOKEN` | Snyk Code and Snyk Open Source | Use a Snyk service-account token for durable automation where the plan supports it; otherwise use the CI token approved by the Snyk administrator. | Access to the organization and project being scanned. |
-| `SEMGREP_APP_TOKEN` | Semgrep | Generate the token in Semgrep AppSec Platform settings after connecting the repository. | Access to the Semgrep deployment and repository scan configuration. |
-| `FOSSA_API_KEY` | FOSSA | Create a FOSSA CI/service token. Prefer the least-privileged token type that supports both analysis upload and the configured policy check. | Access to the application project and policy used by CI. |
+| Repository validation | Repository Validators | `Validate / repository` | Installed validator; no credential |
+| Documentation validation | Repository Validators | `Validate / docs` | Maintain `.guardrails/documentation.yaml` |
+| Repository ground truth | Repository Validators | `Validate / ground truth` | Maintain `.guardrails/ground-truth-ai.yaml` |
+| Change scope | Repository Validators | `Validate / scope` | Maintain `.guardrails/change-scope.yaml` |
+| Build | Repository Build Command | `Build` | Set `GUARDRAILS_BUILD_COMMAND` |
+| Unit tests | Repository Unit Test Command | `Unit Tests` | Set `GUARDRAILS_UNIT_TEST_COMMAND` |
+| Changed-code coverage | Repository Changed Code Coverage Command | `Changed Code Coverage` | Set `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |
+| Custom static analysis | Semgrep Community Edition | `Semgrep CE` | Installed tested rule pack; no token |
+| Secret detection | Gitleaks CLI | `Gitleaks` | Complete Git history; no token |
 
-Provider references: [GitHub fine-grained PATs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens),
-[SonarQube tokens](https://docs.sonarsource.com/sonarqube-server/user-guide/managing-tokens),
-[Snyk CI authentication](https://docs.snyk.io/snyk-cli/authenticate-to-use-the-cli),
-[Semgrep GitHub Actions](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs),
-and [FOSSA API tokens](https://docs.fossa.com/docs/organization-management/api-tokens).
+### Repository command variables
 
-Add a real value without putting it in the command line or shell history. The
-GitHub CLI prompts for the value and encrypts it before upload:
+Local and Actions producers use the same names:
 
-```sh
-gh secret set SECURITY_SETTINGS_TOKEN --repo OWNER/REPOSITORY
-gh secret set SONAR_TOKEN --repo OWNER/REPOSITORY
-gh secret set SNYK_TOKEN --repo OWNER/REPOSITORY
-gh secret set SEMGREP_APP_TOKEN --repo OWNER/REPOSITORY
-gh secret set FOSSA_API_KEY --repo OWNER/REPOSITORY
-```
-
-Run only the command for each activated control. For organization secrets, set
-an explicit repository access policy rather than granting every repository
-access by default. Verify names without exposing values:
-
-```sh
-gh secret list --repo OWNER/REPOSITORY
-```
-
-### GitHub Actions variables and platform settings
-
-Variables are non-sensitive and may appear in logs. Never put a token or API
-key in a variable.
-
-| Control | Required variables | Optional variables or settings |
+| Variable | Required for | Behavior when absent |
 | --- | --- | --- |
-| Dependency Review | `DEPENDENCY_GRAPH_ENABLED=true`, after enabling Dependency Graph | `DEPENDENCY_FAIL_ON_SEVERITY` |
-| SonarQube | `SONAR_HOST_URL`, `SONAR_PROJECT_KEY` | `SONAR_PROJECT_BASE_DIRECTORY`, `SONAR_ARGS` |
-| FOSSA | `FOSSA_COMMAND` | Repository-owned policy and project configuration |
-| GitHub Secret Scan | Enable Secret Scanning and push protection in repository settings | `SECRET_SCAN_COMMAND` only when an additional organization scanner is installed |
-| AI reviews | `AI_REVIEW_COMMAND` | `AI_REVIEW_WORKING_DIRECTORY`; any provider credential remains adapter-specific |
-| Build and tests | Repository-specific build and test commands | Working directory, coverage path, and coverage enforcement variables |
+| `GUARDRAILS_SETUP_COMMAND` | Optional setup before build/test/coverage | Setup step is omitted. |
+| `GUARDRAILS_BUILD_COMMAND` | Build | Build reports `NO RESULT`. |
+| `GUARDRAILS_UNIT_TEST_COMMAND` | Unit tests | Unit tests report `NO RESULT`. |
+| `GUARDRAILS_CHANGED_COVERAGE_COMMAND` | Changed-code coverage | Coverage reports `NO RESULT`. |
+| `GUARDRAILS_WORKING_DIRECTORY` | All repository commands | Defaults to `.`; must stay inside the repository. |
 
-For example:
+Use repository variables in GitHub and environment variables locally. Commands
+run through `bash -euo pipefail -c` in the selected working directory.
 
-```sh
-gh variable set DEPENDENCY_GRAPH_ENABLED --body true \
-  --repo OWNER/REPOSITORY
-gh variable set SONAR_HOST_URL --body https://sonar.example.com \
-  --repo OWNER/REPOSITORY
-gh variable set SONAR_PROJECT_KEY --body my-project \
-  --repo OWNER/REPOSITORY
-gh variable list --repo OWNER/REPOSITORY
+### Semgrep CE
+
+Core runs `semgrep scan --error` with `.guardrails/semgrep-rules.yml`. The
+workflow first runs Semgrep's rule tests against the installed positive and
+negative fixtures. It does not use cloud-managed rules or require an AppSec
+Platform token.
+
+The pinned container is:
+
+```text
+semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
 ```
 
-The installer never copies credentials. It installs workflow and configuration
-interfaces; the consuming repository or organization owns provider accounts,
-credential rotation, and repository access.
+Local scans prefer Docker with networking disabled. Without Docker they require
+host Semgrep `1.175.0` exactly. Missing rules, unavailable Docker, or a host
+version mismatch reports `NO RESULT`.
 
-### Activate a provider completely
+Repository-owned and third-party Semgrep rules can have licenses independent of
+the Semgrep engine. Review every rule pack before copying it.
 
-A provider is active only when all three pieces agree:
+### Gitleaks CLI
 
-1. Its real credential is stored as a repository secret.
-2. Its producer workflow exists in `.github/workflows/` and runs successfully.
-3. Its provider is enabled and synchronized into the repository policy and
-   producer manifest.
+Core runs `gitleaks git --redact --no-banner .` from this pinned container:
 
-For example:
-
-```sh
-python3 /path/to/engineering-standards/tooling/install.py \
-  --target . \
-  --github-actions \
-  --provider snyk \
-  --provider semgrep \
-  --refresh-existing
-python3 .guardrails/configure.py \
-  --enable-provider snyk \
-  --enable-provider semgrep \
-  --sync-providers
+```text
+ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 ```
 
-Then open or update a pull request. A successful configuration job alone is
-not scan evidence: confirm the applicable provider checks themselves, followed
-by the updated Guardrail Scorecard. Select `Snyk Open Source` only when the
-repository has a supported dependency manifest; a no-manifest job is not
-dependency-scan evidence.
+The workflow checks out full history. Local scans require complete Git history
+and either Docker or host Gitleaks `8.30.1` exactly. Guardrails uses the MIT
+Gitleaks CLI, not the separately licensed Gitleaks Action.
 
-## Repository Validation
+## GitHub profile
 
-**Protects:** the repository contracts that make the standards and Guardrails
-safe to consume. The canonical producer is `.github/workflows/validate.yml`;
-its GitHub check name is `Validate / repository`.
-
-In this repository, `tooling/validators/validate_repository.py` verifies:
-
-- skill frontmatter and required agent definitions;
-- control-catalog fields, identifiers, and allowed values;
-- guardrail policy, evidence, and JSON Schema contracts;
-- documentation integrity;
-- the absence of accidentally committed machine-local paths; and
-- commit whitespace through `git show --check` in CI.
-
-`Validate / repository` runs only after documentation, change-scope, and
-ground-truth jobs complete. GREEN means those dependencies and the repository
-validator passed for the exact revision under review.
-
-It does not compile application code, run application tests, judge architecture,
-or perform security analysis. Those belong to separate controls. A consuming
-repository should provide an equivalent repository-owned validator instead of
-copying checks for standards-specific directories it does not have.
-
-Troubleshoot locally with:
+Install or add the profile with:
 
 ```sh
-python3 tooling/validators/validate_repository.py
-git show --check --format= HEAD
+python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo --profile github
 ```
 
-## Documentation Validation
+| Capability | Provider/check | Required repository setup |
+| --- | --- | --- |
+| Deep SAST | GitHub CodeQL / `CodeQL` | Set `GUARDRAILS_CODEQL_LANGUAGES`; ensure GitHub code-scanning support. |
+| Dependency change review | GitHub Dependency Review / `Dependency Review` | Set `GUARDRAILS_DEPENDENCY_REVIEW_ENABLED=true`; ensure the repository is eligible for Dependency Review. |
+| Platform secret protection | GitHub Secret Protection / `GitHub Secret Scan` | Enable Secret Scanning and push protection; optional settings token below. |
+| Dependency remediation | GitHub Dependabot / `Dependabot Verification` | Enable vulnerability alerts and automated security fixes; optional settings token below. |
+| Release attestation helper | GitHub Artifact Attestations / `Artifact Provenance` | Supply a release artifact path and any build command; this is not yet Guardrails scorecard evidence. |
 
-**Protects:** documentation navigation and explicit change-to-documentation
-contracts. The canonical producer is `.github/workflows/validate.yml`; its
-GitHub check name is `Validate / docs`.
+### GitHub variables and token
 
-Configure `.guardrails/documentation.yaml` with mappings from implementation
-paths to the documentation paths that must change with them. The validator
-checks:
+| Name | Kind | Used by |
+| --- | --- | --- |
+| `GUARDRAILS_CODEQL_LANGUAGES` | Variable | CodeQL language input |
+| `GUARDRAILS_DEPENDENCY_REVIEW_ENABLED` | Variable | Dependency Review activation; exact value `true` |
+| `GUARDRAILS_ARTIFACT_BUILD_COMMAND` | Variable | Optional release artifact build |
+| `GUARDRAILS_ARTIFACT_PATH` | Variable | Release artifact path when not supplied by dispatch input |
+| `SECURITY_SETTINGS_TOKEN` | Secret | GitHub Secret Protection and Dependabot setting probes |
 
-- that the policy uses the supported version and mapping structure;
-- that configured paths are relative, repository-contained POSIX patterns;
-- that every configured documentation pattern matches a real file;
-- that local Markdown links resolve inside the repository; and
-- on a PR or Git range, that triggered implementation changes include a mapped
-  documentation change.
+`SECURITY_SETTINGS_TOKEN` is optional. Without it, both setting probes publish
+exact-head skipped checks and the scorecard reports `NO RESULT`. When used, give
+it only repository Administration read and Secret scanning alerts read access.
+The trusted `pull_request_target` workflows do not check out PR code or expose
+the protected token to PR-controlled commands.
 
-GREEN means those checks passed for the exact revision or change range. The
-validator does not fetch external links, judge writing quality, or decide
-whether application-specific architecture is correct. Declared repository
-ground truth is handled separately below.
+A configured token proves only that the probe can attempt the API calls. A
+passing result still requires the relevant settings and alert state.
 
-Troubleshoot locally with:
+### Release attestation boundary
 
-```sh
-python3 tooling/validators/validate_documentation.py
-```
+The installed `Artifact Provenance` workflow runs on a published release or
+manual dispatch and attests the exact artifact selected by the dispatch input
+or `GUARDRAILS_ARTIFACT_PATH`. It is release-attestation-only: it does not run
+on pull requests, emit the nested artifact evidence contract, or invoke a
+Guardrails release scorecard. Until those paths exist and are tested, artifact
+provenance is not a fully runnable Guardrails capability and its workflow/job
+name must not be configured as a PR required check.
 
-## Ground Truth
+## Ground-truth paths
 
-**Protects:** the application-owned documents that define architecture,
-engineering constraints, testing, security, deployment, and contribution
-expectations. The producer is `.guardrails/validate_ground_truth.py`; the
-GitHub check name is `Validate / ground truth`.
-
-This control is separate from generic documentation validation. Each
-application repository declares only the documents it treats as local truth in
-`.guardrails/ground-truth-ai.yaml`:
+`.guardrails/ground-truth-ai.yaml` accepts repository-relative paths to files
+that actually exist:
 
 ```json
 {
   "version": 1,
   "documents": [
-    {"path": "AGENTS.md"},
-    {"path": "ARCHITECTURE.md"},
-    {"path": "STANDARDS.md"},
-    {"path": "TESTING.md"},
-    {"path": "SECURITY.md"},
-    {"path": "DEPLOYMENT.md"},
-    {"path": "CONTRIBUTING.md"}
+    {"path": "README.md"},
+    {"path": "docs/design/architecture.md"},
+    {"path": "engineering/security/controls.md"}
   ]
 }
 ```
 
-The validator parses the policy and confirms that every declared path exists as
-a file. GREEN means all declared documents are present at the revision under
-review. A missing file makes the producer fail; keeping the control advisory
-means that failure remains visible without blocking merge unless the repository
-explicitly adds the check to its ruleset.
+The consuming repository chooses the names and locations. Guardrails does not
+copy application ground truth into this standards repository.
 
-The validator does not judge whether a document is accurate, complete, or
-internally consistent. AI Repo Standards Review and human domain review use the
-documents' content. The control does not invent application standards or
-require every repository to use the same document set.
+## Provider selection
 
-Troubleshoot locally with:
+List current modes and provider selections:
 
 ```sh
-python3 .guardrails/validate_ground_truth.py \
-  --policy .guardrails/ground-truth-ai.yaml
+python3 .guardrails/configure.py --list
 ```
 
-Keep this control **Advisory** while the repository declares and validates its
-ground truth. Move it to **Enforced** only after it meets the shared promotion
-rule.
-
-## Change Scope
-
-**Protects:** review quality and cycle time by identifying unexpectedly broad
-or oversized changes. The producer is
-`tooling/validators/inspect_change_scope.py`; the GitHub check name is
-`Validate / scope`.
-
-Configure `.guardrails/change-scope.yaml` with repository-appropriate limits for:
-
-- included files;
-- added lines;
-- total changed lines; and
-- added lines in the largest file.
-
-The validator also reports binary-file count and supports exclusions for
-generated, vendored, lock, documentation, or other low-signal paths. It writes
-the measured values, configured thresholds, and one finding for every exceeded
-threshold.
-
-Thresholds are advisory: exceeding one records `failed` scope evidence but does
-not make the inspection command fail. A successful `Validate / scope` workflow
-therefore means the inspection executed; reviewers must still read its metrics
-and findings. Do not interpret it as proof that the PR is small.
-
-The control measures review surface, not correctness or risk. It should prompt
-a split or explicit reviewer judgment, not block legitimate generated changes,
-migrations, or other justified work automatically.
-
-Inspect the staged change locally with:
+Change the authoritative provider or add a supplemental provider:
 
 ```sh
-python3 tooling/validators/inspect_change_scope.py
-```
-
-## Build
-
-Use `workflows/build.yml`.
-
-Configure either workflow-call inputs or repository variables:
-
-```text
-BUILD_COMMAND=your repository build command
-SETUP_COMMAND=optional dependency/toolchain setup
-WORKING_DIRECTORY=optional subdirectory
-```
-
-The command must return non-zero on a build failure. The resulting check name
-should be `Build`.
-
-## Unit Tests
-
-Use `workflows/unit-tests.yml`.
-
-Configure:
-
-```text
-UNIT_TEST_COMMAND=your unit test command, including coverage flags when needed
-SETUP_COMMAND=optional dependency/toolchain setup
-WORKING_DIRECTORY=optional subdirectory
-COVERAGE_PATH=coverage output path
-COVERAGE_REQUIRED=true when coverage is required for this repository
-```
-
-Tests must contain meaningful assertions. Coverage is evidence for new or
-changed code; it is not a reason to force unrelated historical cleanup.
-
-## CodeQL / SAST
-
-Use the `codeql` job in `workflows/security-scanning.yml`.
-
-Configure:
-
-```text
-CODEQL_LANGUAGES=javascript-typescript,python
-CODEQL_BUILD_MODE=none or autobuild
-```
-
-Use the language identifiers supported by CodeQL. Compiled languages may need
-`autobuild` or a repository-specific build adapter. The workflow requests
-`security-events: write` only for the CodeQL job.
-
-For a Python repository, `CODEQL_LANGUAGES=python` with
-`CODEQL_BUILD_MODE=none` is sufficient. The producer must publish the check
-context as `CodeQL` for the scorecard to report `codeql-sast` as GREEN.
-
-## Secrets scanning
-
-Enable GitHub secret scanning and push protection in the organization or
-repository Security settings. These are platform controls; the Actions
-workflow cannot enable them.
-
-The repository API exposes these settings only to an administrator. To have
-the PR scorecard verify them as a `GitHub Secret Scan` check, add a narrowly scoped
-fine-grained GitHub token or GitHub App token as the `SECURITY_SETTINGS_TOKEN`
-Actions secret. Grant only repository `Administration` read and `Secret
-scanning alerts` read access, scoped to the repository being verified. The
-trusted `pull_request_target` evidence probe does not check out
-PR code; it publishes the result explicitly against the PR head SHA. Without
-that credential the publisher records `NO RESULT`; it never treats an
-unprivileged token or a workflow's existence as proof of activation. The
-optional organization scanner runs separately on `pull_request`, without
-credentials, and its result is included when configured.
-
-If the organization also requires a scanner command, configure
-`SECRET_SCAN_COMMAND` and use the organization scanner workflow. Keep the
-command scanner-specific and do not give it repository secrets.
-
-## Dependency Review
-
-Use the `dependency-review` job in `workflows/security-scanning.yml`.
-
-First enable **Dependency Graph** in the repository’s Settings → Security →
-Advanced Security. Set the repository variable below only after that platform
-setting is enabled; the canonical check workflow uses it to avoid presenting a
-disabled GitHub producer as a failed scan:
-
-```text
-DEPENDENCY_GRAPH_ENABLED=true
-```
-
-Configure the severity threshold through the workflow input or repository
-variable:
-
-```text
-DEPENDENCY_FAIL_ON_SEVERITY=high
-```
-
-Set the repository’s license and vulnerability policy before making the check
-required. The displayed check name should be `Dependency Review`.
-
-Dependency Review is not Dependabot. Dependabot proposes dependency update or
-security pull requests; Dependency Review evaluates dependency changes already
-present in the current pull request. The `.guardrails/control-catalog.yaml` and
-`.guardrails/policy.yaml` files only declare and configure the control. The
-actual scan runs in GitHub Actions through `actions/dependency-review-action`.
-
-## Dependabot
-
-Add `.github/dependabot.yml` to configure scheduled dependency update pull
-requests. The file activates Dependabot version updates, but GitHub’s
-Dependabot security-update capability is a separate repository setting. The
-local scorecard reports configuration presence as `NO RESULT`; it does not
-pretend that a local file proves GitHub activation. Verify the GitHub setting
-and provide revision-bound producer evidence before treating Dependabot as fully
-operational or enforcing it.
-
-The canonical `Dependabot Verification` workflow performs this verification in
-GitHub using the repository API, writes revision-bound evidence, and runs the
-scorecard with that evidence. Copy it into a consuming repository when you want
-the Dependabot control to become GREEN after the platform settings pass.
-
-## SonarQube
-
-Use `workflows/sonar.yml` for every pull request.
-
-Configure the repository or organization variables:
-
-```text
-SONAR_HOST_URL=https://your-sonarqube-instance
-SONAR_PROJECT_KEY=your-project-key
-SONAR_PROJECT_BASE_DIRECTORY=.
-SONAR_ARGS=optional scanner arguments
-```
-
-Add the `SONAR_TOKEN` secret. Configure the SonarQube Quality Gate on the
-SonarQube server, targeting new and changed code. Select an AI-oriented gate
-there when the installed SonarQube version supports and the organization has
-approved it.
-
-The GitHub check should be named `SonarQube Quality Gate`. The workflow runs on
-every pull request; it is not an end-of-week scan.
-
-## FOSSA
-
-FOSSA requires an external project and policy.
-
-1. Create or select the FOSSA project for the application.
-2. Define the approved license and vulnerability policy.
-3. Store `FOSSA_API_KEY` as an organization or repository secret.
-4. Provide the organization-approved `FOSSA_COMMAND` adapter.
-5. Use the `fossa` job in `workflows/security-scanning.yml`.
-6. Confirm the result is bound to the exact revision and the check is named `FOSSA`.
-
-The shared repository does not install FOSSA, choose a license policy, or
-fabricate a result.
-
-## Artifact Provenance
-
-Artifact provenance creates a signed, revision-bound statement about how a
-release artifact was built. The attestation binds the artifact digest to the
-repository, workflow, source revision, and builder identity. It complements
-dependency and source scanning; it does not replace CodeQL, Dependency Review,
-Snyk, or FOSSA.
-
-This control has three separate parts:
-
-1. **Build** — produce the exact file that will be released or deployed.
-2. **Attest** — use GitHub Artifact Attestations to sign that file.
-3. **Verify** — make the release or deployment path reject a file whose
-   attestation is missing or invalid.
-
-An upload to Actions artifacts alone is not an attestation. A successful build
-alone is not evidence of provenance. The control is GREEN only when the
-attestation step succeeds for the artifact that will actually be promoted and
-the verification step is exercised.
-
-Call the reusable template from a workflow that produces a real artifact:
-
-```yaml
-jobs:
-  artifact-provenance:
-    # Copy workflows/artifact-provenance.yml into .github/workflows first.
-    uses: ./.github/workflows/artifact-provenance.yml
-    with:
-      build-command: ./scripts/build-release.sh
-      artifact-path: dist/my-app-*.tar.gz
-```
-
-The calling job should use the catalog context so the scorecard can collect it
-consistently:
-
-```yaml
-jobs:
-  artifact-provenance:
-    name: Artifact Provenance
-    uses: ./.github/workflows/artifact-provenance.yml
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    with:
-      build-command: ./scripts/build-release.sh
-      artifact-path: dist/my-app.tar.gz
-```
-
-The caller must grant `id-token: write`, `attestations: write`, and
-`artifact-metadata: write`. Keep those permissions on this job rather than
-granting them to unrelated jobs. The template checks out `github.sha`: on a
-pull request this is normally GitHub's synthetic merge revision, which is
-intentional because the artifact was built from the tested merge tree. For a
-release workflow, trigger from the immutable tag or commit that produced the
-release artifact.
-
-Verify the result during release or deployment, before promotion:
-
-```bash
-gh attestation verify dist/my-app.tar.gz --repo OWNER/REPOSITORY
-```
-
-The verification command must run against the same artifact bytes that will be
-released. If the artifact is rebuilt, repackaged, copied, or signed by another
-system, verify the final artifact again. Record the verification result in the
-release evidence used by the scorecard where release evidence is enabled.
-
-Expected outcomes:
-
-- **GREEN** — the `Artifact Provenance` producer check passed and the exact
-  artifact verifies successfully.
-- **ORANGE** — the workflow, permissions, artifact, or deployment verification
-  is not configured; this is advisory and does not block by default.
-- **RED** — the producer ran and attestation or verification failed. Treat this
-  as a release defect even while the control remains advisory.
-- **NO RESULT** — the workflow did not run for the revision under review. Do
-  not treat a skipped job or an uploaded Actions artifact as proof.
-
-Keep this control **Advisory** until the deployment path rejects artifacts
-without a valid attestation. Move it to **Enforced** only after it also meets
-the shared promotion rule. For public repositories, GitHub makes
-artifact attestations available on current plans; private or internal
-repositories require the supported GitHub Enterprise Cloud plan. Confirm plan
-availability and organization policy before rollout.
-
-## Snyk
-
-Snyk is an external provider and an important recommended gate, not a required
-organization-wide merge control yet. Use Snyk Open Source for dependency and
-supply-chain vulnerabilities. Use Snyk Code for source-code security analysis when
-the repository selects it instead of, or in addition to, CodeQL. Do not create
-two blocking checks for the same finding without an explicit defense-in-depth
-decision.
-
-For this repository, `.github/workflows/snyk.yml` is the working example. It
-runs Snyk Code on source and runs Snyk Open Source only when a supported
-dependency manifest exists. This repository currently has no dependency
-manifest, so the Open Source job reports not applicable rather than pretending
-that an empty dependency scan is a real result.
-
-To activate Snyk in a consuming repository:
-
-1. Create or connect the repository project in Snyk.
-2. Add `SNYK_TOKEN` as an organization or repository secret.
-3. Copy the example workflow or call the shared security workflow.
-4. Set a severity threshold, initially `high`, and define approved
-   ignore/expiry policy in Snyk.
-5. Run the workflow on every pull request and the default branch.
-6. Confirm the actual check names: `Snyk Code` and/or `Snyk Open Source`.
-7. Leave the checks **Advisory** while the team learns the findings, tunes
-   thresholds, and establishes ownership.
-8. Move Snyk to **Enforced** and add its exact check names to the GitHub
-   ruleset only after it meets the shared promotion rule.
-9. Record revision-bound evidence for the scorecard.
-
-Fork pull requests do not receive repository secrets. The example therefore
-does not attempt a token-backed scan on an untrusted fork; use a trusted
-organization-level integration or a separate unprivileged validation path if
-fork coverage is required.
-
-Snyk CLI exit code `1` means vulnerabilities were found and should fail the
-Snyk scan check; because the policy is advisory by default, that failure does
-not automatically block merge. Exit code `3` means no supported project was detected and must
-be treated as not applicable only when the repository has no supported
-manifest. See the [Snyk CLI test documentation](https://docs.snyk.io/developer-tools/snyk-cli/commands/test).
-
-Adoption path:
-
-```text
-Not connected
-      ↓
-Advisory scan
-      ↓
-Findings tuned and owned
-      ↓
-Required Snyk check for selected repositories
-```
-
-## Semgrep
-
-Semgrep requires an organization-owned rule set and execution path.
-
-Semgrep is a supported advisory control in the catalog. The shared repository
-does not invent a universal rule set or scanner command. Configure the
-repository secret `SEMGREP_APP_TOKEN` and an organization-approved workflow or
-adapter that publishes a check named `Semgrep`; until then it remains not
-activated.
-
-For the shared template, install and enable it with:
-
-```sh
-python3 /path/to/engineering-standards/tooling/install.py \
-  --target . --provider semgrep --refresh-existing
 python3 .guardrails/configure.py \
-  --enable-provider semgrep --sync-providers
+  --select-provider changed-code-coverage=sonarqube \
+  --set changed-code-coverage=advisory \
+  --dry-run
+
+python3 .guardrails/configure.py \
+  --add-supplemental deep-sast=snyk-code \
+  --dry-run
 ```
 
-The template runs `semgrep ci` in the official Semgrep container on pull
-requests and the default branch. It requires `SEMGREP_APP_TOKEN`; it does not
-invent or embed organization-specific rules. Semgrep starts **Advisory**. Move
-it to **Enforced** and add the exact `Semgrep` check to the ruleset only after
-it meets the shared promotion rule. Semgrep's documented GitHub Actions setup
-requires a repository workflow and `SEMGREP_APP_TOKEN` secret.
+Supplemental evidence is always advisory. It cannot satisfy or block the
+capability. A provider cannot be both authoritative and supplemental for the
+same capability.
 
-The exact placeholder value `GUARDRAILS_NOT_CONFIGURED` keeps the installed
-workflow inactive. Replace that value with a real token to activate the scan;
-do not use arbitrary dummy credentials.
-[Semgrep GitHub reusable workflow
-documentation](https://semgrep.dev/docs/kb/semgrep-ci/github-reusable-workflows-semgrep)
-is the provider reference.
+## Optional vendor providers
 
-1. Agree on executable rules, starting with tenant isolation, SQL injection,
-   token logging, TLS validation, and unauthenticated admin endpoints.
-2. Store the approved `SEMGREP_COMMAND` as a repository variable or workflow
-   input.
-3. Use the `semgrep` job in `workflows/security-scanning.yml`.
-4. Confirm the real check name and revision-bound evidence.
+These definitions are available but are not runnable profiles and are not
+installed as active integrations:
 
-Do not add a placeholder Semgrep command just to make the status green.
+| Provider | Capabilities | Declared credential | Activation responsibility |
+| --- | --- | --- | --- |
+| SonarQube | Static quality, changed-code coverage | `SONAR_TOKEN` | Configure project/host settings and a workflow or adapter that emits exact-head `SonarQube Quality Gate` evidence. |
+| Snyk Code | Deep SAST | `SNYK_TOKEN` | Supply a repository or organization workflow/adapter and exact-head `Snyk Code` evidence. |
+| Snyk Open Source | Dependency vulnerability | `SNYK_TOKEN` | Supply a repository or organization workflow/adapter and exact-head `Snyk Open Source` evidence. |
+| Semgrep AppSec Platform | Custom static analysis, deep SAST | `SEMGREP_APP_TOKEN` | Supply an organization-approved integration and exact-head `Semgrep` evidence. |
+| FOSSA | Dependency vulnerability, license compliance | `FOSSA_API_KEY` | Supply a repository or organization workflow/adapter and exact-head `FOSSA` evidence. |
 
-## Soak Check
+Do not add a credential until the adapter is ready. Do not select a vendor as
+authoritative until its evidence contract and failure behavior are verified.
 
-Use `workflows/soak.yml` for scheduled or manually triggered endurance checks.
+## Promote to enforcement
 
-Configure:
-
-```text
-SOAK_COMMAND=repository-owned endurance test command
-SOAK_WORKING_DIRECTORY=optional subdirectory
-```
-
-The producer must record workload, duration, resource observations,
-thresholds, degradation findings, and the exact revision. The application
-repository owns the definition of acceptable runtime behavior.
-
-## AI reviews
-
-Use `workflows/ai-pr-review.yml` with a trusted repository-owned or
-organization-owned adapter.
-
-Configure:
-
-```text
-AI_REVIEW_COMMAND=approved adapter command
-AI_REVIEW_WORKING_DIRECTORY=optional subdirectory
-```
-
-The adapter runs once for each role—engineering, QA, security, and repository
-standards—and writes:
-
-```text
-.ai-review/results/engineering.json
-.ai-review/results/qa.json
-.ai-review/results/security.json
-.ai-review/results/repo-standards.json
-```
-
-Each result must contain a `findings` array. The consolidation job blocks
-unresolved `P0` and `P1` findings and fails when any reviewer does not finish.
-The shared workflow does not choose an AI provider or handle credentials.
-
-## Repository standards review
-
-The adapter should read these files when they exist:
-
-```text
-AGENTS.md
-ARCHITECTURE.md
-STANDARDS.md
-TESTING.md
-SECURITY.md
-DEPLOYMENT.md
-CONTRIBUTING.md
-```
-
-It must distinguish organization policy from repository ground truth and must
-not invent standards where documentation is absent.
-
-## Branch protection
-
-Use `rulesets/default-branch-protection.json` as the starting point.
-
-1. Require pull requests and resolved conversations.
-2. Block direct pushes, force pushes, and branch deletion.
-3. Require the actual check names produced by the installed workflows.
-4. Start with zero required approvals for a single-developer repository. Raise
-   `required_approving_review_count` to `1` or more when multiple engineers or
-   higher-risk review requires it.
-5. Enable CODEOWNER approval only after the application repository has a valid
-   `.github/CODEOWNERS` file.
-
-Do not copy placeholder check names into a ruleset before observing the real
-GitHub check contexts.
-
-## Verify progress to all greens
-
-Policy-scoped scorecard:
+1. Run the provider on representative pull requests.
+2. Confirm evidence binds to the exact subject.
+3. Confirm the exact stable check name and failure behavior.
+4. Assign a remediation owner.
+5. Set the capability to `enforced`.
+6. Add that exact check context to the repository ruleset.
 
 ```sh
-python3 .guardrails/scorecard.py \
-  --policy .guardrails/policy.yaml \
-  --catalog .guardrails/control-catalog.yaml \
-  --evidence .artifacts/guardrails/evidence.json \
-  --operation change \
-  --revision "$(git rev-parse HEAD)" \
-  --subject-type git-commit
+python3 .guardrails/configure.py --set unit-tests=enforced --dry-run
+python3 .guardrails/configure.py --set unit-tests=enforced
 ```
 
-Full onboarding view, including controls not yet selected in policy:
+Policy enforcement without a matching ruleset does not protect merge. A
+required status check without a reliable provider can deadlock merge.
 
-```sh
-python3 .guardrails/scorecard.py \
-  --policy .guardrails/policy.yaml \
-  --catalog .guardrails/control-catalog.yaml \
-  --evidence .artifacts/guardrails/evidence.json \
-  --operation change \
-  --revision "$(git rev-parse HEAD)" \
-  --subject-type git-commit \
-  --all-catalog-controls
-```
+## Evidence-only lifecycle controls
 
-Keep adding and configuring controls until the full onboarding view reports:
-
-```text
-Service readiness: GREEN
-Controls: GREEN N, ORANGE 0, GRAY 0, RED 0
-```
-
-That is the evidence-backed definition of “all green.”
+Container vulnerability, IaC misconfiguration, artifact SBOM, artifact
+vulnerability, deployment policy, dynamic application security, and runtime
+assurance are future evidence contracts only. Guardrails does not install or
+operate container scanners, SBOM generators, policy engines, DAST tools, or
+observability stacks for them.

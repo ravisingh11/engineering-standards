@@ -427,7 +427,7 @@ def validate_no_machine_paths() -> None:
         relative_path = path.relative_to(ROOT)
         if not path.is_file() or ".git" in path.parts:
             continue
-        if relative_path.parts[0] == ".superpowers":
+        if relative_path.parts[0] in {".artifacts", ".superpowers"}:
             continue
         if path.name in {"validate_repository.py", "validate-skills.py"}:
             continue

@@ -63,9 +63,9 @@ def main() -> int:
         }
 
     evidence = {
-        "version": 1,
+        "version": 2,
         "subject": {"type": "git-commit", "revision": head_sha},
-        "checks": {"ai-engineering-review": check},
+        "results": {"ai-engineering-review": {"ai-engineering-adapter": check}},
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

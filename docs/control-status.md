@@ -1,117 +1,67 @@
 # Control status
 
-This page answers two separate questions: **what enforcement mode did the
-repository select, and what happened in this scan?**
+Guardrails reports mode, evidence status, readiness color, and overall decision
+separately. Do not infer one from another.
 
-## Status meanings
+## Status vocabulary
 
-| Readiness | Meaning | Merge behavior |
+| Layer | Values | Meaning |
 | --- | --- | --- |
-| **🟢 GREEN — producer passed** | The selected producer returned passing evidence for this revision. | Satisfies the policy mode. |
-| **🟠 ORANGE — no result** | The repository selected the control, but its producer has not returned usable evidence. | Visible; blocks only when enforced. |
-| **⚪ GRAY — not activated** | The catalog describes the control, but this repository did not select it. | Informational only. |
-| **🔴 RED — failed or blocked** | The producer failed, was blocked, or enforced evidence is missing. | Blocks when enforced. |
+| Mode | `advisory`, `enforced`, `not_activated` | Whether the capability is selected and whether a missing pass blocks. |
+| Producer status | `passed`, `failed`, `blocked`, `not_run` | Raw provider outcome. |
+| Public evidence status | `passed`, `failed`, `blocked`, `no_result`, `not_activated` | Scorecard vocabulary; missing and `not_run` normalize to `no_result`. |
+| Decision | `allow`, `block` | Whether enforced capabilities and subject binding permit the operation. |
 
-The report keeps producer category separate from readiness: `github-native`,
-`external`, or `repository`. For example, SonarQube and Snyk are `external`
-producer categories, while CodeQL is `github-native`. Either can be GREEN only
-after it is selected and produces passing evidence.
+## Readiness colors
 
-GitHub Actions job health is also separate from control evidence. A green
-configuration or publishing job means the workflow successfully reported what
-it found; it does not prove that the control passed. For Secret Scan, the
-authoritative result is the `GitHub Secret Scan` check and its scorecard row.
-When `SECURITY_SETTINGS_TOKEN` is absent, the evidence probe is skipped and
-the publisher records `NO RESULT` rather than showing the verifier as green.
+| Color | Exact condition |
+| --- | --- |
+| **GREEN** | The authoritative provider returned `passed` for the exact subject. |
+| **ORANGE** | The capability is advisory and its authoritative provider did not return an exact-subject pass. |
+| **RED** | The capability is enforced and its authoritative provider did not return an exact-subject pass, or the evidence subject mismatches. |
+| **GRAY** | The capability is not activated for this operation and subject type. |
 
-## Activation map
+An `ORANGE / ALLOW` scorecard is truthful: unresolved advisory capabilities
+remain visible without blocking. `RED / BLOCK` means enforcement or subject
+binding failed. `GREEN / ALLOW` means every selected authoritative provider
+passed for the exact subject. Default scorecards omit inactive controls;
+`GRAY` rows appear only when `--all-catalog-controls` requests the complete
+catalog view.
 
-```mermaid
-flowchart LR
-    policy[Engineering policy]
-    github[GREEN ✅ GitHub-native controls]
-    external[ORANGE 🟠 Third-party service or adapter]
-    repository[GRAY ⚪ Application repository configuration]
-    ruleset[GitHub ruleset]
+## Common interpretations
 
-    policy --> github
-    policy --> external
-    policy --> repository
-    github --> ruleset
-    external --> ruleset
-    repository --> ruleset
+| Observation | Interpretation |
+| --- | --- |
+| Workflow installed | Configuration only; no result yet. |
+| Job skipped because a variable is unset | `NO RESULT`. |
+| Settings token exists | Probe can attempt access; not a pass. |
+| Supplemental provider passed | Useful advisory evidence; authoritative result still decides. |
+| Prior commit passed | Stale for the current commit; `NO RESULT`. |
+| Artifact attestation exists | Relevant only to that exact artifact subject. |
+| Scorecard job completed | Aggregation ran; inspect each capability and the overall decision. |
 
-    classDef green fill:#dcfce7,stroke:#15803d,color:#14532d;
-    classDef orange fill:#ffedd5,stroke:#ea580c,color:#7c2d12;
-    classDef gray fill:#f3f4f6,stroke:#6b7280,color:#111827;
-    class policy,ruleset green;
-    class github green;
-    class external orange;
-    class repository gray;
-    linkStyle 0,3 stroke:#16a34a,stroke-width:3px;
-    linkStyle 1,4 stroke:#ea580c,stroke-width:3px,stroke-dasharray:5 5;
-    linkStyle 2,5 stroke:#6b7280,stroke-width:3px,stroke-dasharray:5 5;
-```
+## Default profile state
 
-## Control map
+Core is selected by default and all Core capabilities begin advisory. The
+GitHub profile is optional and additive; its capabilities also begin advisory.
+Capabilities outside selected profiles are omitted by default. In a complete
+`--all-catalog-controls` view they appear `GRAY` unless a repository adds a
+runnable mode override.
 
-| Control | Finds | Activation | What a consuming repository must do |
-| --- | --- | --- | --- |
-| Repository validation | Broken policy, schema, documentation, and repository contracts | ✅ Green | Run the shared validator or equivalent check. |
-| Documentation validation | Broken internal links and documentation contracts | ✅ Green | Run the shared documentation validator. |
-| Ground Truth | Missing application-owned architecture, standards, testing, security, deployment, or contribution documents | ⚪ Gray | Declare the repository's actual ground-truth files and run the installed validator. |
-| Change Scope | Oversized or unexpectedly broad changes | ✅ Green | Configure thresholds and review advisory findings. |
-| Guardrail evaluator | Missing or failed revision-bound evidence | ✅ Green | Produce evidence using the shared schema and invoke the evaluator. |
-| Build | Compilation, packaging, and build regressions | ✅ Green | Set the build command and runtime/toolchain. |
-| Unit Tests | Functional regressions and changed behavior | ✅ Green | Set the test command and coverage report. |
-| SonarQube | Bugs, maintainability, code quality, and new-code regressions | 🟠 Orange | Provide the project, token, quality gate, and PR analysis. |
-| CodeQL / SAST | Vulnerabilities in application code | ✅ Green | Set supported languages and enable the GitHub security workflow. |
-| Secrets scan | Credentials and tokens committed to code | ✅ Green when enabled / 🟠 ORANGE until verifiable | Enable GitHub secret scanning and push protection. The PR verifier also needs `SECURITY_SETTINGS_TOKEN` because GitHub exposes these admin-only settings only to an administrator. |
-| Dependency Review | Risk introduced by changed dependencies | ✅ Green | Enable the GitHub workflow and define severity/license policy. |
-| Snyk Open Source | Dependency vulnerabilities and supply-chain risk | 🟠 Orange | Connect `SNYK_TOKEN`, a Snyk project, policy, and the PR workflow; advisory by default. |
-| Snyk Code | Vulnerabilities in application source code | 🟠 Orange | Connect `SNYK_TOKEN` and run the source scan on every PR; advisory by default. |
-| Artifact Provenance | Signed evidence of how a release artifact was built | 🟠 Orange | Call `workflows/artifact-provenance.yml` with a real artifact; verify it at release/deploy before promoting the control. |
-| FOSSA | Open-source dependency, license, and supply-chain risk | 🟠 Orange | Create the FOSSA project, credentials, policy, and adapter command. |
-| Semgrep | Organization-specific security patterns | 🟠 Orange | Supported advisory control. Add `SEMGREP_APP_TOKEN` and the organization-approved Semgrep workflow/adapter; until then it remains not activated. |
-| Soak Check | Runtime degradation over time | ⚪ Gray | Provide workload, duration, metrics, thresholds, and revision evidence. |
-| AI Engineering Review | Correctness, architecture, maintainability, and regression risk | 🟠 Orange | Connect a trusted provider-neutral review adapter. |
-| AI QA Review | Missing tests, edge cases, and weak assertions | 🟠 Orange | Connect the QA review adapter and result contract. |
-| AI Security Review | Auth, tenant isolation, injection, secrets, and privilege risks | 🟠 Orange | Connect the security review adapter and result contract. |
-| AI Repo Standards Review | Violations of application ground truth | 🟠 Orange | Expose repository documents to the review adapter. |
-| Default-branch protection | PR, optional approval, status-check, and conversation requirements | ✅ Green | Import, adapt, and activate the GitHub ruleset in the target repository. The default requires PRs but zero approvals; raise `required_approving_review_count` for teams or higher-risk repositories. |
+Future lifecycle capabilities marked `evidence-only` are also omitted by
+default and appear `GRAY` only in the complete catalog view. They cannot be
+selected or promoted until runtime/provider contracts are implemented.
 
-## The green path
+## Promotion gate
 
-This is the part that is already executable in the shared repository:
+Move a capability from advisory to enforced only after:
 
-```text
-Policies and control catalog
-        ↓
-JSON/YAML schemas
-        ↓
-Guardrail evaluator
-        ↓
-Repository validation workflow
-        ↓
-Evidence-backed pass or fail
-```
+- the authoritative provider is configured and reliable;
+- evidence is bound to the exact commit, artifact, or environment;
+- the check name and failure behavior are stable;
+- skipped and unavailable states become `NO RESULT`, not success;
+- a remediation owner exists; and
+- the exact check context is added to the repository ruleset.
 
-The workflow templates and ruleset are not globally active just because they
-are stored here. A green control becomes active in an application repository
-only after that repository installs it, supplies its repository-specific
-configuration, observes the actual check name, and adds it to the ruleset.
-
-## Configuration checklist
-
-Before moving a control from **Advisory** to **Enforced**, verify:
-
-- A real producer runs on the intended event.
-- The producer checks the exact revision under review.
-- The output has a stable status/check name.
-- Failure and missing evidence fail closed.
-- Required secrets and permissions are configured.
-- The result is visible to the repository ruleset.
-- An owner is responsible for fixing failures.
-- The control has passed on representative pull requests.
-
-For the source of truth, see the [control catalog](../policies/control-catalog.yaml).
+See [control setup](control-setup.md), [producer contract](producer-contract.md),
+and [ruleset guidance](../rulesets/README.md).

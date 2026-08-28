@@ -1,109 +1,12 @@
-name: Guardrail Scorecard
-
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  checks: read
-
-concurrency:
-  group: guardrail-scorecard-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  scorecard:
-    name: Guardrail Scorecard
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-
-      # Repository-owned producer workflows run independently. This step only
-      # collects their visible check results for the exact revision under test.
-      - name: Collect GitHub check evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          python3 .guardrails/github_evidence.py \
-            --revision "$REVISION" \
-            --manifest .guardrails/producer-manifest.json \
-            --output .artifacts/guardrails/evidence/github-checks.json \
-            --wait-seconds 600
-
-      - name: Run guardrail scorecard
-        env:
-          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          python3 .guardrails/scan.py \
-            --target . \
-            --policy .guardrails/policy.yaml \
-            --catalog .guardrails/control-catalog.yaml \
-            --revision "$REVISION" \
-            --all-catalog-controls
-
-      - name: Publish scorecard to the job summary
-        if: always()
-        run: |
-          set -euo pipefail
-          report="$(find .artifacts/guardrails -maxdepth 1 -name 'scorecard-*.md' -print 2>/dev/null | sort | tail -n 1 || true)"
-          if [ -n "$report" ]; then
-            cat "$report" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'No scorecard report was generated.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload scorecard evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: guardrail-scorecard-${{ github.run_id }}
-          path: .artifacts/guardrails
-          if-no-files-found: error
-
-  publish-scorecard:
-    name: Publish Guardrail Scorecard
-    needs: scorecard
-    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      pull-requests: write
-    steps:
-      - name: Download scorecard evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
-        with:
-          name: guardrail-scorecard-${{ github.run_id }}
-          path: .artifacts/guardrails
-
-      - name: Publish scorecard to pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          marker='<!-- guardrail-scorecard -->'
-          report="$(find .artifacts/guardrails -maxdepth 1 -name 'scorecard-*.md' -print 2>/dev/null | sort | tail -n 1 || true)"
-          if [ -n "$report" ]; then
-            body="$(printf '%s\n\n' "$marker"; cat "$report")"
-          else
-            body="$marker\n\nThe scorecard report was not generated. See the workflow logs."
-          fi
-          existing_url="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[] | select(.user.login == "github-actions[bot]") | select((.body | contains("<!-- guardrail-scorecard -->")) or (.body | contains("<!-- agentic-guardrail-scorecard -->"))) | .url' | head -n 1)"
-          if [ -n "$existing_url" ]; then
-            gh api --method PATCH "$existing_url" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
-          fi
+{
+  "$schema": "../../guardrails/policy.schema.json",
+  "version": 2,
+  "name": "example-core-policy",
+  "profiles": ["core"],
+  "overrides": {
+    "change": {
+      "unit-tests": "enforced"
+    },
+    "release": {}
+  }
+}

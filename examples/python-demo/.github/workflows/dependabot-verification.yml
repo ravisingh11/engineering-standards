@@ -1,86 +1,93 @@
+# Guardrails v2 installer-owned workflow.
 name: Dependabot Verification
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   verify:
-    name: Dependabot Verification
+    name: Dependabot Evidence Probe
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
-      GH_TOKEN: ${{ github.token }}
-      REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_NAME: ${{ github.event_name }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref && format('refs/heads/{0}', github.event.pull_request.base.ref) || github.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      TOKEN_CONFIGURED: ${{ secrets.SECURITY_SETTINGS_TOKEN != '' }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify platform controls and write run-bound evidence
+        env:
+          SETTINGS_TOKEN: ${{ secrets.SECURITY_SETTINGS_TOKEN }}
+        run: |
+          set -euo pipefail
+          conclusion=skipped
+          status=not_run
+          reason="SECURITY_SETTINGS_TOKEN is not configured; Dependabot settings have NO RESULT."
+          if [[ "${TOKEN_CONFIGURED}" == "true" ]]; then
+            alerts=unknown
+            updates=unknown
+            if GH_TOKEN="${SETTINGS_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}/vulnerability-alerts" >/dev/null 2>&1; then alerts=enabled; fi
+            updates_response=""
+            updates_error="${RUNNER_TEMP}/dependabot-updates-error"
+            if updates_response="$(GH_TOKEN="${SETTINGS_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}/automated-security-fixes" 2>"${updates_error}")"; then
+              enabled="$(jq -r 'if (.enabled | type) == "boolean" then .enabled else "unknown" end' <<<"${updates_response}" 2>/dev/null || printf 'unknown')"
+              paused="$(jq -r 'if (.paused | type) == "boolean" then .paused else "unknown" end' <<<"${updates_response}" 2>/dev/null || printf 'unknown')"
+              if [[ "${enabled}" == "false" ]]; then
+                updates=disabled
+              elif [[ "${enabled}" == "true" && "${paused}" == "true" ]]; then
+                updates=paused
+              elif [[ "${enabled}" == "true" && "${paused}" == "false" ]]; then
+                updates=enabled
+              fi
+            elif grep -Eq '(^|[^0-9])404([^0-9]|$)' "${updates_error}"; then
+              updates=disabled
+            fi
+            if [[ "${alerts}" == "enabled" && "${updates}" == "enabled" ]]; then
+              conclusion=success
+              status=passed
+              reason="Dependabot vulnerability alerts and automated security fixes are enabled."
+            elif [[ "${updates}" == "disabled" || "${updates}" == "paused" ]]; then
+              conclusion=failure
+              status=failed
+              reason="Dependabot vulnerability alerts=${alerts}; automated security fixes=${updates}."
+            elif [[ "${alerts}" == "unknown" || "${updates}" == "unknown" ]]; then
+              reason="GitHub did not expose all Dependabot settings to the supplied least-privilege token."
+            else
+              conclusion=failure
+              status=failed
+              reason="Dependabot vulnerability alerts=${alerts}; automated security fixes=${updates}."
+            fi
+          fi
+          jq -n --arg run_id "${GITHUB_RUN_ID}" --arg event "${EVENT_NAME}" --arg base_sha "${BASE_SHA}" --arg base_ref "${BASE_REF}" --arg head_sha "${HEAD_SHA}" --arg repository "${GITHUB_REPOSITORY}" --arg status "${status}" --arg summary "${reason}" '{version:1,run_id:($run_id|tonumber),event:$event,base_sha:$base_sha,base_ref:$base_ref,head_sha:$head_sha,revision:$head_sha,repository:$repository,provider_id:"github-dependabot",status:$status,summary:$summary}' > "${RUNNER_TEMP}/guardrails-evidence.json"
+      - name: Upload run-bound evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-
-      - name: Verify Dependabot configuration and GitHub settings
+          name: guardrails-dependabot-${{ github.run_id }}
+          path: ${{ runner.temp }}/guardrails-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish display check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -u
-          config_status=failed
-          if test -f .github/dependabot.yml || test -f .github/dependabot.yaml; then
-            config_status=passed
-          fi
-          alerts_status=failed
-          if gh api "repos/${GITHUB_REPOSITORY}/vulnerability-alerts" >/dev/null 2>&1; then
-            alerts_status=passed
-          fi
-          security_updates=false
-          if security_updates="$(gh api "repos/${GITHUB_REPOSITORY}/automated-security-fixes" --jq '.enabled' 2>/dev/null)"; then
-            :
-          else
-            security_updates=false
-          fi
-          status=failed
-          if test "${config_status}" = passed \
-            && test "${alerts_status}" = passed \
-            && test "${security_updates}" = true; then
-            status=passed
-          fi
-          mkdir -p .artifacts/guardrails/evidence
-          CONFIG_STATUS="${config_status}" \
-          ALERTS_STATUS="${alerts_status}" \
-          SECURITY_UPDATES="${security_updates}" \
-          STATUS="${status}" \
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          evidence = {
-              "version": 1,
-              "subject": {"type": "git-commit", "revision": os.environ["REVISION"]},
-              "checks": {
-                  "dependabot": {
-                      "producer": "GitHub Dependabot settings API",
-                      "status": os.environ["STATUS"],
-                      "evidence": [
-                          f"dependabot_config: {os.environ['CONFIG_STATUS']}",
-                          f"vulnerability_alerts: {os.environ['ALERTS_STATUS']}",
-                          f"automated_security_fixes: {os.environ['SECURITY_UPDATES']}",
-                      ],
-                  }
-              },
-          }
-          Path(".artifacts/guardrails/evidence/dependabot.json").write_text(
-              json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
-          )
-          PY
-
-      - name: Run scorecard with Dependabot evidence
-        run: |
-          python3 .guardrails/scan.py \
-            --target . \
-            --policy .guardrails/policy.yaml \
-            --catalog .guardrails/control-catalog.yaml \
-            --evidence-dir .artifacts/guardrails/evidence \
-            --all-catalog-controls
+          set -euo pipefail
+          status="$(jq -r '.status' "${RUNNER_TEMP}/guardrails-evidence.json")"
+          reason="$(jq -r '.summary' "${RUNNER_TEMP}/guardrails-evidence.json")"
+          case "${status}" in
+            passed) conclusion=success ;;
+            failed) conclusion=failure ;;
+            not_run) conclusion=skipped ;;
+            *) echo "Invalid evidence status" >&2; exit 2 ;;
+          esac
+          details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          external_id="guardrails:dependabot:${GITHUB_RUN_ID}:${HEAD_SHA}"
+          payload="$(jq -n --arg sha "${HEAD_SHA}" --arg conclusion "${conclusion}" --arg reason "${reason}" --arg details_url "${details_url}" --arg external_id "${external_id}" '{name:"Dependabot Verification",head_sha:$sha,status:"completed",conclusion:$conclusion,details_url:$details_url,external_id:$external_id,output:{title:"Dependabot Verification",summary:$reason}}')"
+          printf '%s' "${payload}" | gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" --input - >/dev/null
+          [[ "${status}" != "failed" ]]

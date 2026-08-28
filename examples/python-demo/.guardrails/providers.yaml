@@ -1,84 +1,253 @@
 {
-  "version": 1,
+  "version": 2,
   "providers": {
-    "snyk": {
-      "name": "Snyk",
-      "enabled": false,
-      "template": "workflows/snyk.yml",
+    "repository-validator": {
+      "display_name": "Repository Validators",
+      "activation": "repository",
+      "capabilities": ["repository-validation", "documentation-validation", "repository-ground-truth", "change-scope"],
+      "checks": {
+        "repository-validation": {"check_name": "Validate / repository", "workflow": "Validate", "workflow_path": ".github/workflows/repository-validation.yml"},
+        "documentation-validation": {"check_name": "Validate / docs", "workflow": "Validate", "workflow_path": ".github/workflows/repository-validation.yml"},
+        "repository-ground-truth": {"check_name": "Validate / ground truth", "workflow": "Validate", "workflow_path": ".github/workflows/repository-validation.yml"},
+        "change-scope": {"check_name": "Validate / scope", "workflow": "Validate", "workflow_path": ".github/workflows/repository-validation.yml"}
+      },
+      "template": "workflows/repository-validation.yml",
       "template_available": true,
-      "secrets": [
-        "SNYK_TOKEN"
-      ],
-      "controls": {
-        "snyk-code": {
-          "check_name": "Snyk Code",
-          "workflow": "Snyk",
-          "wait_for": true,
-          "change": "advisory",
-          "release": "advisory"
-        },
-        "snyk-open-source": {
-          "check_name": "Snyk Open Source",
-          "workflow": "Snyk",
-          "wait_for": true,
-          "change": "advisory",
-          "release": "advisory"
-        }
-      }
+      "secrets": [],
+      "enabled_by_default": true
     },
-    "semgrep": {
-      "name": "Semgrep",
-      "enabled": false,
-      "template": "workflows/semgrep.yml",
+    "repository-build": {
+      "display_name": "Repository Build Command",
+      "activation": "repository",
+      "capabilities": ["build"],
+      "checks": {"build": {"check_name": "Build", "workflow": "Build", "workflow_path": ".github/workflows/build.yml"}},
+      "template": "workflows/build.yml",
       "template_available": true,
-      "secrets": [
-        "SEMGREP_APP_TOKEN"
-      ],
-      "controls": {
-        "semgrep": {
-          "check_name": "Semgrep",
-          "workflow": "Semgrep",
-          "wait_for": false,
-          "change": "advisory",
-          "release": "advisory"
-        }
-      }
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "repository-unit-tests": {
+      "display_name": "Repository Unit Test Command",
+      "activation": "repository",
+      "capabilities": ["unit-tests"],
+      "checks": {"unit-tests": {"check_name": "Unit Tests", "workflow": "Unit Tests", "workflow_path": ".github/workflows/unit-tests.yml"}},
+      "template": "workflows/unit-tests.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "repository-changed-code-coverage": {
+      "display_name": "Repository Changed Code Coverage Command",
+      "activation": "repository",
+      "capabilities": ["changed-code-coverage"],
+      "checks": {"changed-code-coverage": {"check_name": "Changed Code Coverage", "workflow": "Changed Code Coverage", "workflow_path": ".github/workflows/changed-code-coverage.yml"}},
+      "template": "workflows/changed-code-coverage.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "semgrep-ce": {
+      "display_name": "Semgrep Community Edition",
+      "activation": "repository",
+      "capabilities": ["custom-static-analysis"],
+      "checks": {"custom-static-analysis": {"check_name": "Semgrep CE", "workflow": "Semgrep CE", "workflow_path": ".github/workflows/semgrep-ce.yml"}},
+      "template": "workflows/semgrep-ce.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "gitleaks": {
+      "display_name": "Gitleaks CLI",
+      "activation": "repository",
+      "capabilities": ["secret-detection"],
+      "checks": {"secret-detection": {"check_name": "Gitleaks", "workflow": "Gitleaks", "workflow_path": ".github/workflows/gitleaks.yml"}},
+      "template": "workflows/gitleaks.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "github-codeql": {
+      "display_name": "GitHub CodeQL",
+      "activation": "github",
+      "capabilities": ["deep-sast"],
+      "checks": {"deep-sast": {"check_name": "CodeQL", "workflow": "CodeQL", "workflow_path": ".github/workflows/codeql.yml"}},
+      "template": "workflows/codeql.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "github-dependency-review": {
+      "display_name": "GitHub Dependency Review",
+      "activation": "github",
+      "capabilities": ["dependency-change-review"],
+      "checks": {"dependency-change-review": {"check_name": "Dependency Review", "workflow": "Dependency Review", "workflow_path": ".github/workflows/dependency-review.yml"}},
+      "template": "workflows/dependency-review.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "github-secret-protection": {
+      "display_name": "GitHub Secret Protection",
+      "activation": "github",
+      "capabilities": ["platform-secret-protection"],
+      "checks": {"platform-secret-protection": {"check_name": "GitHub Secret Scan", "workflow": "Secret Scan", "workflow_path": ".github/workflows/github-secret-protection.yml", "external_id_prefix": "guardrails:secret-protection:", "artifact_name_prefix": "guardrails-secret-protection-", "artifact_member": "guardrails-evidence.json"}},
+      "template": "workflows/github-secret-protection.yml",
+      "template_available": true,
+      "secrets": ["SECURITY_SETTINGS_TOKEN"],
+      "enabled_by_default": true
+    },
+    "github-dependabot": {
+      "display_name": "GitHub Dependabot",
+      "activation": "github",
+      "capabilities": ["dependency-remediation"],
+      "checks": {"dependency-remediation": {"check_name": "Dependabot Verification", "workflow": "Dependabot Verification", "workflow_path": ".github/workflows/dependabot-verification.yml", "external_id_prefix": "guardrails:dependabot:", "artifact_name_prefix": "guardrails-dependabot-", "artifact_member": "guardrails-evidence.json"}},
+      "template": "workflows/dependabot-verification.yml",
+      "template_available": true,
+      "secrets": ["SECURITY_SETTINGS_TOKEN"],
+      "enabled_by_default": true
+    },
+    "github-artifact-attestations": {
+      "display_name": "GitHub Artifact Attestations",
+      "activation": "github",
+      "capabilities": ["artifact-provenance"],
+      "checks": {"artifact-provenance": {"check_name": "Artifact Provenance", "workflow": "Artifact Provenance", "workflow_path": ".github/workflows/artifact-provenance.yml"}},
+      "template": "workflows/artifact-provenance.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
     },
     "sonarqube": {
-      "name": "SonarQube",
-      "enabled": false,
+      "display_name": "SonarQube",
+      "activation": "external",
+      "capabilities": ["static-quality", "changed-code-coverage"],
+      "checks": {
+        "static-quality": {"check_name": "SonarQube Quality Gate", "workflow": "SonarQube", "workflow_path": ".github/workflows/sonar.yml"},
+        "changed-code-coverage": {"check_name": "SonarQube Quality Gate", "workflow": "SonarQube", "workflow_path": ".github/workflows/sonar.yml"}
+      },
       "template": "workflows/sonar.yml",
       "template_available": true,
-      "secrets": [
-        "SONAR_TOKEN"
-      ],
-      "controls": {
-        "sonarqube": {
-          "check_name": "SonarQube Quality Gate",
-          "workflow": "SonarQube",
-          "wait_for": false,
-          "change": "advisory",
-          "release": "advisory"
-        }
-      }
+      "secrets": ["SONAR_TOKEN"],
+      "enabled_by_default": false
+    },
+    "snyk-code": {
+      "display_name": "Snyk Code",
+      "activation": "external",
+      "capabilities": ["deep-sast"],
+      "checks": {"deep-sast": {"check_name": "Snyk Code", "workflow": "Snyk", "workflow_path": ".github/workflows/snyk.yml"}},
+      "template": "workflows/snyk.yml",
+      "template_available": true,
+      "secrets": ["SNYK_TOKEN"],
+      "enabled_by_default": false
+    },
+    "snyk-open-source": {
+      "display_name": "Snyk Open Source",
+      "activation": "external",
+      "capabilities": ["dependency-vulnerability"],
+      "checks": {"dependency-vulnerability": {"check_name": "Snyk Open Source", "workflow": "Snyk", "workflow_path": ".github/workflows/snyk.yml"}},
+      "template": "workflows/snyk.yml",
+      "template_available": true,
+      "secrets": ["SNYK_TOKEN"],
+      "enabled_by_default": false
+    },
+    "semgrep-app": {
+      "display_name": "Semgrep App",
+      "activation": "external",
+      "capabilities": ["custom-static-analysis", "deep-sast"],
+      "checks": {
+        "custom-static-analysis": {"check_name": "Semgrep", "workflow": "Semgrep", "app_slug": "semgrep-app"},
+        "deep-sast": {"check_name": "Semgrep", "workflow": "Semgrep", "app_slug": "semgrep-app"}
+      },
+      "template": null,
+      "template_available": false,
+      "secrets": ["SEMGREP_APP_TOKEN"],
+      "enabled_by_default": false
     },
     "fossa": {
-      "name": "FOSSA",
-      "enabled": false,
+      "display_name": "FOSSA",
+      "activation": "external",
+      "capabilities": ["dependency-vulnerability", "license-compliance"],
+      "checks": {
+        "dependency-vulnerability": {"check_name": "FOSSA", "workflow": "FOSSA", "workflow_path": ".github/workflows/fossa.yml"},
+        "license-compliance": {"check_name": "FOSSA", "workflow": "FOSSA", "workflow_path": ".github/workflows/fossa.yml"}
+      },
       "template": "workflows/fossa.yml",
       "template_available": true,
-      "secrets": [
-        "FOSSA_API_KEY"
-      ],
-      "controls": {
-        "fossa": {
-          "check_name": "FOSSA",
-          "workflow": "FOSSA",
-          "wait_for": false,
-          "change": "advisory",
-          "release": "advisory"
-        }
-      }
+      "secrets": ["FOSSA_API_KEY"],
+      "enabled_by_default": false
+    },
+    "ai-engineering-adapter": {
+      "display_name": "AI Engineering Review Adapter",
+      "activation": "external",
+      "capabilities": ["ai-engineering-review"],
+      "checks": {"ai-engineering-review": {"check_name": "AI Engineering Review", "workflow": "AI PR Review", "workflow_path": ".github/workflows/ai-pr-review.yml"}},
+      "template": "workflows/ai-pr-review.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": false
+    },
+    "ai-qa-adapter": {
+      "display_name": "AI QA Review Adapter",
+      "activation": "external",
+      "capabilities": ["ai-qa-review"],
+      "checks": {"ai-qa-review": {"check_name": "AI QA Review", "workflow": "AI PR Review", "workflow_path": ".github/workflows/ai-pr-review.yml"}},
+      "template": "workflows/ai-pr-review.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": false
+    },
+    "ai-security-adapter": {
+      "display_name": "AI Security Review Adapter",
+      "activation": "external",
+      "capabilities": ["ai-security-review"],
+      "checks": {"ai-security-review": {"check_name": "AI Security Review", "workflow": "AI PR Review", "workflow_path": ".github/workflows/ai-pr-review.yml"}},
+      "template": "workflows/ai-pr-review.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": false
+    },
+    "ai-repository-standards-adapter": {
+      "display_name": "AI Repository Standards Review Adapter",
+      "activation": "external",
+      "capabilities": ["ai-repository-standards-review"],
+      "checks": {"ai-repository-standards-review": {"check_name": "AI Repo Standards Review", "workflow": "AI PR Review", "workflow_path": ".github/workflows/ai-pr-review.yml"}},
+      "template": "workflows/ai-pr-review.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": false
+    },
+    "repository-soak": {
+      "display_name": "Repository Soak Command",
+      "activation": "repository",
+      "capabilities": ["runtime-soak"],
+      "checks": {"runtime-soak": {"check_name": "Soak Check", "workflow": "Soak Check", "workflow_path": ".github/workflows/soak.yml"}},
+      "template": "workflows/soak.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": false
     }
+  },
+  "selections": {
+    "repository-validation": {"authoritative": "repository-validator", "supplemental": []},
+    "documentation-validation": {"authoritative": "repository-validator", "supplemental": []},
+    "repository-ground-truth": {"authoritative": "repository-validator", "supplemental": []},
+    "change-scope": {"authoritative": "repository-validator", "supplemental": []},
+    "build": {"authoritative": "repository-build", "supplemental": []},
+    "unit-tests": {"authoritative": "repository-unit-tests", "supplemental": []},
+    "changed-code-coverage": {"authoritative": "repository-changed-code-coverage", "supplemental": []},
+    "custom-static-analysis": {"authoritative": "semgrep-ce", "supplemental": []},
+    "secret-detection": {"authoritative": "gitleaks", "supplemental": []},
+    "deep-sast": {"authoritative": "github-codeql", "supplemental": []},
+    "dependency-change-review": {"authoritative": "github-dependency-review", "supplemental": []},
+    "platform-secret-protection": {"authoritative": "github-secret-protection", "supplemental": []},
+    "dependency-remediation": {"authoritative": "github-dependabot", "supplemental": []},
+    "artifact-provenance": {"authoritative": "github-artifact-attestations", "supplemental": []},
+    "static-quality": {"authoritative": "sonarqube", "supplemental": []},
+    "dependency-vulnerability": {"authoritative": "snyk-open-source", "supplemental": []},
+    "license-compliance": {"authoritative": "fossa", "supplemental": []},
+    "ai-engineering-review": {"authoritative": "ai-engineering-adapter", "supplemental": []},
+    "ai-qa-review": {"authoritative": "ai-qa-adapter", "supplemental": []},
+    "ai-security-review": {"authoritative": "ai-security-adapter", "supplemental": []},
+    "ai-repository-standards-review": {"authoritative": "ai-repository-standards-adapter", "supplemental": []},
+    "runtime-soak": {"authoritative": "repository-soak", "supplemental": []}
   }
 }

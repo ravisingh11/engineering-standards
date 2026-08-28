@@ -1,149 +1,538 @@
 #!/usr/bin/env python3
-"""Collect revision-bound producer status from GitHub Checks.
-
-This is deliberately provider-neutral: GitHub exposes the producer result, while
-the producer remains responsible for uploading its detailed evidence artifact.
-"""
+"""Collect nested Guardrails v2 evidence from selected GitHub checks."""
 
 from __future__ import annotations
 
 import argparse
+import copy
+import io
+import importlib.util
 import json
 import os
+import re
 import sys
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlparse
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
-
+ROOT = Path(__file__).resolve().parents[1]
 CONCLUSIONS = {
     "success": "passed",
-    "neutral": "passed",
     "failure": "failed",
     "cancelled": "blocked",
     "timed_out": "blocked",
     "action_required": "blocked",
     "stale": "blocked",
+    "neutral": "not_run",
     "skipped": "not_run",
 }
+MAX_ARTIFACT_ARCHIVE_BYTES = 1_000_000
+MAX_ARTIFACT_MEMBER_BYTES = 64_000
+MAX_PRODUCER_LENGTH = 200
+MAX_EVIDENCE_RECORD_LENGTH = 1_000
+MAX_REASON_LENGTH = 1_000
+CHECK_RUNS_PER_PAGE = 100
+MAX_CHECK_RUN_PAGES = 10
+ARTIFACT_STATUSES = {"passed", "failed", "not_run"}
 
 
-def validate_manifest(manifest: dict[str, Any]) -> None:
-    if manifest.get("version") != 1 or not isinstance(manifest.get("producers"), list):
-        raise ValueError("producer manifest must contain version 1 and a producers list")
-    controls: set[str] = set()
-    check_names: set[str] = set()
-    for producer in manifest["producers"]:
-        if not isinstance(producer, dict):
-            raise ValueError("producer manifest entries must be objects")
-        required = {"control_id", "check_name", "workflow"}
-        if not required.issubset(producer):
-            raise ValueError("producer manifest entry is missing a required field")
-        control_id = producer["control_id"]
-        check_name = producer["check_name"]
-        if control_id in controls or check_name in check_names:
-            raise ValueError("producer manifest contains a duplicate control or check")
-        if not all(isinstance(item, str) and item.strip() for item in (control_id, check_name, producer["workflow"])):
-            raise ValueError("producer manifest fields must be non-empty strings")
-        if "wait_for" in producer and not isinstance(producer["wait_for"], bool):
-            raise ValueError("producer manifest wait_for must be boolean when provided")
-        controls.add(control_id)
-        check_names.add(check_name)
+class NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req: Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
 
 
-def check_run_evidence(control_id: str, check: dict[str, Any]) -> dict[str, Any]:
-    """Convert one GitHub check run into the shared evidence vocabulary."""
+def bounded_text(value: str, maximum: int) -> str:
+    if len(value) <= maximum:
+        return value
+    marker = "...[truncated]..."
+    leading = (maximum - len(marker)) // 2
+    trailing = maximum - len(marker) - leading
+    return value[:leading] + marker + value[-trailing:]
+
+
+def bounded_record(value: str) -> str:
+    return bounded_text(value, MAX_EVIDENCE_RECORD_LENGTH)
+
+
+def bounded_result(result: dict[str, Any]) -> dict[str, Any]:
+    bounded = dict(result)
+    bounded["producer"] = bounded_text(bounded["producer"], MAX_PRODUCER_LENGTH)
+    if "reason" in bounded:
+        bounded["reason"] = bounded_text(bounded["reason"], MAX_REASON_LENGTH)
+    if "evidence" in bounded:
+        bounded["evidence"] = [bounded_record(record) for record in bounded["evidence"]]
+    return bounded
+
+
+def evaluator_module() -> Any:
+    path = ROOT / "guardrails" / "evaluate.py"
+    if not path.exists():
+        path = ROOT / ".guardrails" / "evaluate.py"
+    spec = importlib.util.spec_from_file_location("guardrails_v2_evaluator", path)
+    if not spec or not spec.loader:
+        raise ValueError(f"cannot load evaluator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain an object")
+    return value
+
+
+def check_run_evidence(control_id: str, provider_name: str, check: dict[str, Any]) -> dict[str, Any]:
     conclusion = check.get("conclusion") or "in_progress"
     status = CONCLUSIONS.get(conclusion, "not_run")
     url = check.get("html_url") or check.get("details_url") or "unavailable"
-    record = f"{check.get('name', control_id)}: {conclusion}; {url}"
     result: dict[str, Any] = {
-        "producer": f"GitHub Check: {check.get('name', control_id)}",
+        "producer": f"GitHub Check: {check.get('name', provider_name)}",
         "status": status,
-        "evidence": [record],
     }
-    if status in {"blocked", "not_run"}:
-        result["reason"] = (
-            f"GitHub check concluded {conclusion}; producer did not return a passing result."
-        )
-    return result
+    if status in {"passed", "failed"}:
+        result["evidence"] = [f"{check.get('name', control_id)}: {conclusion}; {url}"]
+    else:
+        result["reason"] = f"GitHub check concluded {conclusion}; the provider did not return a passing result."
+        if check.get("name"):
+            result["evidence"] = [f"{check['name']}: {conclusion}; {url}"]
+    return bounded_result(result)
 
 
 def _request(url: str, token: str) -> dict[str, Any]:
-    request = Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
+    request = Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
     with urlopen(request, timeout=20) as response:
         return json.load(response)
 
 
-def collect_checks(repo: str, revision: str, token: str, manifest: dict[str, Any], wait_seconds: int = 0) -> dict[str, Any]:
-    validate_manifest(manifest)
-    checks_url = f"https://api.github.com/repos/{repo}/commits/{revision}/check-runs?per_page=100"
-    deadline = time.monotonic() + max(0, wait_seconds)
+def _request_bytes(url: str, token: str) -> bytes:
+    request = Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    try:
+        build_opener(NoRedirectHandler()).open(request, timeout=20)
+    except HTTPError as error:
+        if error.code != 302:
+            raise
+        location = error.headers.get("Location")
+    else:
+        raise ValueError("artifact archive endpoint did not return the expected redirect")
+    parsed = urlparse(location or "")
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("artifact archive redirect Location must be an absolute HTTPS URL")
+    unsigned_request = Request(location, headers={"Accept": "application/octet-stream"})
+    with urlopen(unsigned_request, timeout=20) as response:
+        content = response.read(MAX_ARTIFACT_ARCHIVE_BYTES + 1)
+    if len(content) > MAX_ARTIFACT_ARCHIVE_BYTES:
+        raise ValueError("artifact archive exceeds the safe size limit")
+    return content
+
+
+def expected_checks(
+    policy: dict[str, Any], profiles: dict[str, Any], catalog: dict[str, Any],
+    provider_config: dict[str, Any], operation: str,
+) -> dict[str, dict[str, Any]]:
+    selected, _, providers = evaluator_module().effective_controls(
+        policy, profiles, catalog, provider_config, operation, "git-commit"
+    )
+    expected: dict[str, dict[str, Any]] = {}
+    for control_id, selection in selected.items():
+        for provider_id in [selection["authoritative"], *selection["supplemental"]]:
+            check = providers[provider_id].get("checks", {}).get(control_id)
+            if check:
+                check_name = check["check_name"]
+                contract = {
+                    "check_name": check_name,
+                    "workflow": check["workflow"],
+                    "provider_id": provider_id,
+                    "control_ids": [control_id],
+                }
+                if "external_id_prefix" in check:
+                    contract["external_id_prefix"] = check["external_id_prefix"]
+                if "workflow_path" in check:
+                    contract["workflow_path"] = check["workflow_path"]
+                if "app_slug" in check:
+                    contract["app_slug"] = check["app_slug"]
+                if "artifact_name_prefix" in check:
+                    contract["artifact_name_prefix"] = check["artifact_name_prefix"]
+                if "artifact_member" in check:
+                    contract["artifact_member"] = check["artifact_member"]
+                existing = expected.get(check_name)
+                if existing is not None and (
+                    existing["provider_id"] != provider_id
+                    or existing["workflow"] != check["workflow"]
+                    or existing.get("external_id_prefix") != check.get("external_id_prefix")
+                    or existing.get("workflow_path") != check.get("workflow_path")
+                    or existing.get("app_slug") != check.get("app_slug")
+                    or existing.get("artifact_name_prefix") != check.get("artifact_name_prefix")
+                    or existing.get("artifact_member") != check.get("artifact_member")
+                ):
+                    raise ValueError(
+                        f"ambiguous check name {check_name!r} is reused by different workflow/provider contracts"
+                    )
+                if existing is None:
+                    expected[check_name] = contract
+                elif control_id not in existing["control_ids"]:
+                    existing["control_ids"].append(control_id)
+    return expected
+
+
+def not_run(check_name: str, reason: str) -> dict[str, Any]:
+    return bounded_result({
+        "producer": f"GitHub Check: {check_name}",
+        "status": "not_run",
+        "reason": reason,
+    })
+
+
+def enumerate_check_runs(
+    repo: str, revision: str, token: str, check_name: str,
+) -> list[dict[str, Any]]:
+    encoded_name = quote(check_name, safe="")
     check_runs: list[dict[str, Any]] = []
+    validated_total: int | None = None
+    for page in range(1, MAX_CHECK_RUN_PAGES + 1):
+        payload = _request(
+            f"https://api.github.com/repos/{repo}/commits/{revision}/check-runs"
+            f"?check_name={encoded_name}&filter=all&per_page={CHECK_RUNS_PER_PAGE}&page={page}",
+            token,
+        )
+        if not isinstance(payload, dict):
+            raise ValueError("check-run response must be an object")
+        total_count = payload.get("total_count")
+        page_runs = payload.get("check_runs")
+        if (
+            not isinstance(total_count, int)
+            or isinstance(total_count, bool)
+            or total_count < 0
+            or not isinstance(page_runs, list)
+            or any(not isinstance(check, dict) for check in page_runs)
+        ):
+            raise ValueError("check-run response is malformed")
+        if validated_total is None:
+            validated_total = total_count
+            required_pages = max(1, (validated_total + CHECK_RUNS_PER_PAGE - 1) // CHECK_RUNS_PER_PAGE)
+            if required_pages > MAX_CHECK_RUN_PAGES:
+                raise ValueError("check-run enumeration exceeds the safe page limit")
+        elif total_count != validated_total:
+            raise ValueError("check-run total_count changed during pagination")
+        remaining = validated_total - len(check_runs)
+        expected_page_size = min(CHECK_RUNS_PER_PAGE, max(0, remaining))
+        if len(page_runs) != expected_page_size:
+            raise ValueError("check-run page size is inconsistent with total_count")
+        check_runs.extend(page_runs)
+        if len(check_runs) == validated_total:
+            return check_runs
+    raise ValueError("check-run enumeration exceeded the safe page limit")
+
+
+def workflow_path_matches(expected: str, actual: Any) -> bool:
+    return isinstance(actual, str) and (
+        actual == expected
+        or (actual.startswith(f"{expected}@") and len(actual) > len(expected) + 1)
+    )
+
+
+def artifact_document(archive_bytes: bytes, member: str) -> dict[str, Any]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            matches = [info for info in archive.infolist() if info.filename == member]
+            if len(matches) != 1:
+                raise ValueError("artifact member is missing or duplicated")
+            if matches[0].file_size > MAX_ARTIFACT_MEMBER_BYTES:
+                raise ValueError("artifact member exceeds the safe size limit")
+            payload = archive.read(matches[0])
+    except zipfile.BadZipFile as error:
+        raise ValueError("artifact archive is not a valid zip file") from error
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("artifact member is not valid JSON") from error
+    if not isinstance(document, dict):
+        raise ValueError("artifact member must contain a JSON object")
+    return document
+
+
+def run_artifact_evidence(
+    repo: str,
+    revision: str,
+    token: str,
+    run_id: int,
+    contract: dict[str, Any],
+    check: dict[str, Any],
+    provider_name: str,
+    trusted_base_revision: str,
+    trusted_workflow_ref: str,
+) -> dict[str, Any]:
+    check_name = contract["check_name"]
+    artifact_prefix = contract.get("artifact_name_prefix")
+    member = contract.get("artifact_member")
+    provider_id = contract.get("provider_id")
+    if not all(isinstance(value, str) and value for value in (artifact_prefix, member, provider_id)):
+        return not_run(check_name, "The custom check artifact contract is incomplete.")
+    expected_name = f"{artifact_prefix}{run_id}"
+    try:
+        listing = _request(
+            f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
+            f"?name={quote(expected_name, safe='')}&per_page=100",
+            token,
+        )
+    except (HTTPError, URLError, OSError, ValueError):
+        return not_run(check_name, "The run-bound evidence artifact could not be listed.")
+    artifacts = listing.get("artifacts")
+    if not isinstance(artifacts, list):
+        return not_run(check_name, "The run-bound evidence artifact listing is malformed.")
+    matches = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact, dict) and artifact.get("name") == expected_name
+    ]
+    if listing.get("total_count") != 1 or len(matches) != 1:
+        return not_run(check_name, "Exactly one expected run-bound evidence artifact is required.")
+    artifact = matches[0]
+    if artifact.get("expired") is not False:
+        return not_run(check_name, "The expected run-bound evidence artifact is expired or has unknown expiry state.")
+    artifact_run = artifact.get("workflow_run")
+    if (
+        not isinstance(artifact_run, dict)
+        or artifact_run.get("id") != run_id
+    ):
+        return not_run(check_name, "The evidence artifact does not bind the exact workflow run.")
+    artifact_id = artifact.get("id")
+    if not isinstance(artifact_id, int) or isinstance(artifact_id, bool):
+        return not_run(check_name, "The evidence artifact id is invalid.")
+    try:
+        archive = _request_bytes(
+            f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+            token,
+        )
+        document = artifact_document(archive, member)
+    except (HTTPError, URLError, OSError, ValueError) as error:
+        return not_run(check_name, f"The evidence artifact member could not be safely parsed: {error}.")
+    if document.get("version") != 1 or document.get("run_id") != run_id:
+        return not_run(check_name, "The evidence artifact run binding is invalid.")
+    if document.get("event") != "pull_request_target":
+        return not_run(check_name, "The evidence artifact event is invalid.")
+    if document.get("base_sha") != trusted_base_revision:
+        return not_run(check_name, "The evidence artifact base SHA is invalid.")
+    if document.get("base_ref") != trusted_workflow_ref:
+        return not_run(check_name, "The evidence artifact base ref is invalid.")
+    if document.get("head_sha") != revision:
+        return not_run(check_name, "The evidence artifact head SHA is invalid.")
+    if document.get("repository") != repo:
+        return not_run(check_name, "The evidence artifact repository is invalid.")
+    if document.get("provider_id") != provider_id:
+        return not_run(check_name, "The evidence artifact provider is invalid.")
+    status = document.get("status")
+    if status not in ARTIFACT_STATUSES:
+        return not_run(check_name, "The evidence artifact status is invalid.")
+    summary = document.get("summary")
+    if not isinstance(summary, str) or not summary.strip() or len(summary) > 1_000:
+        return not_run(check_name, "The evidence artifact summary is invalid.")
+    url = check.get("details_url") or "unavailable"
+    if status in {"passed", "failed"}:
+        return bounded_result({
+            "producer": provider_name,
+            "status": status,
+            "evidence": [f"{summary}; {url}"],
+        })
+    return bounded_result({
+        "producer": provider_name,
+        "status": "not_run",
+        "reason": summary,
+        "evidence": [f"{check_name}: run-bound artifact; {url}"],
+    })
+
+
+def proven_check_evidence(
+    repo: str,
+    revision: str,
+    token: str,
+    contract: dict[str, Any],
+    check: dict[str, Any],
+    provider_name: str,
+    *,
+    trusted_base_revision: str | None = None,
+    trusted_workflow_ref: str | None = None,
+) -> dict[str, Any]:
+    check_name = contract["check_name"]
+    if check.get("name") != check_name:
+        return not_run(check_name, "The GitHub check name does not match the declared provider contract.")
+    if check.get("head_sha") != revision:
+        return not_run(check_name, "The GitHub check did not bind to the exact revision under evaluation.")
+    app = check.get("app")
+    app_slug = contract.get("app_slug")
+    workflow_path = contract.get("workflow_path")
+    if isinstance(app_slug, str) and app_slug:
+        if not isinstance(app, dict) or app.get("slug") != app_slug:
+            return not_run(check_name, "The check application does not match the declared provider contract.")
+        return check_run_evidence(check_name, provider_name, check)
+    if not isinstance(workflow_path, str) or not workflow_path:
+        return not_run(check_name, "The GitHub Actions provider contract requires an exact workflow path.")
+    if not isinstance(app, dict) or app.get("slug") != "github-actions":
+        return not_run(check_name, "The check provenance is not the github-actions application.")
+    details_url = check.get("details_url")
+    match = re.search(r"/actions/runs/([0-9]+)(?:/|$)", details_url or "")
+    if not match:
+        return not_run(check_name, "The check details URL does not identify a GitHub Actions workflow run.")
+    run_id = int(match.group(1))
+    external_id_prefix = contract.get("external_id_prefix")
+    platform_proof_required = external_id_prefix is not None or any(
+        field in contract for field in ("artifact_name_prefix", "artifact_member")
+    )
+    if external_id_prefix is not None:
+        expected_external_id = f"{external_id_prefix}{run_id}:{revision}"
+        if check.get("external_id") != expected_external_id:
+            return not_run(check_name, "The check external id does not bind the workflow run and exact revision.")
+    try:
+        workflow_run = _request(
+            f"https://api.github.com/repos/{repo}/actions/runs/{run_id}", token
+        )
+    except (HTTPError, URLError, OSError, ValueError):
+        return not_run(check_name, "The GitHub Actions workflow provenance could not be verified.")
+    if workflow_run.get("name") != contract["workflow"]:
+        return not_run(check_name, "The GitHub Actions workflow name does not match the declared provider contract.")
+    if workflow_run.get("id") is not None and workflow_run.get("id") != run_id:
+        return not_run(check_name, "The GitHub Actions workflow run id does not match the check details URL.")
+    event = workflow_run.get("event")
+    if platform_proof_required:
+        if event != "pull_request_target":
+            return not_run(check_name, "Artifact-backed external-id evidence requires a pull_request_target workflow run.")
+        if not isinstance(trusted_base_revision, str) or not trusted_base_revision:
+            return not_run(check_name, "Artifact-backed external-id evidence requires an exact trusted base revision.")
+        if not isinstance(trusted_workflow_ref, str) or not trusted_workflow_ref:
+            return not_run(check_name, "Artifact-backed external-id evidence requires an exact trusted workflow ref.")
+        if not isinstance(workflow_path, str) or not workflow_path:
+            return not_run(check_name, "Artifact-backed external-id evidence requires an exact workflow path contract.")
+        actual_path = workflow_run.get("path")
+        if actual_path not in {workflow_path, f"{workflow_path}@{trusted_workflow_ref}"}:
+            return not_run(check_name, "The GitHub Actions workflow path/ref does not match the trusted provider contract.")
+    elif not workflow_path_matches(workflow_path, workflow_run.get("path")):
+        return not_run(check_name, "The GitHub Actions workflow path does not match the declared provider contract.")
+    if event not in {"pull_request", "pull_request_target"}:
+        return not_run(check_name, "The GitHub Actions workflow run is not associated with a pull request event.")
+    if not platform_proof_required:
+        pull_requests = workflow_run.get("pull_requests")
+        associated_revision = isinstance(pull_requests, list) and any(
+            isinstance(pull_request, dict)
+            and isinstance(pull_request.get("head"), dict)
+            and pull_request["head"].get("sha") == revision
+            for pull_request in pull_requests
+        )
+        if not associated_revision:
+            return not_run(check_name, "The GitHub Actions workflow run is not associated with a pull request at the exact head revision.")
+        if event == "pull_request" and workflow_run.get("head_sha") != revision:
+            return not_run(check_name, "The GitHub Actions pull request workflow did not run at the exact head revision.")
+        check_suite = check.get("check_suite")
+        if (
+            not isinstance(check_suite, dict)
+            or check_suite.get("id") is None
+            or workflow_run.get("check_suite_id") != check_suite["id"]
+        ):
+            return not_run(check_name, "The GitHub Actions workflow run does not match the check suite identity.")
+    else:
+        return run_artifact_evidence(
+            repo, revision, token, run_id, contract, check, provider_name,
+            trusted_base_revision, trusted_workflow_ref,
+        )
+    return check_run_evidence(check_name, provider_name, check)
+
+
+def collect_checks(
+    repo: str,
+    revision: str,
+    token: str,
+    policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
+    operation: str,
+    wait_seconds: int = 0,
+    subject_type: str = "git-commit",
+    trusted_base_revision: str | None = None,
+    trusted_workflow_ref: str | None = None,
+) -> dict[str, Any]:
+    if subject_type != "git-commit":
+        raise ValueError("GitHub check collection is git-commit only")
+    expected = expected_checks(policy, profiles, catalog, provider_config, operation)
+    providers = provider_config["providers"]
+    check_names = set(expected)
+    deadline = time.monotonic() + max(0, wait_seconds)
+    maximum_attempts = 1 + (max(0, wait_seconds) + 9) // 10
+    matching: dict[str, list[dict[str, Any]]] = {name: [] for name in check_names}
+    enumeration_failures: set[str] = set()
+    attempts = 0
     while True:
-        payload = _request(checks_url, token)
-        check_runs = payload.get("check_runs", [])
-        names = {item.get("name") for item in check_runs}
-        required = {
-            item["check_name"]
-            for item in manifest["producers"]
-            if item.get("wait_for", True)
-        }
-        all_expected = {item["check_name"] for item in manifest["producers"]}
-        required_runs = [item for item in check_runs if item.get("name") in required]
-        active_optional = [
-            item for item in check_runs
-            if item.get("name") in all_expected
-            and item.get("name") not in required
-            and item.get("status") != "completed"
-        ]
-        complete = required.issubset(names) and all(
-            item.get("status") == "completed" for item in required_runs
-        ) and not active_optional
-        if complete or time.monotonic() >= deadline:
+        attempts += 1
+        for name in check_names - enumeration_failures:
+            try:
+                check_runs = enumerate_check_runs(repo, revision, token, name)
+            except (HTTPError, URLError, OSError, ValueError, KeyError):
+                enumeration_failures.add(name)
+                matching[name] = []
+            else:
+                matching[name] = [check for check in check_runs if check.get("name") == name]
+        complete = all(
+            name in enumeration_failures
+            or (
+                matching[name]
+                and (len(matching[name]) > 1 or matching[name][0].get("status") == "completed")
+            )
+            for name in check_names
+        )
+        if complete or time.monotonic() >= deadline or attempts >= maximum_attempts:
             break
         time.sleep(10)
 
-    by_name: dict[str, dict[str, Any]] = {}
-    for check in check_runs:
-        name = check.get("name")
-        if name:
-            by_name[name] = check
-
-    checks: dict[str, Any] = {}
-    for producer in manifest["producers"]:
-        control_id = producer["control_id"]
-        check = by_name.get(producer["check_name"])
-        if check is None:
-            checks[control_id] = {
-                "producer": f"GitHub Check: {producer['check_name']}",
-                "status": "not_run",
-                "reason": "The configured producer check did not report this revision.",
-            }
+    results: dict[str, dict[str, dict[str, Any]]] = {}
+    for check_name, contract in expected.items():
+        provider_id = contract["provider_id"]
+        matches = matching[check_name]
+        if check_name in enumeration_failures:
+            result = not_run(
+                check_name,
+                "Complete GitHub check-run enumeration could not be proven.",
+            )
+        elif not matches:
+            result = not_run(check_name, "The selected provider check did not report this revision.")
+        elif len(matches) > 1:
+            result = not_run(check_name, "Duplicate matching GitHub check names make provider provenance ambiguous.")
         else:
-            checks[control_id] = check_run_evidence(control_id, check)
-    return {
-        "version": 1,
-        "subject": {"type": "git-commit", "revision": revision},
-        "checks": checks,
-    }
+            check = matches[0]
+            result = proven_check_evidence(
+                repo, revision, token, contract, check,
+                providers[provider_id]["display_name"],
+                trusted_base_revision=trusted_base_revision,
+                trusted_workflow_ref=trusted_workflow_ref,
+            )
+        for control_id in contract["control_ids"]:
+            results.setdefault(control_id, {})[provider_id] = copy.deepcopy(result)
+    return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Collect GitHub producer check evidence")
+    parser = argparse.ArgumentParser(description="Collect selected Guardrails v2 GitHub check evidence")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--revision", required=True)
     parser.add_argument("--token", default=os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--policy", type=Path, default=Path(".guardrails/policy.yaml"))
+    parser.add_argument("--profiles", type=Path, default=Path(".guardrails/profiles.yaml"))
+    parser.add_argument("--catalog", type=Path, default=Path(".guardrails/control-catalog.yaml"))
+    parser.add_argument("--providers", type=Path, default=Path(".guardrails/providers.yaml"))
+    parser.add_argument("--trusted-base-revision", required=True)
+    parser.add_argument("--trusted-workflow-ref", required=True)
+    parser.add_argument("--operation", choices=("change", "release"), default="change")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wait-seconds", type=int, default=0)
     args = parser.parse_args()
@@ -151,8 +540,13 @@ def main() -> int:
         print("ERROR --repo and --token are required", file=sys.stderr)
         return 2
     try:
-        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-        evidence = collect_checks(args.repo, args.revision, args.token, manifest, args.wait_seconds)
+        evidence = collect_checks(
+            args.repo, args.revision, args.token, load(args.policy), load(args.profiles),
+            load(args.catalog), load(args.providers), args.operation,
+            wait_seconds=args.wait_seconds,
+            trusted_base_revision=args.trusted_base_revision,
+            trusted_workflow_ref=args.trusted_workflow_ref,
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(evidence, indent=2))

@@ -1,21 +1,43 @@
-# Guardrails implementation
+# Guardrails v2 implementation map
 
-This directory defines the machine-readable evidence contract:
+Guardrails uses JSON-compatible YAML and Python's standard library for its core
+contracts and evaluator.
 
-- `policy.schema.json` describes operations and their required or advisory checks.
-- `evidence.schema.json` describes producer results bound to one exact subject revision.
-- `baseline.yaml` is a small, replaceable starter policy.
+| Source | Installed consumer path | Purpose |
+| --- | --- | --- |
+| `guardrails/baseline.yaml` | `.guardrails/policy.yaml` | Core-selected starter policy |
+| `policies/profiles.yaml` | `.guardrails/profiles.yaml` | Core and GitHub profile defaults |
+| `policies/control-catalog.yaml` | `.guardrails/control-catalog.yaml` | Capability catalog |
+| `policies/provider-config.yaml` | `.guardrails/providers.yaml` | Provider definitions and selections |
+| `guardrails/*.schema.json` | `.guardrails/*.schema.json` | Policy, profile, provider, catalog, and evidence validation |
+| `guardrails/evaluate.py` | `.guardrails/evaluate.py` | Effective-policy and evidence evaluation |
+| `tooling/configure_guardrails.py` | `.guardrails/configure.py` | Atomic policy/provider mutation |
+| `tooling/scan_repository.py` | `.guardrails/scan.py` | Local producer execution, evidence merge, and report writing |
+| `tooling/guardrail_scorecard.py` | `.guardrails/scorecard.py` | Public scorecard rendering |
+| `tooling/github_evidence.py` | `.guardrails/github_evidence.py` | Exact-head GitHub check collection and provenance validation |
+| `tooling/produce_guardrail_evidence.py` | `.guardrails/produce.py` | Repository command, Semgrep CE, and Gitleaks evidence |
 
-The organization-level connection between checks, producers, evidence, and
-status checks lives in [policies/control-catalog.yaml](../policies/control-catalog.yaml).
+## Installed configuration
 
-Policies and evidence use JSON-compatible YAML so the evaluator needs only
-Python's standard library. A repository may copy the baseline and change the
-check names or enforcement levels. No inheritance or hidden defaults apply.
+The installer also adds repository-owned documentation mappings, change-scope
+thresholds, ground-truth inventory, validators, Semgrep rules, rule fixtures,
+and selected workflow templates. Refresh preserves repository-owned policy,
+provider selection, documentation, scope, and ground-truth files.
 
-The policy names evidence; it does not run tools. Tests, SAST, secret scanners,
-CI, and reviewers remain independent producers.
+## Runtime sequence
 
-Use [compliance.md](compliance.md) for the recommended installation and
-scorecard workflow. The scorecard summarizes the evaluator result; it does not
-replace the producer tools or turn missing evidence into a pass.
+1. Resolve and validate policy, profiles, catalog, and providers.
+2. Resolve the operation and exact subject.
+3. Run local providers or collect selected GitHub checks.
+4. Merge only nested v2 evidence with an identical subject.
+5. Add honest `not_run` placeholders for missing authoritative providers.
+6. Validate evidence shape and provider capability mappings.
+7. Evaluate authoritative evidence; retain supplemental evidence as advisory.
+8. Write JSON evidence and a timestamped Markdown scorecard.
+
+Invalid configuration or evidence exits `2`. An allowed decision exits `0`; a
+blocked decision exits `1`.
+
+Future lifecycle capabilities remain catalog/evidence definitions and have no
+runtime producers. See [architecture](architecture.md) and
+[producer contract](producer-contract.md).

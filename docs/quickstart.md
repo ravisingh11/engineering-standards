@@ -1,132 +1,153 @@
-# Quick start
+# Guardrails v2 quick start
 
-Install the shared guardrails into an application repository, run the local
-scorecard, then open a pull request to exercise the GitHub checks.
+Install Core, configure repository commands, run locally, and then verify the
+same capability providers on a pull request.
 
-## Scan this repository itself
+## 1. Preview and install Core
 
-From the root of this standards repository, no installation is needed:
-
-```sh
-python3 tooling/scan_repository.py --all-catalog-controls
-```
-
-The scanner uses the checked-in `.guardrails/` configuration. If those files
-are absent in a standards source checkout, it falls back to
-`guardrails/baseline.yaml` and `policies/control-catalog.yaml`. When pointed at
-an installed application repository, it uses that repository's `.guardrails/`
-files. See [Guardrails directories](../README.md#guardrails-directories) for
-the source, installation, and AI-owned configuration boundary.
-
-## 1. Install
-
-Clone this repository once beside the application repository:
+From the standards repository:
 
 ```sh
-git clone https://github.com/ravisingh11/engineering-standards.git \
-  ../engineering-standards
-python3 ../engineering-standards/tooling/install.py \
-  --target . --github-actions
+python3 tooling/install.py --target /path/to/repo --dry-run
+python3 tooling/install.py --target /path/to/repo
 ```
 
-Use `--refresh-existing` when updating an installation. Follow the
-[refresh steps](#updating-an-installation) so the installer can report any
-required configuration moves before it plans the refresh.
+A normal install includes the Core runtime and Core GitHub Actions. To install
+only the runtime, use:
 
-## 2. Choose controls
+```sh
+python3 tooling/install.py --target /path/to/repo --no-actions
+```
 
-The installer creates `.guardrails/policy.yaml`, the repository validation
-policies, and `.guardrails/providers.yaml`. List controls before changing
-anything:
+To add validated local pre-commit hooks, first install `pre-commit`, then run:
+
+```sh
+python3 tooling/install.py --target /path/to/repo --local-hooks
+```
+
+The installer refuses to overwrite an existing pre-commit configuration.
+
+## 2. Add the optional GitHub profile
+
+For a fresh install:
+
+```sh
+python3 tooling/install.py --target /path/to/repo --profile github
+```
+
+For an existing v2 installation:
+
+```sh
+python3 tooling/install.py --target /path/to/repo --profile github --merge-existing --dry-run
+python3 tooling/install.py --target /path/to/repo --profile github --merge-existing
+```
+
+Core remains selected. The GitHub profile is an additive advisory overlay.
+
+## 3. Configure repository commands
+
+This verified example matches the embedded Python demo:
+
+```sh
+export GUARDRAILS_BUILD_COMMAND='python3 -m compileall -q app.py test_app.py tools .guardrails'
+export GUARDRAILS_UNIT_TEST_COMMAND="python3 -m unittest discover -s . -p 'test_*.py'"
+export GUARDRAILS_WORKING_DIRECTORY='.'
+```
+
+Use the same names as GitHub Actions repository variables. Configure
+`GUARDRAILS_SETUP_COMMAND` and `GUARDRAILS_CHANGED_COVERAGE_COMMAND` only when
+the repository has real commands for those capabilities. Unset build, test, or
+coverage commands produce `NO RESULT` rather than pass.
+`GUARDRAILS_WORKING_DIRECTORY` must resolve inside the repository.
+
+## 4. Declare repository ground truth
+
+Edit `.guardrails/ground-truth-ai.yaml` so each entry names an existing path:
+
+```json
+{
+  "version": 1,
+  "documents": [
+    {"path": "README.md"},
+    {"path": "docs/architecture/system.md"},
+    {"path": "handbook/testing.md"}
+  ]
+}
+```
+
+The paths are repository-relative and configurable. Root-level conventional
+filenames are not required.
+
+## 5. Inspect policy and run
 
 ```sh
 python3 .guardrails/configure.py --list
+python3 .guardrails/scan.py --help
+python3 .guardrails/configure.py --help
+python3 .guardrails/scan.py
 ```
 
-Keep controls advisory while their producers are being connected:
-
-```sh
-python3 .guardrails/configure.py \
-  --set snyk-code=advisory \
-  --set snyk-open-source=advisory
-```
-
-Enable a supported provider with its repository-owned workflow template:
-
-```sh
-python3 ../engineering-standards/tooling/install.py \
-  --target . --provider snyk --refresh-existing
-python3 .guardrails/configure.py \
-  --enable-provider snyk --sync-providers
-```
-
-Install or refresh the provider workflow first, then synchronize the provider
-configuration. The synchronization updates the producer manifest; refreshing
-the shared runtime afterward would replace that manifest with the default one.
-
-Add provider credentials only as GitHub Actions secrets. Never put tokens in
-the repository or in a workflow file. Use the
-[secrets and variables checklist](control-setup.md#secrets-and-variables-checklist)
-for exact names, minimum permissions, secure `gh` commands, and platform
-settings. Create credentials only for providers you activate.
-
-## 3. Run locally
-
-Run the repository's real tests and validators, then render a scorecard:
-
-```sh
-python3 .guardrails/scan.py --all-catalog-controls
-```
-
-The command prints the report and writes:
+The scan requires a clean worktree and binds evidence to the resolved full
+`HEAD`. It writes:
 
 ```text
+.artifacts/guardrails/evidence-YYYYMMDD-HHMMSSZ.json
 .artifacts/guardrails/evidence.json
 .artifacts/guardrails/scorecard-YYYYMMDD-HHMMSSZ.md
 ```
 
-`GREEN` means a real producer passed for the exact revision. `ORANGE` means
-the selected control has no passing result yet. `GRAY` means it is not
-selected. `RED` means the producer failed or required evidence is missing.
-Advisory findings are reported without blocking; enforced findings can block.
+The default scorecard omits inactive and `evidence-only` controls. Use
+`python3 .guardrails/scan.py --all-catalog-controls` to inspect the complete
+catalog with those controls shown as `GRAY` / `not_activated`.
 
-## 4. Run in GitHub
+Core uses the pinned Semgrep CE and Gitleaks CLI containers when Docker is
+available. Otherwise it accepts only host Semgrep `1.175.0` and Gitleaks
+`8.30.1`. Missing Docker, unavailable tools, a shallow history, or a version
+mismatch produces `NO RESULT`.
 
-Commit the installed files and open a pull request. Producer workflows run in
-parallel, and the scorecard collects results for the exact pull-request head.
-The Actions job summary, artifact, and—when GitHub permits write access—the PR
-comment contain the detailed report.
+## 6. Configure the GitHub overlay
 
-Only add a check to branch protection after it has produced reliable results
-on representative pull requests. External services such as SonarQube, FOSSA,
-Snyk, Semgrep, and AI reviewers require their own credentials and adapters;
-the shared installer does not pretend to configure them automatically.
+If the GitHub profile is selected, configure only applicable repository
+variables:
 
-## Updating an installation
-
-```sh
-git -C ../engineering-standards pull --ff-only
-python3 ../engineering-standards/tooling/install.py \
-  --target . --github-actions --refresh-existing --dry-run
+```text
+GUARDRAILS_CODEQL_LANGUAGES
+GUARDRAILS_DEPENDENCY_REVIEW_ENABLED=true
+GUARDRAILS_ARTIFACT_BUILD_COMMAND
+GUARDRAILS_ARTIFACT_PATH
 ```
 
-If the dry run rejects legacy Guardrails configuration, create the destination
-directory first:
+`GUARDRAILS_CODEQL_LANGUAGES` is the CodeQL language list. Artifact variables
+apply to release/workflow-dispatch provenance, not PR commit evidence.
 
-```sh
-mkdir -p .guardrails
+The optional `SECURITY_SETTINGS_TOKEN` is used only by trusted, no-checkout
+`pull_request_target` setting probes for GitHub Secret Protection and
+Dependabot. It needs repository Administration read and Secret scanning alerts
+read access. Missing or insufficient access publishes `NO RESULT`.
+
+## 7. Open a pull request
+
+```text
+local scan -> push branch -> provider workflows -> exact-head collector
+           -> Guardrail Scorecard -> review -> merge
 ```
 
-Then execute every complete `git mv` command it prints, review relative schema
-references in the moved files, and rerun `--dry-run`. Run only the printed
-commands for files the repository has. The installer owns the exact path map
-and does not move or delete rejected configuration automatically.
+Provider workflows run independently. The scorecard collector reads only the
+selected authoritative and supplemental check contracts and verifies their
+workflow provenance for the exact PR head.
 
-After the dry run succeeds, rerun the installer command without `--dry-run`.
-Review the diff, run the local scan, and commit the refresh through the normal
-application pull request.
+## 8. Promote one proven capability
 
-Refresh migrates installations that still use `.agentic-guardrails/` or
-`agentic-guardrails-scorecard.yml` to `.guardrails/` and
-`guardrails-scorecard.yml`. This known runtime cleanup is separate from the
-configuration moves above.
+Keep all capabilities advisory while tuning. After a provider has a stable
+check name, reliable exact-subject evidence, and a remediation owner:
+
+```sh
+python3 .guardrails/configure.py --set unit-tests=enforced --dry-run
+python3 .guardrails/configure.py --set unit-tests=enforced
+```
+
+Then add the observed check context to the repository ruleset. Policy mode and
+GitHub branch protection are separate changes; both are required for a merge
+gate.
+
+Continue with [control setup](control-setup.md) and [rulesets](../rulesets/README.md).

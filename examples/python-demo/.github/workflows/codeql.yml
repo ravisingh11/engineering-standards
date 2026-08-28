@@ -1,10 +1,9 @@
+# Guardrails v2 installer-owned workflow.
 name: CodeQL
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,25 +12,18 @@ permissions:
 jobs:
   analyze:
     name: CodeQL
+    if: ${{ vars.GUARDRAILS_CODEQL_LANGUAGES != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85 # v3
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
-          languages: python
-          build-mode: none
-
-      - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85 # v3
-        with:
-          category: /language:python
+          languages: ${{ vars.GUARDRAILS_CODEQL_LANGUAGES }}
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28

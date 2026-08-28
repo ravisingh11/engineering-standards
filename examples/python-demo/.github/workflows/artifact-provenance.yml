@@ -1,8 +1,15 @@
+# Guardrails v2 installer-owned workflow.
 name: Artifact Provenance
 
 on:
-  pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      artifact-path:
+        description: Existing release artifact path or glob to attest.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,67 +20,19 @@ permissions:
 jobs:
   attest:
     name: Artifact Provenance
+    if: ${{ inputs.artifact-path != '' || vars.GUARDRAILS_ARTIFACT_PATH != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Artifact attestations record github.sha. On pull_request this is
-          # the synthetic merge revision, so attest that exact source tree.
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      - name: Build demo release artifact
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          tar -czf "dist/guardrails-demo-${{ github.sha }}.tar.gz" \
-            app.py test_app.py README.md LICENSE
-
-      - name: Generate artifact attestation
-        id: attest
-        continue-on-error: true
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
-        with:
-          subject-path: dist/guardrails-demo-${{ github.sha }}.tar.gz
-
-      - name: Record revision-bound evidence
-        if: always()
+      - name: Build release artifact
+        if: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND != '' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_ARTIFACT_BUILD_COMMAND}"
         env:
-          ATTEST_OUTCOME: ${{ steps.attest.outcome }}
-          ATTESTED_REVISION: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          outcome = os.environ["ATTEST_OUTCOME"]
-          status = "passed" if outcome == "success" else "failed"
-          evidence = {
-              "version": 1,
-              "subject": {"type": "git-commit", "revision": os.environ["ATTESTED_REVISION"]},
-              "checks": {
-                  "artifact-provenance": {
-                      "producer": "GitHub Artifact Attestations",
-                      "status": status,
-                      "evidence": [f"action_outcome: {outcome}"],
-                  }
-              },
-          }
-          output = Path(".artifacts/guardrails/evidence/artifact-provenance.json")
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-          PY
-
-      - name: Upload demo artifact and evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          GUARDRAILS_ARTIFACT_BUILD_COMMAND: ${{ vars.GUARDRAILS_ARTIFACT_BUILD_COMMAND }}
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          name: demo-artifact-provenance-${{ github.run_id }}
-          path: |
-            dist/
-            .artifacts/guardrails/evidence/artifact-provenance.json
-          if-no-files-found: warn
+          subject-path: ${{ inputs.artifact-path || vars.GUARDRAILS_ARTIFACT_PATH }}

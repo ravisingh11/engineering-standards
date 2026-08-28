@@ -99,6 +99,25 @@ def local_binding(target: Path, requested_revision: str) -> tuple[str | None, st
     return head_revision, None
 
 
+def exact_local_revision(target: Path, reference: str) -> tuple[str | None, str | None]:
+    resolved = subprocess.run(
+        [
+            "git",
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            f"{reference}^{{commit}}",
+        ],
+        cwd=target,
+        text=True,
+        capture_output=True,
+    )
+    revision = resolved.stdout.strip()
+    if resolved.returncode != 0 or not revision:
+        return None, f"Local evidence requires the base revision {reference!r} to resolve to a commit."
+    return revision, None
+
+
 def unavailable_local_evidence(revision: str, reason: str) -> dict[str, Any]:
     results = {}
     for control_id, provider_id, producer in (
@@ -137,6 +156,7 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         return unavailable_local_evidence(revision, binding_error)
     assert bound_revision is not None
     revision = bound_revision
+    base_revision, base_error = exact_local_revision(target, base_ref)
     results: dict[str, dict[str, dict[str, Any]]] = {}
     validators = target / "tooling" / "validators"
     if not validators.is_dir():
@@ -148,6 +168,20 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         validator = validators / filename
         if validator.exists():
             command = [sys.executable, str(validator)]
+            if filename == "validate_documentation.py":
+                if base_error:
+                    record = {
+                        "producer": producer,
+                        "status": "not_run",
+                        "reason": base_error,
+                    }
+                    results[control_id] = {"repository-validator": record}
+                    continue
+                assert base_revision is not None
+                command.extend([
+                    "--base-ref", base_revision,
+                    "--head-ref", revision,
+                ])
             code, output = run(command, target)
             record = result_for_command(producer, command, code, output)
         else:
@@ -173,10 +207,17 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
     results["repository-ground-truth"] = {"repository-validator": record}
 
     scope_validator = validators / "inspect_change_scope.py"
-    if scope_validator.exists():
+    if scope_validator.exists() and base_error:
+        record = {
+            "producer": "local change-scope inspection",
+            "status": "not_run",
+            "reason": base_error,
+        }
+    elif scope_validator.exists():
+        assert base_revision is not None
         with tempfile.NamedTemporaryFile(suffix=".json") as scope_file:
             command = [
-                sys.executable, str(scope_validator), "--base-ref", base_ref,
+                sys.executable, str(scope_validator), "--base-ref", base_revision,
                 "--head-ref", revision, "--output", scope_file.name,
             ]
             code, output = run(command, target)

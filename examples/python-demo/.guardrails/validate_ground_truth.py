@@ -36,10 +36,26 @@ def main() -> int:
                 "expected an object with exactly one non-empty string path"
             )
             return 1
+    repository_root = Path.cwd().resolve()
+    resolved_documents: list[tuple[str, Path]] = []
+    for item in policy["documents"]:
+        declared_path = item["path"]
+        document_path = Path(declared_path)
+        if document_path.is_absolute():
+            print(f"ERROR: document path must be repository-relative: {declared_path}")
+            return 1
+        resolved_path = (repository_root / document_path).resolve()
+        if not resolved_path.is_relative_to(repository_root):
+            print(
+                "ERROR: document path must resolve within repository root: "
+                f"{declared_path}"
+            )
+            return 1
+        resolved_documents.append((declared_path, resolved_path))
     missing = [
-        item["path"]
-        for item in policy["documents"]
-        if not Path(item["path"]).is_file()
+        declared_path
+        for declared_path, resolved_path in resolved_documents
+        if not resolved_path.is_file()
     ]
     if missing:
         print("Missing repository ground-truth documents:")

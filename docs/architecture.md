@@ -1,182 +1,128 @@
-# Architecture
+# Guardrails v2 architecture
 
-This repository has two jobs:
+Guardrails evaluates vendor-neutral capabilities while naming the provider that
+produced each result. It does not run third-party services, reinterpret their
+findings, or treat configuration as evidence.
 
-1. Define the engineering policy and evidence contract.
-2. Give application repositories reusable building blocks for enforcing that
-   policy.
+## Contract layers
 
-It does not become the application repository's architecture document. The
-application repository remains responsible for its own code, commands,
-services, credentials, ownership, and ground truth.
+| Layer | Source | Responsibility |
+| --- | --- | --- |
+| Capability catalog | `policies/control-catalog.yaml` | Defines the engineering outcome, lifecycle stage, availability, and required subject type. |
+| Profiles | `policies/profiles.yaml` | Selects runnable capabilities and advisory defaults for `change` and `release`. |
+| Providers | `policies/provider-config.yaml` | Maps tools to capabilities, check names, workflows, secrets, and authoritative/supplemental selections. |
+| Repository policy | `.guardrails/policy.yaml` | Selects profiles and repository-specific mode overrides. |
+| Evidence | `.artifacts/guardrails/evidence*.json` | Records provider results for one exact commit, artifact, or environment. |
+| Evaluator | `.guardrails/evaluate.py` | Validates contracts and determines readiness and allow/block. |
 
-## Status legend
-
-The diagrams use the following meaning:
-
-| Visual | Meaning |
-| --- | --- |
-| **GREEN ✅** | GitHub-native control that can satisfy policy through GitHub settings, rulesets, or Actions. |
-| **ORANGE 🟠** | Control that needs a third-party service or organization-owned external adapter. |
-| **GRAY ⚪** | Repository-specific configuration or a shared template; no external vendor is implied. |
-| Green arrow | Active path with a real producer and validation. |
-| Orange dashed arrow | Path that still needs external configuration. |
-| Dashed border | A repository-owned adapter or external service is required. |
-
-The check symbols describe how a control can be activated. They do not mean
-that every consuming application has already enabled it. See
-[control-status.md](control-status.md) for the exact boundary.
-
-## Canonical repository layout
-
-The five public areas are the product surface. Supporting implementation is
-kept separate so application teams can consume the standards without needing
-to understand the evaluator internals.
-
-```text
-policies/       Organization policy and control catalog
-pr-review/      AI review contracts and finding conventions
-workflows/      Reusable producer workflow templates
-rulesets/       GitHub enforcement templates
-skills/         Reusable agent capabilities
-
-guardrails/     Policy/evidence schemas and deterministic evaluator
-tooling/        Install, configure, scan, scorecard, and validation commands
-docs/           Human and agent operating documentation
-```
-
-`policies/`, `pr-review/`, `workflows/`, `rulesets/`, and `skills/` are the
-shared contract. `guardrails/` and `tooling/` make that contract executable.
-`docs/` explains how to consume it. None of these folders own an application's
-architecture, deployment model, or repository ground truth.
-
-## The whole system
+## Evaluation flow
 
 ```mermaid
 flowchart LR
-    engineer[Engineer + AI] --> change[Change and tests]
-    change --> pr[Pull request]
-    pr --> active[Shared policy and evidence contract]
-    active --> evaluate[Guardrail evaluator]
-    evaluate --> decision{Evidence meets policy?}
-    decision -->|yes| merge[Merge when repository rules allow]
-    decision -->|no| fix[Resolve blocking findings]
-    fix --> change
-
-    pr -.-> configure[Application repository configuration]
-    configure -.-> checks[Build, tests, SonarQube, SAST, secrets, dependencies, Snyk, FOSSA, AI review]
-    checks -.-> evidence[Revision-bound evidence]
-    evidence -.-> evaluate
-
-    classDef active fill:#dcfce7,stroke:#15803d,color:#14532d;
-    classDef config fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-dasharray: 5 5;
-    classDef contract fill:#f3f4f6,stroke:#6b7280,color:#111827;
-
-    class engineer,change,pr,active,evaluate,decision,merge,fix active;
-    class configure,checks,evidence config;
-    linkStyle 0,1,2,3,4,5,6,7 stroke:#16a34a,stroke-width:3px;
-    linkStyle 8,9,10,11 stroke:#d97706,stroke-width:3px,stroke-dasharray:5 5;
+    P[Core profile<br/>optional GitHub overlay] --> C[Selected capabilities]
+    C --> A[One authoritative provider]
+    C -.-> S[Zero or more supplemental providers]
+    A --> E[Exact-subject evidence]
+    S -. advisory evidence .-> E
+    E --> V[Schema and subject validation]
+    V --> R[GREEN / ORANGE / RED / GRAY]
+    R --> D[ALLOW or BLOCK]
 ```
 
-The solid green path is the shared repository's active control loop. The
-amber dashed path is where each application repository supplies its own build
-commands, test commands, scanner configuration, secrets, and AI adapter. Snyk
-is an orange advisory provider on that path: teams can connect it and learn
-from findings before promoting it to a required merge check.
+Exactly one authoritative provider can satisfy or block a selected capability.
+Supplemental providers are displayed for comparison and migration, but remain
+advisory regardless of their result.
 
-## How policy becomes a merge decision
+## Runnable profiles
 
-```mermaid
-flowchart TB
-    policy[Policies and control catalog]
-    templates[Workflow templates]
-    producer[Configured check producers]
-    evidence[Evidence for the exact revision]
-    evaluator[Deterministic guardrail evaluator]
-    ruleset[GitHub ruleset]
-    merge[Merge permitted]
+Core is selected by default and is portable across Git hosts. It covers:
 
-    policy -->|ACTIVE| evaluator
-    policy -.->|CONFIGURE| templates
-    templates -.->|CONFIGURE| producer
-    producer -.->|CONFIGURE| evidence
-    evidence -->|ACTIVE| evaluator
-    evaluator -->|ACTIVE| ruleset
-    ruleset -->|ACTIVE when installed| merge
+- repository, documentation, ground-truth, and change-scope validation;
+- repository-defined build, unit-test, and changed-code coverage commands;
+- tokenless Semgrep CE with repository-owned tested rules;
+- Gitleaks CLI secret detection.
 
-    classDef active fill:#dcfce7,stroke:#15803d,color:#14532d;
-    classDef config fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-dasharray: 5 5;
-    classDef contract fill:#f3f4f6,stroke:#6b7280,color:#111827;
-    class policy,evidence,evaluator,ruleset,merge active;
-    class templates,producer config;
-    linkStyle 0,4,5,6 stroke:#16a34a,stroke-width:3px;
-    linkStyle 1,2,3 stroke:#d97706,stroke-width:3px,stroke-dasharray:5 5;
+The optional GitHub profile is additive. Its runnable scorecard paths cover
+CodeQL, Dependency Review, GitHub Secret Protection, and Dependabot
+verification. It also installs an artifact-attestation workflow for releases,
+but that workflow does not yet emit nested artifact evidence or feed a release
+scorecard. Artifact provenance therefore remains incomplete as a Guardrails
+runtime path. Both profiles default every selected capability to `advisory`.
+
+SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, AI review adapters, and a
+repository soak command are provider definitions, not runnable profiles. A
+repository activates them with a mode override and provider selection after it
+implements the required adapter.
+
+## Evidence boundary
+
+Evidence uses a nested capability/provider shape:
+
+```json
+{
+  "version": 2,
+  "subject": {
+    "type": "git-commit",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "results": {
+    "unit-tests": {
+      "repository-unit-tests": {
+        "producer": "Repository Unit Test Command",
+        "status": "passed",
+        "evidence": ["command: python3 -m unittest"]
+      }
+    }
+  }
+}
 ```
 
-The evaluator can only make a trustworthy decision when a check has a real
-producer and the evidence identifies the revision under review. A template
-without a configured producer is not a passing check.
+The evaluator requires an exact subject match. Git commit evidence cannot
+satisfy artifact or environment capabilities. `passed` and `failed` require
+evidence records; `blocked` and `not_run` require a reason.
 
-## Where the controls run
+GitHub collection additionally verifies the exact check name/head/app, workflow
+run name and declared path (including GitHub's optional `@ref` suffix),
+pull-request event and exact PR-head association, and configured external-ID/run
+binding when present. Native Actions checks also require their workflow-run
+check suite. Custom checks published by a trusted `pull_request_target` probe do
+not claim the probe's base-SHA workflow suite is the custom PR-head check suite.
+A missing, skipped, stale, ambiguous, or unproven check becomes `not_run`, never
+`passed`.
 
-```mermaid
-flowchart LR
-    subgraph shared[Shared standards repository]
-        p[Policies]
-        c[Control catalog]
-        s[Schemas]
-        e[Evaluator]
-        v[Validation workflow]
-        p --> c
-        c --> s
-        s --> e
-        e --> v
-    end
+## Status and decision
 
-    subgraph app[Application repository]
-        g[Ground truth]
-        w[Configured workflows]
-        r[Repository ruleset]
-        g --> w
-        w --> r
-    end
+| Readiness | Condition | Decision effect |
+| --- | --- | --- |
+| `GREEN` | Authoritative evidence passed for the exact subject. | Satisfies the capability. |
+| `ORANGE` | Advisory capability lacks a passing authoritative result. | Reported; does not block. |
+| `RED` | Enforced capability lacks a passing authoritative result, or evidence targets the wrong subject. | Blocks. |
+| `GRAY` | Capability is not activated for the operation and subject type. | Excluded. |
 
-    c -.->|CONFIGURE| w
-    e -.->|CONFIGURE| r
-    w -.->|evidence| e
+The overall status is `RED` when blocked, otherwise `ORANGE` when any advisory
+capability is unresolved, otherwise `GREEN`. Default evaluation omits inactive
+and `evidence-only` controls; `--all-catalog-controls` includes them as `GRAY`
+rows for catalog inspection.
 
-    classDef active fill:#dcfce7,stroke:#15803d,color:#14532d;
-    classDef config fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-dasharray: 5 5;
-    class p,c,s,e,v active;
-    class g,w,r config;
-    linkStyle 0,1,2,3 stroke:#16a34a,stroke-width:3px;
-    linkStyle 4,5,6,7,8 stroke:#d97706,stroke-width:3px,stroke-dasharray:5 5;
-```
+## Installation boundary
 
-The shared repository owns reusable policy and enforcement components. The
-application repository owns the facts and configuration that only it can
-know.
+The shared repository owns canonical schemas, runtime, workflows, and starter
+configuration. A consumer owns `.guardrails/policy.yaml`,
+`.guardrails/providers.yaml`, documentation mappings, change-scope thresholds,
+ground-truth paths, command variables, credentials, and ruleset activation.
 
-## Control lifecycle
+Ground-truth documents stay in the consumer and may use any existing relative
+paths. Guardrails validates the declared inventory; it does not require a fixed
+set of root-level filenames.
 
-Every control follows the same path:
+## Evidence-only lifecycle capabilities
 
-```text
-Policy
-  → producer
-  → evidence for a revision
-  → evaluator result
-  → GitHub status check or ruleset requirement
-```
+Container vulnerability, IaC misconfiguration, artifact SBOM, artifact
+vulnerability, deployment policy, dynamic application security, and runtime
+assurance are catalog/evidence contracts only. They are not selectable in a
+runnable profile and cannot be activated by policy. Future implementations
+must add providers and exact-subject evidence before these capabilities become
+runnable.
 
-If any step is missing, the control is documented as configurable rather than
-shown as active. This prevents a workflow file or policy document from being
-mistaken for enforcement.
-
-## Related documents
-
-- [Control status](control-status.md) — what is active, configurable, or future.
-- [Control catalog](../policies/control-catalog.yaml) — machine-readable control contracts.
-- [Workflow templates](../workflows/README.md) — how application repositories connect producers.
-- [Ruleset notes](../rulesets/README.md) — how checks become merge protections.
-- [Guardrail implementation](guardrails-implementation.md) — evidence and evaluator details.
+See [Guardrails standard](guardrails.md), [producer contract](producer-contract.md),
+and [control status](control-status.md).

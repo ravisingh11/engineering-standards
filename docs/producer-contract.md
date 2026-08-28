@@ -1,84 +1,113 @@
-# Producer and evidence contract
+# Provider and evidence contract
 
-The scorecard is an aggregator, not a replacement for a build, test, scanner,
-reviewer, or GitHub setting.
+The scorecard aggregates provider evidence. It is not a build, test runner,
+scanner, reviewer, or platform setting.
 
-## One revision, many producers
+## Nested v2 evidence
 
-Every producer result must identify the exact commit it evaluated:
+Evidence groups provider results under the capability they support:
 
 ```json
 {
-  "version": 1,
-  "subject": {"type": "git-commit", "revision": "<full-sha>"},
-  "checks": {
+  "$schema": "./evidence.schema.json",
+  "version": 2,
+  "subject": {
+    "type": "git-commit",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "results": {
     "unit-tests": {
-      "producer": "Unit Tests",
-      "status": "passed",
-      "evidence": ["run URL or artifact reference"]
+      "repository-unit-tests": {
+        "producer": "Repository Unit Test Command",
+        "status": "passed",
+        "evidence": ["command: python3 -m unittest"]
+      }
+    },
+    "deep-sast": {
+      "github-codeql": {
+        "producer": "GitHub CodeQL",
+        "status": "not_run",
+        "reason": "GitHub profile is not selected"
+      }
     }
   }
 }
 ```
 
-`passed` and `failed` require evidence. `blocked` and `not_run` require a
-reason. A workflow file, configured secret, or successful setup step is not
-producer evidence.
+Subject types are `git-commit`, `artifact`, and `environment`. The catalog
+declares which subject type each capability accepts.
 
-## How aggregation works
+## Result requirements
 
-`.guardrails/producer-manifest.json` maps each control to the check context that
-produces it. The scorecard workflow calls
-`tooling/github_evidence.py` to query GitHub Checks for the pull-request head
-revision. It then writes that result into `.artifacts/guardrails/evidence/`
-before running the deterministic scanner.
-
-Check names must be unique in the repository. Use provider-specific names such
-as `GitHub Secret Scan` when another tool may emit a generic `Secret Scan`
-context.
-
-Each producer may set `"wait_for": true` when its workflow is activated and
-should complete before aggregation. The default is `true` for compatibility.
-Set `"wait_for": false` for an optional or platform-managed producer that may
-not create a check on every pull request. Such a check is still collected when
-present, but its absence does not hold the scorecard open until timeout.
-
-| GitHub outcome | Evidence status | Meaning |
+| Raw status | Required fields | Meaning |
 | --- | --- | --- |
-| `success`, `neutral` | `passed` | The producer completed successfully. |
-| `failure` | `failed` | The producer completed and found a failure. |
-| `cancelled`, `timed_out`, `action_required` | `blocked` | The producer could not provide a valid result. |
-| `skipped`, missing, in progress | `not_run` | No usable result exists for this revision. |
+| `passed` | non-empty `evidence` list | Provider completed successfully for the exact subject. |
+| `failed` | non-empty `evidence` list | Provider completed and found a failure. |
+| `blocked` | non-empty `reason` | Provider could not complete. |
+| `not_run` | non-empty `reason` | No usable provider result exists. |
 
-The collector does not turn a skipped or missing check into a pass. Producer
-workflows may also upload detailed JSON artifacts; those artifacts should use
-the same revision-bound schema and be retained with the scorecard report.
+Every result also requires a non-empty `producer`. Evidence records must not
+contain credentials or secret values.
 
-When a repository-native producer and the GitHub collector both report the
-same control, a completed result takes precedence over an external `not_run`
-placeholder. Two different completed results for the same control are treated
-as a contract error and fail the scan rather than being silently overwritten.
-This keeps the terminal report useful when local and workflow producers are
-both enabled for the same repository.
-The installed scanner is refreshed with the same release so local and CI
-invocations use the same reconciliation behavior.
+## Provider selection
 
-## Consumer safety
+`.guardrails/providers.yaml` defines each provider's capabilities, display name,
+activation category, check contracts, declared secrets, and template metadata.
+Its `selections` object assigns exactly one authoritative provider and zero or
+more supplemental providers to every runnable capability.
 
-Installing or refreshing the runtime never overwrites a consumer-owned
-`.guardrails/policy.yaml` or existing GitHub workflow. Use the installer to
-refresh the evaluator, collector, and catalog; it preserves an existing
-producer manifest. Review workflow changes as a normal pull request in the
-consuming repository. See
-[Guardrails directories](../README.md#guardrails-directories) for the source
-and installation boundary.
+Only the authoritative provider can satisfy or block a capability. Supplemental
+providers appear in the scorecard with `advisory: true` and never change the
+decision.
 
-The manifest is explicit. If a repository renames a check, it must update the
-manifest and the ruleset status context together.
+## Local evidence
 
-The manifest is a connection map, not an activation switch. `wait_for` describes
-workflow scheduling, not policy enforcement. Selecting a control
-in `.guardrails/policy.yaml` does not create a producer, enable a GitHub
-setting, or authenticate a third-party service. Configure the producer first,
-verify its exact check name and revision-bound evidence, then select `advisory`
-or `enforced` policy as appropriate.
+`.guardrails/scan.py` resolves a clean full `HEAD` before local producers can
+pass. Repository commands run from `GUARDRAILS_WORKING_DIRECTORY`; absent
+commands report `not_run`. Semgrep CE and Gitleaks use pinned containers or
+exactly matching host versions.
+
+External adapters may place `*.json` fragments in
+`.artifacts/guardrails/evidence/`. The scanner accepts only nested v2 fragments
+with the same subject. Different results for the same capability/provider pair
+are a contract error.
+
+## GitHub evidence
+
+The GitHub collector derives expected checks from the selected capability and
+provider contracts. For each check it verifies:
+
+- exact `head_sha`;
+- the `github-actions` app;
+- a details URL containing the workflow run ID;
+- the declared workflow name;
+- the declared workflow path when present, allowing GitHub's exact `@ref`
+  suffix;
+- a `pull_request` or `pull_request_target` workflow event with an exact
+  pull-request head association;
+- matching workflow-run revision and check-suite identity for native Actions
+  checks; and
+- the declared external-ID prefix when the provider requires one.
+
+For a custom PR-head check published by a trusted `pull_request_target` probe,
+the external ID and details URL bind the custom check to the exact workflow run.
+The collector does not equate that custom check suite with the probe workflow's
+separate base-SHA suite.
+
+| GitHub conclusion | Raw evidence status |
+| --- | --- |
+| `success` | `passed` |
+| `failure` | `failed` |
+| `cancelled`, `timed_out`, `action_required`, `stale` | `blocked` |
+| `neutral`, `skipped`, missing, or incomplete | `not_run` |
+
+Unverifiable provenance is `not_run`. A check name alone is insufficient.
+
+## Promotion contract
+
+Before selecting a provider as authoritative or setting its capability to
+`enforced`, verify its workflow/adapter, credentials and configuration,
+exact-subject binding, check name, failure behavior, and remediation owner. A
+credential or workflow file alone does not activate or pass the capability.
+
+See [control setup](control-setup.md) and [status](control-status.md).

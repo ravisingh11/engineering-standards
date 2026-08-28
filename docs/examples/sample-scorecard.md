@@ -1,43 +1,40 @@
-# Sample Guardrail Scorecard
+# Sample Guardrails v2 scorecard
 
-This is a representative report from the embedded Python example. Values vary by
-revision and by which producers the repository has connected.
+This representative output shows all four readiness colors. The build
+capability is enforced and has no authoritative result, so the overall decision
+is `BLOCK`. Advisory gaps remain `ORANGE`; inactive capabilities remain `GRAY`.
 
 ```text
-╔══════════════════════════════════════════════════════════════════════╗
-║                            GUARDRAIL SCAN                            ║
-╚══════════════════════════════════════════════════════════════════════╝
-  RESULT       ORANGE — ALLOW
-  ENFORCED     0/0 passed (0%)
-  ADVISORY     7/19 passed — non-blocking
-  READINESS    ORANGE (enforced RED: 0)
+# Guardrail Scan Report
 
-Detailed controls
------------------
-STATUS  ENFORCEMENT  ACTIVATION     EVIDENCE   CONTROL
-GREEN   advisory     github-native   PASSED     unit-tests — Unit Tests
-GREEN   advisory     github-native   PASSED     dependency-review — Dependency Review
-GREEN   advisory     github-native   PASSED     dependabot — Dependabot
-RED     advisory     repository      FAILED     repository-ground-truth — Ground Truth
-ORANGE  advisory     github-native   NO RESULT  codeql-sast — CodeQL / SAST
-ORANGE  advisory     external        NO RESULT  sonarqube — SonarQube
-ORANGE  advisory     external        NO RESULT  snyk-code — Snyk Code
+- Status: **RED**
+- Decision: **BLOCK**
+- Evidence: `.artifacts/guardrails/evidence-20260828-120000Z.json`
 
-Findings
---------
-- [advisory] repository-ground-truth: FAILED — declared documents are missing
-- [advisory] codeql-sast: NO RESULT — producer has not reported this revision
-- [advisory] sonarqube: NO RESULT — producer has not reported this revision
+| Readiness | Mode | Capability — Provider | Evidence |
+| --- | --- | --- | --- |
+| GREEN | advisory | Repository Validation — Repository Validators | passed |
+| ORANGE | advisory | Documentation Validation — Repository Validators | no_result |
+| RED | enforced | Build — Repository Build Command | no_result |
+| GREEN | advisory | Unit Tests — Repository Unit Test Command | passed |
+| ORANGE | advisory | Custom Static Analysis — Semgrep Community Edition | no_result |
+| ORANGE | advisory | Secret Detection — Gitleaks CLI | no_result |
+| ORANGE | advisory | Deep SAST — GitHub CodeQL | no_result |
+| GRAY | not_activated | Artifact Provenance — Not activated | not_activated |
+| GRAY | not_activated | Container Vulnerability — Not activated | not_activated |
 ```
 
-How to read it:
+The real `--all-catalog-controls` report includes every catalog capability. The
+abbreviated table preserves the exact renderer vocabulary and row format. Its
+`Artifact Provenance` row is catalog visibility only; the current release
+attestation workflow does not produce nested artifact evidence for a release
+scorecard.
 
-- `GREEN` means the selected producer passed for the exact revision.
-- `ORANGE` means the control is selected but has no result yet.
-- `RED` means the producer failed; it only blocks when enforcement is `enforced`.
-- `enforced` and `advisory` describe policy behavior. `not_activated` means the
-  repository has not selected the control.
+Generate a current report with:
 
-See the [Python example](../../examples/python-demo/)
-for a runnable example and the [compliance runbook](../compliance.md) for the
-commands that generate reports like this one.
+```sh
+python3 .guardrails/scan.py --all-catalog-controls
+```
+
+See the runnable [Python demo](../../examples/python-demo/) and the
+[status guide](../control-status.md).

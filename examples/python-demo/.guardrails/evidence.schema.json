@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guardrails v2 Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "subject", "results"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "version": {"const": 2},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "revision"],
+      "properties": {
+        "type": {"enum": ["git-commit", "artifact", "environment"]},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"}
+      }
+    },
+    "results": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/providerResults"}
+    }
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "maxLength": 80},
+    "providerResults": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/result"}
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "status"],
+      "properties": {
+        "producer": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+        "status": {"enum": ["passed", "failed", "blocked", "not_run"]},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S"}
+        },
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["passed", "failed"]}}, "required": ["status"]},
+          "then": {"required": ["evidence"]}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["blocked", "not_run"]}}, "required": ["status"]},
+          "then": {"required": ["reason"]}
+        }
+      ]
+    }
+  }
+}
