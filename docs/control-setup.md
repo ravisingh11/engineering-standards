@@ -33,6 +33,77 @@ so required manual configuration moves happen before any known-artifact
 cleanup. Refresh preserves an existing consumer workflow; update workflow files
 through the consuming repository's normal pull-request process.
 
+## Secrets and variables checklist
+
+Create credentials only for controls the repository has selected. A secret's
+presence is not evidence that its producer ran, and a placeholder credential
+can turn an intentionally inactive workflow into a failing one.
+
+### GitHub Actions secrets
+
+| Secret | Used by | Create the credential | Minimum access |
+| --- | --- | --- | --- |
+| `SECURITY_SETTINGS_TOKEN` | GitHub Secret Scan evidence probe | Create a fine-grained GitHub PAT or GitHub App token. Select only the repository being verified. | Repository `Administration: read` and `Secret scanning alerts: read`; `Metadata: read` is added automatically. No account permissions. |
+| `SONAR_TOKEN` | SonarQube | Generate a project analysis token or a narrowly scoped user analysis token in SonarQube. | Execute Analysis for the configured project. |
+| `SNYK_TOKEN` | Snyk Code and Snyk Open Source | Use a Snyk service-account token for durable automation where the plan supports it; otherwise use the CI token approved by the Snyk administrator. | Access to the organization and project being scanned. |
+| `SEMGREP_APP_TOKEN` | Semgrep | Generate the token in Semgrep AppSec Platform settings after connecting the repository. | Access to the Semgrep deployment and repository scan configuration. |
+| `FOSSA_API_KEY` | FOSSA | Create a FOSSA CI/service token. Prefer the least-privileged token type that supports both analysis upload and the configured policy check. | Access to the application project and policy used by CI. |
+
+Provider references: [GitHub fine-grained PATs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens),
+[SonarQube tokens](https://docs.sonarsource.com/sonarqube-server/user-guide/managing-tokens),
+[Snyk CI authentication](https://docs.snyk.io/snyk-cli/authenticate-to-use-the-cli),
+[Semgrep GitHub Actions](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs),
+and [FOSSA API tokens](https://docs.fossa.com/docs/organization-management/api-tokens).
+
+Add a real value without putting it in the command line or shell history. The
+GitHub CLI prompts for the value and encrypts it before upload:
+
+```sh
+gh secret set SECURITY_SETTINGS_TOKEN --repo OWNER/REPOSITORY
+gh secret set SONAR_TOKEN --repo OWNER/REPOSITORY
+gh secret set SNYK_TOKEN --repo OWNER/REPOSITORY
+gh secret set SEMGREP_APP_TOKEN --repo OWNER/REPOSITORY
+gh secret set FOSSA_API_KEY --repo OWNER/REPOSITORY
+```
+
+Run only the command for each activated control. For organization secrets, set
+an explicit repository access policy rather than granting every repository
+access by default. Verify names without exposing values:
+
+```sh
+gh secret list --repo OWNER/REPOSITORY
+```
+
+### GitHub Actions variables and platform settings
+
+Variables are non-sensitive and may appear in logs. Never put a token or API
+key in a variable.
+
+| Control | Required variables | Optional variables or settings |
+| --- | --- | --- |
+| Dependency Review | `DEPENDENCY_GRAPH_ENABLED=true`, after enabling Dependency Graph | `DEPENDENCY_FAIL_ON_SEVERITY` |
+| SonarQube | `SONAR_HOST_URL`, `SONAR_PROJECT_KEY` | `SONAR_PROJECT_BASE_DIRECTORY`, `SONAR_ARGS` |
+| FOSSA | `FOSSA_COMMAND` | Repository-owned policy and project configuration |
+| GitHub Secret Scan | Enable Secret Scanning and push protection in repository settings | `SECRET_SCAN_COMMAND` only when an additional organization scanner is installed |
+| AI reviews | `AI_REVIEW_COMMAND` | `AI_REVIEW_WORKING_DIRECTORY`; any provider credential remains adapter-specific |
+| Build and tests | Repository-specific build and test commands | Working directory, coverage path, and coverage enforcement variables |
+
+For example:
+
+```sh
+gh variable set DEPENDENCY_GRAPH_ENABLED --body true \
+  --repo OWNER/REPOSITORY
+gh variable set SONAR_HOST_URL --body https://sonar.example.com \
+  --repo OWNER/REPOSITORY
+gh variable set SONAR_PROJECT_KEY --body my-project \
+  --repo OWNER/REPOSITORY
+gh variable list --repo OWNER/REPOSITORY
+```
+
+The installer never copies credentials. It installs workflow and configuration
+interfaces; the consuming repository or organization owns provider accounts,
+credential rotation, and repository access.
+
 ## Repository Validation
 
 **Protects:** the repository contracts that make the standards and Guardrails

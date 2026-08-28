@@ -69,6 +69,8 @@ for the schema and outcome mapping.
   concrete report with GREEN, ORANGE, and RED controls.
 - Follow the [control setup guide](docs/control-setup.md) to configure every
   service and move controls from ORANGE/GRAY to GREEN.
+- Use the [secrets and variables checklist](docs/control-setup.md#secrets-and-variables-checklist)
+  for exact credential names, minimum permissions, and secure creation commands.
 - Read [policies/pull-request.md](policies/pull-request.md) for the default PR
   workflow and expectations.
 - Read [policies/testing.md](policies/testing.md) and

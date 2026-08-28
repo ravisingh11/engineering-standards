@@ -65,8 +65,10 @@ configuration. The synchronization updates the producer manifest; refreshing
 the shared runtime afterward would replace that manifest with the default one.
 
 Add provider credentials only as GitHub Actions secrets. Never put tokens in
-the repository or in a workflow file. See [control setup](control-setup.md)
-for the required secret, variable, and platform setting for each provider.
+the repository or in a workflow file. Use the
+[secrets and variables checklist](control-setup.md#secrets-and-variables-checklist)
+for exact names, minimum permissions, secure `gh` commands, and platform
+settings. Create credentials only for providers you activate.
 
 ## 3. Run locally
 
