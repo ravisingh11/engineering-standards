@@ -206,6 +206,10 @@ advisory while rules and thresholds are tuned. Move it to enforced only after
 the producer meets the shared promotion rule. The template does not define a
 fake organization rule set or pass credentials to any other workflow.
 
+The reserved value `GUARDRAILS_NOT_CONFIGURED` keeps the workflow installed but
+inactive. Replace it with a real token to run Semgrep; an empty or reserved
+value produces configuration evidence and skips the provider scan.
+
 When a workflow produces guardrail evidence, write a check-specific JSON file
 under `.artifacts/guardrails/evidence/`. The installed `scan.py` command merges
 those files into the repository scorecard. Evidence must identify the exact

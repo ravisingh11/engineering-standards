@@ -348,6 +348,23 @@ class ActionDistributionTests(unittest.TestCase):
             text,
         )
 
+    def test_semgrep_placeholder_secret_does_not_activate_scans(self) -> None:
+        template = (ROOT / "workflows" / "semgrep.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            '"${SEMGREP_APP_TOKEN}" == "GUARDRAILS_NOT_CONFIGURED"',
+            template,
+        )
+
+    def test_repository_runs_the_distributed_semgrep_workflow(self) -> None:
+        installed = ROOT / ".github" / "workflows" / "semgrep.yml"
+        template = ROOT / "workflows" / "semgrep.yml"
+
+        self.assertTrue(installed.is_file())
+        self.assertEqual(template.read_bytes(), installed.read_bytes())
+
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
         text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
             encoding="utf-8"

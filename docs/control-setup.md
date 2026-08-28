@@ -569,6 +569,10 @@ invent or embed organization-specific rules. Semgrep starts **Advisory**. Move
 it to **Enforced** and add the exact `Semgrep` check to the ruleset only after
 it meets the shared promotion rule. Semgrep's documented GitHub Actions setup
 requires a repository workflow and `SEMGREP_APP_TOKEN` secret.
+
+The exact placeholder value `GUARDRAILS_NOT_CONFIGURED` keeps the installed
+workflow inactive. Replace that value with a real token to activate the scan;
+do not use arbitrary dummy credentials.
 [Semgrep GitHub reusable workflow
 documentation](https://semgrep.dev/docs/kb/semgrep-ci/github-reusable-workflows-semgrep)
 is the provider reference.
