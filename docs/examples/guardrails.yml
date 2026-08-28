@@ -37,7 +37,7 @@ jobs:
             --revision "$REVISION" \
             --manifest .guardrails/producer-manifest.json \
             --output .artifacts/guardrails/evidence/github-checks.json \
-            --wait-seconds 120
+            --wait-seconds 180
 
       - name: Run guardrail scorecard
         env:

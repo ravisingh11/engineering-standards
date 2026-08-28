@@ -37,7 +37,7 @@ jobs:
             --revision "$REVISION" \
             --manifest .guardrails/producer-manifest.json \
             --output .artifacts/guardrails/evidence/github-checks.json \
-            --wait-seconds 120
+            --wait-seconds 180
           python3 .guardrails/scan.py \
             --target . \
             --policy .guardrails/policy.yaml \

@@ -275,6 +275,15 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("--policy .guardrails/policy.yaml", text)
                 self.assertIn("--catalog .guardrails/control-catalog.yaml", text)
 
+    def test_scorecard_waits_for_supported_external_producers(self) -> None:
+        for workflow in (
+            ".github/workflows/guardrail-checks.yml",
+            "docs/examples/guardrails.yml",
+        ):
+            with self.subTest(workflow=workflow):
+                text = (ROOT / workflow).read_text(encoding="utf-8")
+                self.assertIn("--wait-seconds 180", text)
+
     def test_attestation_workflow_uses_canonical_policy(self) -> None:
         text = (
             ROOT / ".github" / "workflows" / "guardrails-attestation.yml"
