@@ -338,6 +338,16 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("name: Secret Scan Evidence Probe", text)
         self.assertNotIn("name: Secret Scan Platform Verifier", text)
 
+    def test_snyk_placeholder_secret_does_not_activate_scans(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "snyk.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            '"${SNYK_TOKEN}" == "GUARDRAILS_NOT_CONFIGURED"',
+            text,
+        )
+
     def test_codeql_workflow_publishes_the_manifest_check_name(self) -> None:
         text = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(
             encoding="utf-8"

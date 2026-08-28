@@ -96,10 +96,10 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${SNYK_TOKEN}" ]]; then
+          if [[ -z "${SNYK_TOKEN}" || "${SNYK_TOKEN}" == "GUARDRAILS_NOT_CONFIGURED" ]]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Snyk is an ORANGE advisory control until SNYK_TOKEN is configured."
-            echo "Add SNYK_TOKEN to activate Snyk Code and Snyk Open Source scans."
+            echo "Replace the SNYK_TOKEN placeholder to activate Snyk Code and Snyk Open Source scans."
             exit 0
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"

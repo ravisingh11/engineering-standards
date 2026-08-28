@@ -39,6 +39,13 @@ Create credentials only for controls the repository has selected. A secret's
 presence is not evidence that its producer ran, and a placeholder credential
 can turn an intentionally inactive workflow into a failing one.
 
+GitHub does not support an empty Actions secret. This standards repository may
+reserve an inactive provider secret name with the exact value
+`GUARDRAILS_NOT_CONFIGURED`; replace that value before enabling the provider.
+Do not use any other dummy value: workflows can mistake an arbitrary non-empty
+value for an active credential. Consumer repositories should normally create
+the secret only when the real provider credential is available.
+
 ### GitHub Actions secrets
 
 | Secret | Used by | Create the credential | Minimum access |
