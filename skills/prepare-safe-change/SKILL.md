@@ -21,7 +21,11 @@ requirements; it does not authorize an operation or tell you which tools to run.
    repository or `guardrails/evaluate.py` in this standards repository, then run:
 
    ~~~sh
-   exact_revision="${EXACT_REVISION:?set EXACT_REVISION to the immutable subject revision}"
+   requested_revision="${EXACT_REVISION:?set EXACT_REVISION to the immutable subject revision}"
+   exact_revision="$(git rev-parse --verify "${requested_revision}^{commit}")" || {
+     echo "EXACT_REVISION must resolve to a Git commit" >&2
+     exit 2
+   }
    if [ -f .guardrails/evaluate.py ]; then
      evaluator=.guardrails/evaluate.py
    elif [ -f guardrails/evaluate.py ]; then
@@ -30,13 +34,10 @@ requirements; it does not authorize an operation or tell you which tools to run.
      echo "Guardrails v2 evaluator not found" >&2
      exit 2
    fi
-   skill_reference=references/evidence-example.yaml
-   if [ -n "${GUARDRAILS_EVIDENCE:-}" ]; then
-     evidence="${GUARDRAILS_EVIDENCE}"
-   elif [ -f ".agents/skills/prepare-safe-change/${skill_reference}" ]; then
-     evidence=".agents/skills/prepare-safe-change/${skill_reference}"
-   else
-     evidence="skills/prepare-safe-change/${skill_reference}"
+   evidence="${GUARDRAILS_EVIDENCE:?set GUARDRAILS_EVIDENCE to populated revision-bound evidence}"
+   if [ ! -f "$evidence" ]; then
+     echo "Guardrails evidence not found: $evidence" >&2
+     exit 2
    fi
    python3 "$evaluator" \
      --policy .guardrails/policy.yaml \

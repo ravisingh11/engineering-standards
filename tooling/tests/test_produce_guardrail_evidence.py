@@ -145,6 +145,72 @@ class RepositoryCommandTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_run")
         runner.assert_not_called()
 
+    def test_success_is_not_bound_when_command_mutates_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=target, check=True)
+            tracked = target / "tracked.txt"
+            tracked.write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=target, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=target, check=True)
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=target, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+
+            def mutating_runner(command: list[str], cwd: Path) -> tuple[int, str]:
+                tracked.write_text("mutated\n", encoding="utf-8")
+                return 0, "command passed"
+
+            result = MODULE.repository_command_result(
+                "build",
+                {"GUARDRAILS_BUILD_COMMAND": "mutate"},
+                target,
+                runner=mutating_runner,
+                revision=revision,
+            )
+
+            self.assertEqual(result["status"], "not_run")
+            self.assertIn("changed while", result["reason"])
+
+    def test_setup_cannot_change_tracked_state_before_the_producer_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=target, check=True)
+            tracked = target / "tracked.txt"
+            tracked.write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=target, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=target, check=True)
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=target, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+            runner = mock.Mock()
+
+            def mutate_during_setup(command: list[str], cwd: Path) -> tuple[int, str]:
+                tracked.write_text("mutated\n", encoding="utf-8")
+                return 0, "setup passed"
+
+            runner.side_effect = mutate_during_setup
+            result = MODULE.repository_command_result(
+                "build",
+                {
+                    "GUARDRAILS_SETUP_COMMAND": "setup",
+                    "GUARDRAILS_BUILD_COMMAND": "build",
+                },
+                target,
+                runner=runner,
+                revision=revision,
+            )
+
+            self.assertEqual(result["status"], "not_run")
+            self.assertIn("setup", result["reason"].lower())
+            self.assertEqual(runner.call_count, 1)
+
 
 class ToolProducerTests(unittest.TestCase):
     def semgrep_target(self, directory: str) -> Path:

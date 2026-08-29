@@ -17,10 +17,24 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def runtime_path(
+    root: Path,
+    *,
+    installed_relative: Path,
+    source_relative: Path,
+) -> Path:
+    installed = root / installed_relative
+    if installed.is_file():
+        return installed
+    return root / source_relative
+
+
 def evaluator_module() -> Any:
-    path = ROOT / "guardrails" / "evaluate.py"
-    if not path.exists():
-        path = ROOT / ".guardrails" / "evaluate.py"
+    path = runtime_path(
+        ROOT,
+        installed_relative=Path(".guardrails/evaluate.py"),
+        source_relative=Path("guardrails/evaluate.py"),
+    )
     spec = importlib.util.spec_from_file_location("guardrails_v2_evaluator", path)
     if not spec or not spec.loader:
         raise ValueError(f"cannot load evaluator: {path}")
@@ -30,9 +44,11 @@ def evaluator_module() -> Any:
 
 
 def producer_module() -> Any:
-    path = ROOT / "tooling" / "produce_guardrail_evidence.py"
-    if not path.exists():
-        path = ROOT / ".guardrails" / "produce.py"
+    path = runtime_path(
+        ROOT,
+        installed_relative=Path(".guardrails/produce.py"),
+        source_relative=Path("tooling/produce_guardrail_evidence.py"),
+    )
     spec = importlib.util.spec_from_file_location("guardrails_v2_producers", path)
     if not spec or not spec.loader:
         raise ValueError(f"cannot load producers: {path}")
@@ -248,7 +264,9 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         ("changed-code-coverage", "repository-changed-code-coverage"),
     ):
         results[control_id] = {
-            provider_id: producers.repository_command_result(control_id, os.environ, target)
+            provider_id: producers.repository_command_result(
+                control_id, os.environ, target, revision=revision
+            )
         }
     results["custom-static-analysis"] = {"semgrep-ce": producers.semgrep_result(target)}
     results["secret-detection"] = {"gitleaks": producers.gitleaks_result(target)}

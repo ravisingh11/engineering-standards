@@ -177,17 +177,44 @@ class InstallerTests(unittest.TestCase):
             skill_text = installed_skill.read_text()
             self.assertIn("~~~sh\n", skill_text)
             script = skill_text.split("~~~sh\n", 1)[1].split("~~~", 1)[0]
+            subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=target, check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=target, check=True)
+            subprocess.run(["git", "add", "."], cwd=target, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=target, check=True)
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=target, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+            evidence = json.loads(installed_example.read_text(encoding="utf-8"))
+            evidence["subject"]["revision"] = revision
+            populated_evidence = target / "evidence.json"
+            populated_evidence.write_text(json.dumps(evidence), encoding="utf-8")
 
             completed = subprocess.run(
                 ["sh", "-c", script],
                 cwd=target,
-                env={"PATH": "/usr/bin:/bin", "EXACT_REVISION": "replace-with-exact-revision"},
+                env={
+                    "PATH": "/usr/bin:/bin",
+                    "EXACT_REVISION": revision,
+                    "GUARDRAILS_EVIDENCE": str(populated_evidence),
+                },
                 text=True,
                 capture_output=True,
             )
 
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            self.assertIn("ALLOW change git-commit@replace-with-exact-revision", completed.stdout)
+            self.assertIn(f"ALLOW change git-commit@{revision}", completed.stdout)
+
+            missing = subprocess.run(
+                ["sh", "-c", script],
+                cwd=target,
+                env={"PATH": "/usr/bin:/bin", "EXACT_REVISION": revision},
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("GUARDRAILS_EVIDENCE", missing.stderr)
 
     def test_github_profile_is_additive_and_installs_only_the_overlay(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -345,6 +372,9 @@ class InstallerTests(unittest.TestCase):
             custom["display_name"] = "Consumer Build Adapter"
             providers["providers"]["consumer-build"] = custom
             providers["providers"]["repository-build"]["display_name"] = "Stale Built-in"
+            providers["providers"]["repository-build"]["checks"]["build"]["trusted_paths"] = [
+                "tools/build.py"
+            ]
             providers["selections"]["build"] = {
                 "authoritative": "consumer-build",
                 "supplemental": ["repository-build"],
@@ -358,10 +388,9 @@ class InstallerTests(unittest.TestCase):
             canonical = json.loads(
                 (MODULE.ROOT / "policies/provider-config.yaml").read_text()
             )
-            self.assertEqual(
-                refreshed["providers"]["repository-build"],
-                canonical["providers"]["repository-build"],
-            )
+            expected_build = canonical["providers"]["repository-build"]
+            expected_build["checks"]["build"]["trusted_paths"] = ["tools/build.py"]
+            self.assertEqual(refreshed["providers"]["repository-build"], expected_build)
             self.assertEqual(
                 refreshed["providers"]["consumer-build"]["display_name"],
                 "Consumer Build Adapter",

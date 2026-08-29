@@ -169,6 +169,7 @@ def policy_bytes(existing: Path | None, profiles: list[str]) -> bytes:
 
 def refreshed_provider_bytes(existing: Path) -> bytes:
     canonical_path = ROOT / "policies/provider-config.yaml"
+    pristine = load_object(canonical_path)
     canonical = load_object(canonical_path)
     installed = load_object(existing)
     canonical_providers = canonical.get("providers")
@@ -189,6 +190,25 @@ def refreshed_provider_bytes(existing: Path) -> bytes:
         for provider_id, provider in installed_providers.items()
         if provider_id not in canonical_providers
     }
+    for provider_id, canonical_provider in canonical_providers.items():
+        installed_provider = installed_providers.get(provider_id)
+        if not isinstance(installed_provider, dict):
+            continue
+        canonical_checks = canonical_provider.get("checks")
+        installed_checks = installed_provider.get("checks")
+        if not isinstance(canonical_checks, dict) or not isinstance(installed_checks, dict):
+            continue
+        for capability, canonical_check in canonical_checks.items():
+            installed_check = installed_checks.get(capability)
+            if not isinstance(canonical_check, dict) or not isinstance(installed_check, dict):
+                continue
+            installed_trusted = installed_check.get("trusted_paths", [])
+            canonical_trusted = canonical_check.get("trusted_paths", [])
+            if not isinstance(installed_trusted, list) or not isinstance(canonical_trusted, list):
+                continue
+            combined = list(dict.fromkeys([*canonical_trusted, *installed_trusted]))
+            if combined:
+                canonical_check["trusted_paths"] = combined
     merged = dict(canonical_providers)
     merged.update(custom_providers)
     canonical["providers"] = merged
@@ -196,7 +216,11 @@ def refreshed_provider_bytes(existing: Path) -> bytes:
     merged_selections.update(installed_selections)
     canonical["selections"] = merged_selections
     validate_provider_document(canonical)
-    if not custom_providers and merged_selections == canonical_selections:
+    if (
+        not custom_providers
+        and merged_selections == canonical_selections
+        and merged == pristine.get("providers")
+    ):
         return canonical_path.read_bytes()
     return (json.dumps(canonical, indent=2) + "\n").encode()
 

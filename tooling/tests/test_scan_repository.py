@@ -31,6 +31,26 @@ def result(status: str = "passed", producer: str = "producer") -> dict:
     return value
 
 
+class RuntimeResolutionTests(unittest.TestCase):
+    def test_installed_runtime_wins_over_consumer_application_package(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            installed = target / ".guardrails" / "evaluate.py"
+            application = target / "guardrails" / "evaluate.py"
+            installed.parent.mkdir()
+            application.parent.mkdir()
+            installed.write_text("SOURCE = 'installed'\n", encoding="utf-8")
+            application.write_text("SOURCE = 'application'\n", encoding="utf-8")
+
+            resolved = MODULE.runtime_path(
+                target,
+                installed_relative=Path(".guardrails/evaluate.py"),
+                source_relative=Path("guardrails/evaluate.py"),
+            )
+
+            self.assertEqual(resolved, installed)
+
+
 class NestedEvidenceMergeTests(unittest.TestCase):
     def write(self, directory: Path, name: str, document: dict) -> None:
         (directory / name).write_text(json.dumps(document), encoding="utf-8")

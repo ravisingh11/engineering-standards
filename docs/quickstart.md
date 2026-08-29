@@ -155,6 +155,9 @@ workflow provenance for the exact PR head. Native workflow providers may also
 declare `trusted_paths` for validator code, rule packs, and fixtures that define
 the result. The workflow definition and every declared path must have the same
 Git blob at the PR head and trusted base; otherwise the result is `NO RESULT`.
+If a configured repository command delegates to a tracked helper, add that
+helper to the check's `trusted_paths`. Refreshes retain repository-specific
+trusted-path additions while restoring the canonical provider contract.
 
 ## 8. Promote one proven capability
 

@@ -114,6 +114,7 @@ def repository_command_result(
     target: Path,
     *,
     runner: Runner = run,
+    revision: str | None = None,
 ) -> dict:
     variable, _, producer = COMMAND_PRODUCERS[control_id]
     command = environment.get(variable, "").strip()
@@ -140,12 +141,40 @@ def repository_command_result(
             reason=f"GUARDRAILS_WORKING_DIRECTORY does not exist: {working}",
         )
 
+    if revision is not None:
+        try:
+            exact_clean_head(target, revision)
+        except (OSError, ValueError) as error:
+            return producer_result(
+                producer,
+                "not_run",
+                reason=f"Revision-bound evidence could not start: {error}",
+            )
+
     setup = environment.get("GUARDRAILS_SETUP_COMMAND", "").strip()
     if setup:
         code, output = runner(["bash", "-euo", "pipefail", "-c", setup], cwd)
+        if revision is not None:
+            try:
+                exact_clean_head(target, revision)
+            except (OSError, ValueError) as error:
+                return producer_result(
+                    producer,
+                    "not_run",
+                    reason=f"The repository changed while setup ran: {error}",
+                )
         if code != 0:
             return command_record(producer, "setup", setup, code, output)
     code, output = runner(["bash", "-euo", "pipefail", "-c", command], cwd)
+    if revision is not None:
+        try:
+            exact_clean_head(target, revision)
+        except (OSError, ValueError) as error:
+            return producer_result(
+                producer,
+                "not_run",
+                reason=f"The repository changed while the producer ran: {error}",
+            )
     return command_record(producer, control_id, command, code, output)
 
 
@@ -290,7 +319,9 @@ def main() -> int:
         print(f"ERROR {error}", file=sys.stderr)
         return 2
     if args.producer in COMMAND_PRODUCERS:
-        result = repository_command_result(args.producer, os.environ, target)
+        result = repository_command_result(
+            args.producer, os.environ, target, revision=revision
+        )
         control_id = args.producer
         provider_id = COMMAND_PRODUCERS[args.producer][1]
     elif args.producer == "semgrep-ce":
