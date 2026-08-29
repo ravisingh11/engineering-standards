@@ -44,11 +44,46 @@ class RuntimeResolutionTests(unittest.TestCase):
 
             resolved = MODULE.runtime_path(
                 target,
+                scanner_path=target / ".guardrails/scan.py",
                 installed_relative=Path(".guardrails/evaluate.py"),
                 source_relative=Path("guardrails/evaluate.py"),
             )
 
             self.assertEqual(resolved, installed)
+
+    def test_installed_runtime_fails_closed_when_sibling_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            application = target / "guardrails" / "evaluate.py"
+            application.parent.mkdir()
+            application.write_text("SOURCE = 'application'\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "installed runtime is missing"):
+                MODULE.runtime_path(
+                    target,
+                    scanner_path=target / ".guardrails/scan.py",
+                    installed_relative=Path(".guardrails/evaluate.py"),
+                    source_relative=Path("guardrails/evaluate.py"),
+                )
+
+    def test_source_scanner_resolves_only_the_canonical_source_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            scanner = target / "tooling" / "scan_repository.py"
+            source = target / "guardrails" / "evaluate.py"
+            scanner.parent.mkdir()
+            source.parent.mkdir()
+            scanner.write_text("# scanner\n", encoding="utf-8")
+            source.write_text("SOURCE = 'canonical'\n", encoding="utf-8")
+
+            resolved = MODULE.runtime_path(
+                target,
+                scanner_path=scanner,
+                installed_relative=Path(".guardrails/evaluate.py"),
+                source_relative=Path("guardrails/evaluate.py"),
+            )
+
+            self.assertEqual(resolved, source)
 
 
 class NestedEvidenceMergeTests(unittest.TestCase):
@@ -260,6 +295,44 @@ class LocalEvidenceTests(unittest.TestCase):
 
             self.assertEqual(evidence["status"], "not_run")
             self.assertIn("configuration", evidence["reason"].lower())
+
+    def test_tool_producer_does_not_run_after_revision_binding_is_lost(self) -> None:
+        producer = mock.Mock()
+        producer.exact_clean_head.side_effect = ValueError("worktree is dirty")
+        producer.producer_result.side_effect = (
+            lambda name, status, reason: {"producer": name, "status": status, "reason": reason}
+        )
+        callback = mock.Mock()
+
+        result = MODULE.revision_bound_tool_result(
+            producer,
+            Path("/repo"),
+            "abc123",
+            "Semgrep Community Edition",
+            callback,
+        )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("dirty", result["reason"])
+        callback.assert_not_called()
+
+    def test_tool_producer_result_is_discarded_if_it_changes_the_revision(self) -> None:
+        producer = mock.Mock()
+        producer.exact_clean_head.side_effect = ["abc123", ValueError("worktree is dirty")]
+        producer.producer_result.side_effect = (
+            lambda name, status, reason: {"producer": name, "status": status, "reason": reason}
+        )
+
+        evidence_result = MODULE.revision_bound_tool_result(
+            producer,
+            Path("/repo"),
+            "abc123",
+            "Gitleaks CLI",
+            mock.Mock(return_value=result("passed", "gitleaks")),
+        )
+
+        self.assertEqual(evidence_result["status"], "not_run")
+        self.assertIn("dirty", evidence_result["reason"])
 
     def test_fake_requested_revision_makes_all_local_provider_results_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

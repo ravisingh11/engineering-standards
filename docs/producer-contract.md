@@ -64,10 +64,10 @@ decision.
 
 `.guardrails/scan.py` resolves a clean full `HEAD` before local producers can
 pass. Repository commands run from `GUARDRAILS_WORKING_DIRECTORY`; absent
-commands report `not_run`. The scanner verifies the same clean revision again
-after each configured command, so a producer that changes tracked state cannot
-publish passing revision-bound evidence. Semgrep CE and Gitleaks use pinned
-containers or exactly matching host versions.
+commands report `not_run`. The scanner verifies the same clean revision before
+and after each configured command and local tool, so one producer cannot change
+the tree consumed by the next or publish passing evidence for a different tree.
+Semgrep CE and Gitleaks use pinned containers or exactly matching host versions.
 
 External adapters may place `*.json` fragments in
 `.artifacts/guardrails/evidence/`. The scanner accepts only nested v2 fragments

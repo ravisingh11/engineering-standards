@@ -12,7 +12,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,18 +20,23 @@ ROOT = Path(__file__).resolve().parents[1]
 def runtime_path(
     root: Path,
     *,
+    scanner_path: Path,
     installed_relative: Path,
     source_relative: Path,
 ) -> Path:
-    installed = root / installed_relative
-    if installed.is_file():
-        return installed
-    return root / source_relative
+    source_scanner = root / "tooling" / "scan_repository.py"
+    source_mode = scanner_path.resolve() == source_scanner.resolve()
+    path = root / (source_relative if source_mode else installed_relative)
+    if not path.is_file():
+        mode = "source" if source_mode else "installed"
+        raise ValueError(f"{mode} runtime is missing: {path}")
+    return path
 
 
 def evaluator_module() -> Any:
     path = runtime_path(
         ROOT,
+        scanner_path=Path(__file__),
         installed_relative=Path(".guardrails/evaluate.py"),
         source_relative=Path("guardrails/evaluate.py"),
     )
@@ -46,6 +51,7 @@ def evaluator_module() -> Any:
 def producer_module() -> Any:
     path = runtime_path(
         ROOT,
+        scanner_path=Path(__file__),
         installed_relative=Path(".guardrails/produce.py"),
         source_relative=Path("tooling/produce_guardrail_evidence.py"),
     )
@@ -81,6 +87,33 @@ def result_for_command(producer: str, command: list[str], code: int, output: str
         "status": "passed" if code == 0 else "failed",
         "evidence": [" ".join(command), output[-1000:] or "command completed without output"],
     }
+
+
+def revision_bound_tool_result(
+    producers: Any,
+    target: Path,
+    revision: str,
+    producer_name: str,
+    callback: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    try:
+        producers.exact_clean_head(target, revision)
+    except (OSError, ValueError) as error:
+        return producers.producer_result(
+            producer_name,
+            "not_run",
+            reason=f"Revision-bound tool evidence could not start: {error}",
+        )
+    result = callback()
+    try:
+        producers.exact_clean_head(target, revision)
+    except (OSError, ValueError) as error:
+        return producers.producer_result(
+            producer_name,
+            "not_run",
+            reason=f"The repository changed while the tool ran: {error}",
+        )
+    return result
 
 
 def local_binding(target: Path, requested_revision: str) -> tuple[str | None, str | None]:
@@ -268,8 +301,24 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
                 control_id, os.environ, target, revision=revision
             )
         }
-    results["custom-static-analysis"] = {"semgrep-ce": producers.semgrep_result(target)}
-    results["secret-detection"] = {"gitleaks": producers.gitleaks_result(target)}
+    results["custom-static-analysis"] = {
+        "semgrep-ce": revision_bound_tool_result(
+            producers,
+            target,
+            revision,
+            "Semgrep Community Edition 1.175.0",
+            lambda: producers.semgrep_result(target),
+        )
+    }
+    results["secret-detection"] = {
+        "gitleaks": revision_bound_tool_result(
+            producers,
+            target,
+            revision,
+            "Gitleaks CLI 8.30.1",
+            lambda: producers.gitleaks_result(target),
+        )
+    }
     return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
 
 
