@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -289,6 +291,197 @@ class ArtifactPathTests(unittest.TestCase):
         MODULE.add_artifact_locations(card, evidence, report)
 
         self.assertEqual(card["artifacts"], {"evidence": str(evidence), "report": str(report)})
+
+
+class ScanSubjectContractTests(unittest.TestCase):
+    def documents(self, profiles: list[str], release_overrides: dict[str, str]) -> list[dict]:
+        policy = json.loads((MODULE.ROOT / "guardrails" / "baseline.yaml").read_text(encoding="utf-8"))
+        policy["profiles"] = profiles
+        policy["overrides"]["release"] = release_overrides
+        return [
+            policy,
+            json.loads((MODULE.ROOT / "policies" / "profiles.yaml").read_text(encoding="utf-8")),
+            json.loads((MODULE.ROOT / "policies" / "control-catalog.yaml").read_text(encoding="utf-8")),
+            json.loads((MODULE.ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8")),
+        ]
+
+    def scorecard_result(self, subject_type: str, revision: str) -> mock.Mock:
+        return mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                "version": 2,
+                "decision": "allow",
+                "status": "ORANGE",
+                "policy": "fixture",
+                "operation": "release",
+                "subject": {"type": subject_type, "revision": revision},
+                "controls": [],
+            }),
+            stderr="",
+        )
+
+    def test_release_scan_rejects_policy_with_mixed_git_commit_and_artifact_subjects(self) -> None:
+        documents = self.documents(
+            ["core", "github"],
+            {"artifact-provenance": "enforced"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            evidence_path = target / "evidence.json"
+            report_path = target / "report.md"
+            argv = [
+                str(SCRIPT), "--target", str(target), "--operation", "release",
+                "--revision", "abc123", "--evidence", str(evidence_path),
+                "--report", str(report_path),
+            ]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                MODULE, "load", side_effect=documents
+            ), mock.patch.object(
+                MODULE, "local_evidence", return_value=base_evidence()
+            ) as local_evidence, mock.patch.object(
+                MODULE.subprocess,
+                "run",
+                return_value=self.scorecard_result("git-commit", "abc123"),
+            ), mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                returncode = MODULE.main()
+
+        self.assertEqual(returncode, 2)
+        self.assertIn("mixed evidence subjects", stderr.getvalue())
+        self.assertIn("artifact", stderr.getvalue())
+        self.assertIn("git-commit", stderr.getvalue())
+        local_evidence.assert_not_called()
+
+    def test_mixed_release_scan_uses_explicit_artifact_subject_contract(self) -> None:
+        documents = self.documents(
+            ["core", "github"],
+            {"artifact-provenance": "enforced"},
+        )
+        revision = "sha256:abc123"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            evidence_path = target / "evidence.json"
+            report_path = target / "report.md"
+            argv = [
+                str(SCRIPT), "--target", str(target), "--operation", "release",
+                "--subject-type", "artifact", "--revision", revision,
+                "--evidence", str(evidence_path), "--report", str(report_path),
+            ]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                MODULE, "load", side_effect=documents
+            ), mock.patch.object(
+                MODULE, "local_evidence", return_value=base_evidence(revision)
+            ) as local_evidence, mock.patch.object(
+                MODULE.subprocess,
+                "run",
+                return_value=self.scorecard_result("artifact", revision),
+            ) as scorecard, mock.patch("sys.stdout", new_callable=io.StringIO):
+                returncode = MODULE.main()
+
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(returncode, 0)
+        self.assertEqual(evidence["subject"], {"type": "artifact", "revision": revision})
+        self.assertEqual(set(evidence["results"]), {"artifact-provenance"})
+        local_evidence.assert_not_called()
+        command = scorecard.call_args.args[0]
+        self.assertEqual(command[command.index("--subject-type") + 1], "artifact")
+
+    def test_release_scan_rejects_subject_selector_not_activated_by_policy(self) -> None:
+        documents = self.documents(["core", "github"], {})
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            argv = [
+                str(SCRIPT), "--target", str(target), "--operation", "release",
+                "--subject-type", "environment", "--revision", "production",
+            ]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                MODULE, "load", side_effect=documents
+            ), mock.patch.object(
+                MODULE, "local_evidence", return_value=base_evidence()
+            ) as local_evidence, mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                returncode = MODULE.main()
+
+        self.assertEqual(returncode, 2)
+        self.assertIn("environment", stderr.getvalue())
+        self.assertIn("not activated", stderr.getvalue())
+        local_evidence.assert_not_called()
+
+    def test_demo_core_and_github_release_policy_scans_selected_git_commit_end_to_end(self) -> None:
+        demo = MODULE.ROOT / "examples" / "python-demo"
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=demo,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        with tempfile.TemporaryDirectory() as directory:
+            artifacts = Path(directory)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--target",
+                    str(demo),
+                    "--operation",
+                    "release",
+                    "--subject-type",
+                    "git-commit",
+                    "--revision",
+                    revision,
+                    "--evidence",
+                    str(artifacts / "evidence.json"),
+                    "--evidence-dir",
+                    str(artifacts / "external-evidence"),
+                    "--report",
+                    str(artifacts / "report.md"),
+                    "--json",
+                ],
+                cwd=MODULE.ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            card = json.loads(completed.stdout)
+            evidence = json.loads((artifacts / "evidence.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(card["subject"], {"type": "git-commit", "revision": revision})
+        self.assertIn("build", {control["id"] for control in card["controls"]})
+        self.assertNotIn("artifact-provenance", {control["id"] for control in card["controls"]})
+        self.assertEqual(evidence["subject"], {"type": "git-commit", "revision": revision})
+
+    def test_artifact_only_release_scan_uses_artifact_subject_for_evidence_and_scorecard(self) -> None:
+        documents = self.documents(["github"], {})
+        revision = "sha256:abc123"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            evidence_path = target / "evidence.json"
+            report_path = target / "report.md"
+            argv = [
+                str(SCRIPT), "--target", str(target), "--operation", "release",
+                "--revision", revision, "--evidence", str(evidence_path),
+                "--report", str(report_path),
+            ]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                MODULE, "load", side_effect=documents
+            ), mock.patch.object(
+                MODULE, "local_evidence", return_value=base_evidence(revision)
+            ) as local_evidence, mock.patch.object(
+                MODULE.subprocess,
+                "run",
+                return_value=self.scorecard_result("artifact", revision),
+            ) as scorecard:
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    returncode = MODULE.main()
+
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(returncode, 0)
+        self.assertEqual(evidence["subject"], {"type": "artifact", "revision": revision})
+        local_evidence.assert_not_called()
+        command = scorecard.call_args.args[0]
+        self.assertEqual(command[command.index("--subject-type") + 1], "artifact")
 
 
 if __name__ == "__main__":

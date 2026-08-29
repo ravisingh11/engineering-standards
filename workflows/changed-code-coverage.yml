@@ -32,4 +32,5 @@ jobs:
         run: bash -euo pipefail -c "${GUARDRAILS_CHANGED_COVERAGE_COMMAND}"
         env:
           GUARDRAILS_CHANGED_COVERAGE_COMMAND: ${{ vars.GUARDRAILS_CHANGED_COVERAGE_COMMAND }}
+          GUARDRAILS_COVERAGE_BASE_REF: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
           GUARDRAILS_WORKING_DIRECTORY: ${{ vars.GUARDRAILS_WORKING_DIRECTORY }}

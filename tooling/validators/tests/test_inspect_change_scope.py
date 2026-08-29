@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,37 @@ SPEC = importlib.util.spec_from_file_location("change_scope", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
+
+
+def git(root: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def diverged_commits(root: Path) -> tuple[str, str]:
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.name", "Guardrails Test")
+    git(root, "config", "user.email", "guardrails@example.invalid")
+    (root / "README.md").write_text("initial\n", encoding="utf-8")
+    git(root, "add", "README.md")
+    git(root, "commit", "-q", "-m", "initial")
+    git(root, "branch", "feature")
+
+    (root / "base-only.py").write_text("base\n" * 50, encoding="utf-8")
+    git(root, "add", "base-only.py")
+    git(root, "commit", "-q", "-m", "base only")
+    base = git(root, "rev-parse", "HEAD")
+
+    git(root, "checkout", "-q", "feature")
+    (root / "head-only.py").write_text("head\n", encoding="utf-8")
+    git(root, "add", "head-only.py")
+    git(root, "commit", "-q", "-m", "head only")
+    return base, git(root, "rev-parse", "HEAD")
 
 
 def policy() -> dict:
@@ -85,6 +118,17 @@ class ChangeScopeTests(unittest.TestCase):
         )
         self.assertEqual(result["metrics"]["binary_files"], 1)
         self.assertEqual(result["metrics"]["changed_lines"], 0)
+
+    def test_between_excludes_base_only_changes_after_divergence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, head = diverged_commits(root)
+
+            result = MODULE.between(root, policy(), base, head, None)
+
+            self.assertEqual(result["metrics"]["files"], 1)
+            self.assertEqual(result["metrics"]["added_lines"], 1)
+            self.assertEqual(result["metrics"]["changed_lines"], 1)
 
 
 if __name__ == "__main__":

@@ -36,15 +36,26 @@ jobs:
             if GH_TOKEN="${SETTINGS_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}/vulnerability-alerts" >/dev/null 2>&1; then alerts=enabled; fi
             updates_response=""
             updates_error="${RUNNER_TEMP}/dependabot-updates-error"
-            if updates_response="$(GH_TOKEN="${SETTINGS_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}/automated-security-fixes" 2>"${updates_error}")"; then
-              enabled="$(jq -r 'if (.enabled | type) == "boolean" then .enabled else "unknown" end' <<<"${updates_response}" 2>/dev/null || printf 'unknown')"
-              paused="$(jq -r 'if (.paused | type) == "boolean" then .paused else "unknown" end' <<<"${updates_response}" 2>/dev/null || printf 'unknown')"
-              if [[ "${enabled}" == "false" ]]; then
-                updates=disabled
-              elif [[ "${enabled}" == "true" && "${paused}" == "true" ]]; then
-                updates=paused
-              elif [[ "${enabled}" == "true" && "${paused}" == "false" ]]; then
-                updates=enabled
+            if updates_response="$(GH_TOKEN="${SETTINGS_TOKEN}" gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${GITHUB_REPOSITORY}/automated-security-fixes" 2>"${updates_error}")"; then
+              if updates="$(jq -ser '
+                if length == 1
+                  and ((.[0] | type) == "object")
+                  and ((.[0].enabled | type) == "boolean")
+                  and ((.[0].paused | type) == "boolean")
+                then
+                  if .[0].enabled == false then "disabled"
+                  elif .[0].paused == true then "paused"
+                  else "enabled"
+                  end
+                else "unknown"
+                end
+              ' <<<"${updates_response}" 2>/dev/null)"; then
+                :
+              else
+                updates=unknown
               fi
             elif grep -Eq '(^|[^0-9])404([^0-9]|$)' "${updates_error}"; then
               updates=disabled

@@ -100,6 +100,19 @@ The default scorecard omits inactive and `evidence-only` controls. Use
 `python3 .guardrails/scan.py --all-catalog-controls` to inspect the complete
 catalog with those controls shown as `GRAY` / `not_activated`.
 
+Release policy can activate controls for more than one evidence subject. Select
+one immutable subject contract per invocation instead of combining commit and
+artifact evidence:
+
+```sh
+python3 .guardrails/scan.py --operation release --subject-type git-commit
+python3 .guardrails/scan.py --operation release --subject-type artifact \
+  --revision 'sha256:<artifact-digest>'
+```
+
+If more than one subject applies and `--subject-type` is omitted, the scanner
+stops with a configuration error rather than silently omitting controls.
+
 Core uses the pinned Semgrep CE and Gitleaks CLI containers when Docker is
 available. Otherwise it accepts only host Semgrep `1.175.0` and Gitleaks
 `8.30.1`. Missing Docker, unavailable tools, a shallow history, or a version
@@ -124,6 +137,10 @@ The optional `SECURITY_SETTINGS_TOKEN` is used only by trusted, no-checkout
 `pull_request_target` setting probes for GitHub Secret Protection and
 Dependabot. It needs repository Administration read and Secret scanning alerts
 read access. Missing or insufficient access publishes `NO RESULT`.
+Dependabot's version `2022-11-28` API response must be valid JSON with boolean
+`enabled: true` and `paused: false`. Empty, malformed, or incomplete successful
+responses publish `NO RESULT`; a `404` means automated security fixes are
+disabled.
 
 ## 7. Open a pull request
 
@@ -134,7 +151,10 @@ local scan -> push branch -> provider workflows -> exact-head collector
 
 Provider workflows run independently. The scorecard collector reads only the
 selected authoritative and supplemental check contracts and verifies their
-workflow provenance for the exact PR head.
+workflow provenance for the exact PR head. Native workflow providers may also
+declare `trusted_paths` for validator code, rule packs, and fixtures that define
+the result. The workflow definition and every declared path must have the same
+Git blob at the PR head and trusted base; otherwise the result is `NO RESULT`.
 
 ## 8. Promote one proven capability
 

@@ -297,6 +297,44 @@ def add_authoritative_placeholders(
         })
 
 
+def scan_subject_contract(
+    evaluator: Any,
+    policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
+    operation: str,
+    requested_subject_type: str | None = None,
+) -> tuple[str, dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    contracts = {}
+    controls: dict[str, dict[str, Any]] = {}
+    providers: dict[str, dict[str, Any]] = {}
+    for subject_type in ("git-commit", "artifact", "environment"):
+        selected, controls, providers = evaluator.effective_controls(
+            policy, profiles, catalog, provider_config, operation, subject_type
+        )
+        if selected:
+            contracts[subject_type] = selected
+    if requested_subject_type is not None:
+        if requested_subject_type not in contracts:
+            activated = ", ".join(sorted(contracts)) or "none"
+            raise ValueError(
+                f"{operation} scan subject {requested_subject_type!r} is not activated by policy; "
+                f"activated subjects: {activated}"
+            )
+        return requested_subject_type, contracts[requested_subject_type], controls, providers
+    if len(contracts) > 1:
+        subjects = ", ".join(sorted(contracts))
+        raise ValueError(
+            f"{operation} scan activates mixed evidence subjects ({subjects}); "
+            "scan each subject contract separately"
+        )
+    if contracts:
+        subject_type, selected = next(iter(contracts.items()))
+        return subject_type, selected, controls, providers
+    return "git-commit", {}, controls, providers
+
+
 def detailed_output(card: dict[str, Any], evidence_path: str, report_path: str) -> str:
     lines = [
         f"Guardrail Scan: {card['status']} — {card['decision'].upper()}",
@@ -351,6 +389,7 @@ def main() -> int:
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--operation", choices=("change", "release"), default="change")
+    parser.add_argument("--subject-type", choices=("git-commit", "artifact", "environment"))
     parser.add_argument("--revision", default="")
     parser.add_argument("--base-ref", default="HEAD~1")
     parser.add_argument("--all-catalog-controls", action="store_true")
@@ -374,13 +413,23 @@ def main() -> int:
     evidence_dir = (target / args.evidence_dir).resolve() if args.evidence_dir else target / ".artifacts/guardrails/evidence"
     try:
         policy, profiles, catalog, provider_config = map(load, (policy_path, profiles_path, catalog_path, providers_path))
-        revision = args.revision or run(["git", "rev-parse", "HEAD"], target)[1]
-        evidence = local_evidence(target, revision, args.base_ref)
-        merge_external_evidence(evidence, evidence_dir)
         evaluator = evaluator_module()
-        selected, controls, provider_definitions = evaluator.effective_controls(
-            policy, profiles, catalog, provider_config, args.operation, "git-commit"
+        subject_type, selected, controls, provider_definitions = scan_subject_contract(
+            evaluator, policy, profiles, catalog, provider_config, args.operation, args.subject_type
         )
+        if subject_type == "git-commit":
+            revision = args.revision or run(["git", "rev-parse", "HEAD"], target)[1]
+            evidence = local_evidence(target, revision, args.base_ref)
+        else:
+            if not args.revision:
+                raise ValueError(f"{subject_type} scans require --revision for the exact evaluated subject")
+            revision = args.revision
+            evidence = {
+                "version": 2,
+                "subject": {"type": subject_type, "revision": revision},
+                "results": {},
+            }
+        merge_external_evidence(evidence, evidence_dir)
         add_authoritative_placeholders(evidence, selected, provider_definitions)
         evaluator.validate_evidence(evidence, controls, provider_definitions)
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -397,7 +446,7 @@ def main() -> int:
             "--profiles", str(profiles_path), "--catalog", str(catalog_path),
             "--providers", str(providers_path), "--evidence", str(evidence_path),
             "--operation", args.operation, "--revision", revision,
-            "--subject-type", "git-commit", "--json",
+            "--subject-type", subject_type, "--json",
         ]
         if args.all_catalog_controls:
             command.append("--all-catalog-controls")

@@ -167,6 +167,7 @@ class ToolProducerTests(unittest.TestCase):
             self.assertIn(".guardrails/semgrep-rules.yml", command)
             self.assertIn(".guardrails/semgrep-tests/fixtures", command)
             self.assertIn("security/semgrep/tests/fixtures", command)
+            self.assertIn("examples/python-demo/.guardrails/semgrep-tests/fixtures", command)
             self.assertNotIn("ci", command)
             self.assertNotIn("auto", command)
 
@@ -186,6 +187,7 @@ class ToolProducerTests(unittest.TestCase):
             self.assertIn("--error", command)
             self.assertIn(".guardrails/semgrep-tests/fixtures", command)
             self.assertIn("security/semgrep/tests/fixtures", command)
+            self.assertIn("examples/python-demo/.guardrails/semgrep-tests/fixtures", command)
 
     def test_gitleaks_uses_exact_digest_history_scan_and_redaction(self) -> None:
         runner = mock.Mock(side_effect=[(0, "false"), (0, "Docker version 28"), (0, "no leaks")])

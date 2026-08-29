@@ -183,7 +183,8 @@ def semgrep_result(
                 SEMGREP_IMAGE, "semgrep", "scan", "--error",
                 "--config", ".guardrails/semgrep-rules.yml",
                 "--exclude", ".guardrails/semgrep-tests/fixtures",
-                "--exclude", "security/semgrep/tests/fixtures", ".",
+                "--exclude", "security/semgrep/tests/fixtures",
+                "--exclude", "examples/python-demo/.guardrails/semgrep-tests/fixtures", ".",
             ]
             scan_code, scan_output = runner(command, target)
             return command_record(producer, "semgrep-ce", command, scan_code, scan_output)
@@ -196,7 +197,8 @@ def semgrep_result(
             command = [
                 "semgrep", "scan", "--error", "--config", str(rules),
                 "--exclude", ".guardrails/semgrep-tests/fixtures",
-                "--exclude", "security/semgrep/tests/fixtures", ".",
+                "--exclude", "security/semgrep/tests/fixtures",
+                "--exclude", "examples/python-demo/.guardrails/semgrep-tests/fixtures", ".",
             ]
             code, output = runner(command, target)
             return command_record(producer, "semgrep-ce", command, code, output)

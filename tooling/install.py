@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -38,7 +39,6 @@ GITHUB_WORKFLOWS = {
 }
 PRESERVED_CONFIGURATION = {
     Path(".guardrails/policy.yaml"),
-    Path(".guardrails/providers.yaml"),
     Path(".guardrails/documentation.yaml"),
     Path(".guardrails/change-scope.yaml"),
     Path(".guardrails/ground-truth-ai.yaml"),
@@ -125,6 +125,21 @@ def load_object(path: Path) -> dict:
     return value
 
 
+def validate_provider_document(document: dict) -> None:
+    validator_path = ROOT / "tooling" / "validators" / "validate_repository.py"
+    spec = importlib.util.spec_from_file_location(
+        "guardrails_v2_repository_validator", validator_path
+    )
+    if not spec or not spec.loader:
+        raise ValueError(f"cannot load provider validator: {validator_path}")
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    catalog = validator.validate_control_catalog_document(
+        load_object(ROOT / "policies" / "control-catalog.yaml")
+    )
+    validator.validate_provider_document(document, catalog)
+
+
 def reject_v1(target: Path) -> None:
     conflicts = [path for relative in V1_PATHS if ((path := target / relative).exists() or path.is_symlink())]
     for relative in (Path(".guardrails/policy.yaml"), Path(".guardrails/control-catalog.yaml"), Path(".guardrails/providers.yaml")):
@@ -150,6 +165,40 @@ def policy_bytes(existing: Path | None, profiles: list[str]) -> bytes:
             selected.append(profile)
     policy["profiles"] = selected
     return (json.dumps(policy, indent=2) + "\n").encode()
+
+
+def refreshed_provider_bytes(existing: Path) -> bytes:
+    canonical_path = ROOT / "policies/provider-config.yaml"
+    canonical = load_object(canonical_path)
+    installed = load_object(existing)
+    canonical_providers = canonical.get("providers")
+    installed_providers = installed.get("providers")
+    canonical_selections = canonical.get("selections")
+    installed_selections = installed.get("selections")
+    if (
+        not isinstance(canonical_providers, dict)
+        or not isinstance(installed_providers, dict)
+        or not isinstance(canonical_selections, dict)
+        or not isinstance(installed_selections, dict)
+    ):
+        raise ValueError(
+            "existing Guardrails provider configuration must contain providers and selections objects"
+        )
+    custom_providers = {
+        provider_id: provider
+        for provider_id, provider in installed_providers.items()
+        if provider_id not in canonical_providers
+    }
+    merged = dict(canonical_providers)
+    merged.update(custom_providers)
+    canonical["providers"] = merged
+    merged_selections = dict(canonical_selections)
+    merged_selections.update(installed_selections)
+    canonical["selections"] = merged_selections
+    validate_provider_document(canonical)
+    if not custom_providers and merged_selections == canonical_selections:
+        return canonical_path.read_bytes()
+    return (json.dumps(canonical, indent=2) + "\n").encode()
 
 
 def build_plan(target: Path, *, profiles: list[str], no_actions: bool) -> list[InstallItem]:
@@ -231,6 +280,7 @@ def install(
     explicit_profiles = list(profiles or [])
     selected_profiles: list[str] = []
     policy_destination = target / ".guardrails/policy.yaml"
+    providers_destination = target / ".guardrails/providers.yaml"
     if refresh_existing and policy_destination.is_file():
         installed_profiles = load_object(policy_destination).get("profiles")
         if not isinstance(installed_profiles, list) or not all(
@@ -295,6 +345,8 @@ def install(
             elif item.destination == policy_destination and selected_profiles:
                 existing_policy = policy_destination if merge_existing else None
                 item.destination.write_bytes(policy_bytes(existing_policy, selected_profiles))
+            elif refresh_existing and item.destination == providers_destination and item.destination.exists():
+                item.destination.write_bytes(refreshed_provider_bytes(item.destination))
             else:
                 shutil.copy2(item.source, item.destination)
         if refresh_existing and "github" in selected_profiles and policy_destination.exists():

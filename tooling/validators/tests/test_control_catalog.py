@@ -137,6 +137,22 @@ class ControlCatalogPolicyTests(unittest.TestCase):
                         property_schema = schema["$defs"][definition]["properties"][field]
                     self.assertEqual(property_schema["pattern"], "\\S")
 
+    def test_handwritten_provider_validator_accepts_and_checks_trusted_paths(self) -> None:
+        catalog_document = load("policies/control-catalog.yaml")
+        catalog = {
+            control["id"]: control for control in catalog_document["controls"]
+        }
+        providers = load("policies/provider-config.yaml")
+
+        self.validator("validate_provider_document")(providers, catalog)
+
+        check = providers["providers"]["repository-validator"]["checks"][
+            "repository-validation"
+        ]
+        check["trusted_paths"] = [{"not": "a path"}]
+        with self.assertRaisesRegex(ValueError, "trusted_paths"):
+            self.validator("validate_provider_document")(providers, catalog)
+
     def test_profile_defaults_are_exact_and_advisory(self) -> None:
         profiles = load("policies/profiles.yaml")
         expected = {

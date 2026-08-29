@@ -70,7 +70,7 @@ provider workflows in parallel
 `guardrails-scorecard.yml` runs as trusted `pull_request_target` code. It checks
 out executable runtime only from the exact base SHA, sparse-checks out the exact
 PR-head policy/configuration as fixed-path non-symlink data, and never executes
-candidate code with the GitHub token. It waits up to 600 seconds, writes paired
+candidate code with the GitHub token. It waits up to 1,800 seconds, writes paired
 timestamped scorecard JSON and Markdown plus timestamped evidence, appends the
 Markdown to the job summary, and uploads `.artifacts/guardrails` as
 `guardrail-scorecard-<run-id>`.

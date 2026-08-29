@@ -97,6 +97,58 @@ class DependabotWorkflowTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(payload["conclusion"], "success")
 
+    def test_empty_success_is_no_result(self) -> None:
+        completed, payload = self.run_probe("")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(payload["conclusion"], "skipped")
+        self.assertIn("did not expose", payload["output"]["summary"])
+
+    def test_malformed_response_is_no_result(self) -> None:
+        completed, payload = self.run_probe('{"enabled":true')
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(payload["conclusion"], "skipped")
+        self.assertIn("did not expose", payload["output"]["summary"])
+
+    def test_whitespace_only_response_is_no_result(self) -> None:
+        completed, payload = self.run_probe(" \n")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(payload["conclusion"], "skipped")
+        self.assertIn("did not expose", payload["output"]["summary"])
+
+    def test_multiple_json_values_are_no_result(self) -> None:
+        completed, payload = self.run_probe(
+            '{"enabled":true,"paused":false}\n'
+            '{"enabled":true,"paused":false}'
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(payload["conclusion"], "skipped")
+        self.assertIn("did not expose", payload["output"]["summary"])
+
+    def test_missing_required_field_is_no_result(self) -> None:
+        for response in ('{"enabled":true}', '{"paused":false}'):
+            with self.subTest(response=response):
+                completed, payload = self.run_probe(response)
+
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(payload["conclusion"], "skipped")
+                self.assertIn("did not expose", payload["output"]["summary"])
+
+    def test_wrong_typed_required_field_is_no_result(self) -> None:
+        for response in (
+            '{"enabled":"true","paused":false}',
+            '{"enabled":true,"paused":0}',
+        ):
+            with self.subTest(response=response):
+                completed, payload = self.run_probe(response)
+
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(payload["conclusion"], "skipped")
+                self.assertIn("did not expose", payload["output"]["summary"])
+
     def test_disabled_response_fails(self) -> None:
         completed, payload = self.run_probe('{"enabled":false,"paused":false}')
 

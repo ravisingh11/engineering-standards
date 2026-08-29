@@ -49,6 +49,41 @@ def contracts() -> tuple[dict, dict, dict, dict]:
 
 
 class ProviderContractTests(unittest.TestCase):
+    def test_repository_validator_trusts_every_outcome_defining_input(self) -> None:
+        providers = json.loads(
+            (ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8")
+        )
+        checks = providers["providers"]["repository-validator"]["checks"]
+
+        self.assertEqual(
+            checks["repository-validation"]["trusted_paths"],
+            [
+                ".guardrails/validators/validate_repository.py",
+                ".guardrails/evaluate.py",
+            ],
+        )
+        self.assertEqual(
+            checks["documentation-validation"]["trusted_paths"],
+            [
+                ".guardrails/validators/validate_documentation.py",
+                ".guardrails/documentation.yaml",
+            ],
+        )
+        self.assertEqual(
+            checks["repository-ground-truth"]["trusted_paths"],
+            [
+                ".guardrails/validate_ground_truth.py",
+                ".guardrails/ground-truth-ai.yaml",
+            ],
+        )
+        self.assertEqual(
+            checks["change-scope"]["trusted_paths"],
+            [
+                ".guardrails/validators/inspect_change_scope.py",
+                ".guardrails/change-scope.yaml",
+            ],
+        )
+
     def test_runtime_rejects_actions_check_without_workflow_path(self) -> None:
         _, _, catalog, providers = contracts()
         providers["providers"]["repository-build"]["checks"]["build"].pop(
@@ -57,6 +92,54 @@ class ProviderContractTests(unittest.TestCase):
         controls = {control["id"]: control for control in catalog["controls"]}
 
         with self.assertRaisesRegex(ValueError, "workflow_path"):
+            MODULE.validate_provider_config(providers, controls)
+
+    def test_runtime_rejects_unsafe_or_duplicate_trusted_paths(self) -> None:
+        _, _, catalog, providers = contracts()
+        controls = {control["id"]: control for control in catalog["controls"]}
+        check = providers["providers"]["repository-build"]["checks"]["build"]
+        invalid_values = (
+            [],
+            [{"path": ".github/workflows/build.yml"}],
+            [".github/workflows/build.yml", ".github/workflows/build.yml"],
+            ["/etc/passwd"],
+            ["../build.yml"],
+            ["validators/../build.yml"],
+            ["validators\\build.yml"],
+        )
+
+        for trusted_paths in invalid_values:
+            with self.subTest(trusted_paths=trusted_paths):
+                check["trusted_paths"] = trusted_paths
+                with self.assertRaisesRegex(ValueError, "trusted_paths"):
+                    MODULE.validate_provider_config(providers, controls)
+
+    def test_provider_schema_declares_unique_safe_trusted_paths(self) -> None:
+        schema = json.loads(
+            (ROOT / "guardrails" / "providers.schema.json").read_text(encoding="utf-8")
+        )
+
+        trusted_paths = schema["$defs"]["check"]["properties"]["trusted_paths"]
+
+        self.assertTrue(trusted_paths["uniqueItems"])
+        self.assertEqual(trusted_paths["minItems"], 1)
+        self.assertEqual(
+            trusted_paths["items"]["pattern"],
+            r"^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\\)[^\u0000-\u001f\u007f]+$",
+        )
+        self.assertEqual(
+            schema["$defs"]["check"]["dependentRequired"]["trusted_paths"],
+            ["workflow_path"],
+        )
+
+    def test_runtime_rejects_trusted_paths_for_external_app_checks(self) -> None:
+        _, _, catalog, providers = contracts()
+        controls = {control["id"]: control for control in catalog["controls"]}
+        providers["providers"]["alternate-build"]["checks"]["build"]["trusted_paths"] = [
+            ".github/workflows/build.yml"
+        ]
+
+        with self.assertRaisesRegex(ValueError, "trusted_paths.*workflow_path"):
             MODULE.validate_provider_config(providers, controls)
 
 

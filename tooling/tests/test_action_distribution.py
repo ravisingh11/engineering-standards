@@ -149,6 +149,14 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("GUARDRAILS_SETUP_COMMAND", text)
                 self.assertIn("GUARDRAILS_WORKING_DIRECTORY", text)
 
+    def test_changed_coverage_exports_the_exact_comparison_base(self) -> None:
+        workflow = (ROOT / "workflows/changed-code-coverage.yml").read_text()
+
+        self.assertIn(
+            "GUARDRAILS_COVERAGE_BASE_REF: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}",
+            workflow,
+        )
+
     def test_github_setting_verifiers_are_truthful_and_token_scoped(self) -> None:
         for filename in ("github-secret-protection.yml", "dependabot-verification.yml"):
             with self.subTest(filename=filename):
@@ -198,7 +206,12 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("python3 .guardrails-trusted/.guardrails/github_evidence.py", text)
                 self.assertIn("python3 .guardrails-trusted/.guardrails/scorecard.py", text)
                 self.assertNotIn("python3 .guardrails-candidate/", text)
-                self.assertIn(".guardrails-candidate/.guardrails/policy.yaml", text)
+                self.assertEqual(
+                    text.count("--policy .guardrails-candidate/.guardrails/policy.yaml"),
+                    1,
+                )
+                self.assertIn("python3 .guardrails-trusted/.guardrails/configure.py", text)
+                self.assertIn("--policy .guardrails-trusted/.guardrails/policy.yaml", text)
                 for filename in ("profiles.yaml", "control-catalog.yaml", "providers.yaml"):
                     self.assertNotIn(f".guardrails-candidate/.guardrails/{filename}", text)
                     self.assertIn(f".guardrails-trusted/.guardrails/{filename}", text)

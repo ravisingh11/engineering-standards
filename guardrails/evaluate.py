@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+REPO_RELATIVE_PATH = re.compile(
+    r"^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\\)[^\x00-\x1f\x7f]+$"
+)
 OPERATIONS = ("change", "release")
 MODES = {"advisory", "enforced", "not_activated"}
 STATUSES = {"passed", "failed", "blocked", "not_run"}
@@ -125,7 +128,7 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
                 or not {"check_name", "workflow"}.issubset(check)
                 or set(check) - {
                     "check_name", "workflow", "workflow_path", "app_slug", "external_id_prefix",
-                    "artifact_name_prefix", "artifact_member",
+                    "artifact_name_prefix", "artifact_member", "trusted_paths",
                 }
             ):
                 raise ValueError(f"provider {provider_id} {capability} check is invalid")
@@ -142,6 +145,19 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
                 not isinstance(workflow_path, str) or not workflow_path.strip() or len(workflow_path) > 200
             ):
                 raise ValueError(f"provider {provider_id} {capability} workflow_path is invalid")
+            trusted_paths = check.get("trusted_paths")
+            if trusted_paths is not None and (
+                not isinstance(trusted_paths, list)
+                or not trusted_paths
+                or any(
+                    not isinstance(path, str)
+                    or len(path) > 300
+                    or REPO_RELATIVE_PATH.fullmatch(path) is None
+                    for path in trusted_paths
+                )
+                or len(trusted_paths) != len(set(trusted_paths))
+            ):
+                raise ValueError(f"provider {provider_id} {capability} trusted_paths are invalid")
             app_slug = check.get("app_slug")
             if app_slug is not None and (
                 not isinstance(app_slug, str)
@@ -152,6 +168,10 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
             if (workflow_path is None) == (app_slug is None):
                 raise ValueError(
                     f"provider {provider_id} {capability} must declare exactly one of workflow_path or app_slug"
+                )
+            if trusted_paths is not None and workflow_path is None:
+                raise ValueError(
+                    f"provider {provider_id} {capability} trusted_paths require workflow_path"
                 )
             artifact_prefix = check.get("artifact_name_prefix")
             if artifact_prefix is not None and (

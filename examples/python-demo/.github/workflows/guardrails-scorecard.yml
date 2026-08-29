@@ -15,7 +15,7 @@ jobs:
   scorecard:
     name: Guardrail Scorecard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: Check out trusted Guardrails runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -54,6 +54,13 @@ jobs:
               exit 1
             fi
           done
+          python3 .guardrails-trusted/.guardrails/configure.py \
+            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --profiles .guardrails-trusted/.guardrails/profiles.yaml \
+            --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
+            --providers .guardrails-trusted/.guardrails/providers.yaml \
+            --list \
+            > /dev/null
       - name: Collect selected provider checks
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,14 +75,14 @@ jobs:
           EVIDENCE_JSON=".artifacts/guardrails/evidence-${GUARDRAILS_TIMESTAMP}.json"
           python3 .guardrails-trusted/.guardrails/github_evidence.py \
             --revision "${REVISION}" \
-            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --policy .guardrails-trusted/.guardrails/policy.yaml \
             --profiles .guardrails-trusted/.guardrails/profiles.yaml \
             --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
             --providers .guardrails-trusted/.guardrails/providers.yaml \
             --trusted-base-revision "${TRUSTED_BASE_REVISION}" \
             --trusted-workflow-ref "${TRUSTED_WORKFLOW_REF}" \
             --output "${EVIDENCE_JSON}" \
-            --wait-seconds 600
+            --wait-seconds 1800
           cp "${EVIDENCE_JSON}" .artifacts/guardrails/evidence.json
       - name: Render scorecard
         env:
@@ -87,7 +94,7 @@ jobs:
           SCORECARD_MARKDOWN=".artifacts/guardrails/scorecard-${GUARDRAILS_TIMESTAMP}.md"
           json_status=0
           python3 .guardrails-trusted/.guardrails/scorecard.py \
-            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --policy .guardrails-trusted/.guardrails/policy.yaml \
             --profiles .guardrails-trusted/.guardrails/profiles.yaml \
             --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
             --providers .guardrails-trusted/.guardrails/providers.yaml \
@@ -99,7 +106,7 @@ jobs:
             > "${SCORECARD_JSON}" || json_status=$?
           markdown_status=0
           python3 .guardrails-trusted/.guardrails/scorecard.py \
-            --policy .guardrails-candidate/.guardrails/policy.yaml \
+            --policy .guardrails-trusted/.guardrails/policy.yaml \
             --profiles .guardrails-trusted/.guardrails/profiles.yaml \
             --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
             --providers .guardrails-trusted/.guardrails/providers.yaml \

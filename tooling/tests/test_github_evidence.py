@@ -168,6 +168,8 @@ def request_for(payload: dict, workflows: dict[int, str] | None = None):
             response = copy.deepcopy(payload)
             response.setdefault("total_count", len(response.get("check_runs", [])))
             return response
+        if "/contents/" in url:
+            return {"sha": "trusted-blob"}
         run_id = int(url.rsplit("/", 1)[1])
         workflow = workflows.get(run_id, "Wrong Workflow")
         return {
@@ -187,7 +189,10 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
     def collect(self, payload: dict, workflows: dict[int, str] | None = None) -> dict:
         policy, profiles, catalog, providers = contracts()
         with patch.object(MODULE, "_request", side_effect=request_for(payload, workflows)):
-            return MODULE.collect_checks("owner/repo", "abc123", "token", policy, profiles, catalog, providers, "change")
+            return MODULE.collect_checks(
+                "owner/repo", "abc123", "token", policy, profiles, catalog,
+                providers, "change", trusted_base_revision="base456",
+            )
 
     def test_collects_only_proven_authoritative_and_supplemental_git_commit_checks(self) -> None:
         payload = {"check_runs": [
@@ -549,6 +554,25 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
 
         self.assertEqual(expected["Build"]["workflow_path"], ".github/workflows/build.yml")
 
+    def test_trusted_paths_are_propagated_without_provider_specific_logic(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        providers["providers"]["github-build"]["checks"]["build"]["trusted_paths"] = [
+            ".github/workflows/build.yml",
+            ".guardrails/validators/validate_repository.py",
+        ]
+
+        expected = MODULE.expected_checks(
+            policy, profiles, catalog, providers, "change"
+        )
+
+        self.assertEqual(
+            expected["Build"]["trusted_paths"],
+            [
+                ".github/workflows/build.yml",
+                ".guardrails/validators/validate_repository.py",
+            ],
+        )
+
     def test_app_slug_is_propagated_without_provider_specific_logic(self) -> None:
         policy, profiles, catalog, providers = contracts()
 
@@ -908,10 +932,10 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         )
 
         for path, expected_status in cases:
-            with self.subTest(path=path), patch.object(
-                MODULE,
-                "_request",
-                return_value={
+            def request(url: str, token: str) -> dict:
+                if "/contents/" in url:
+                    return {"sha": "trusted-blob"}
+                return {
                     "id": 908,
                     "name": "Probe",
                     "path": path,
@@ -919,7 +943,10 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
                     "head_sha": "abc123",
                     "event": "pull_request",
                     "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
-                },
+                }
+
+            with self.subTest(path=path), patch.object(
+                MODULE, "_request", side_effect=request,
             ):
                 result = MODULE.proven_check_evidence(
                     "owner/repo",
@@ -928,9 +955,228 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
                     contract,
                     check_run("Probe", 908),
                     "Native Probe",
+                    trusted_base_revision="base456",
                 )
 
             self.assertEqual(result["status"], expected_status)
+
+    def test_native_actions_check_rejects_candidate_modified_workflow_definition(self) -> None:
+        def request(url: str, token: str) -> dict:
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+                }
+            if "ref=abc123" in url:
+                return {"sha": "candidate-workflow-blob"}
+            if "ref=base456" in url:
+                return {"sha": "trusted-workflow-blob"}
+            raise AssertionError(f"unexpected request: {url}")
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("workflow definition", result["reason"].lower())
+
+    def test_native_actions_check_accepts_same_blob_for_every_trusted_path(self) -> None:
+        requested_urls: list[str] = []
+
+        def request(url: str, token: str) -> dict:
+            requested_urls.append(url)
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+                }
+            return {"sha": "same-blob"}
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                    "trusted_paths": [
+                        ".github/workflows/probe.yml",
+                        ".guardrails/validators/validate_repository.py",
+                    ],
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "passed")
+        self.assertTrue(any("validate_repository.py?ref=abc123" in url for url in requested_urls))
+        self.assertTrue(any("validate_repository.py?ref=base456" in url for url in requested_urls))
+
+    def test_native_actions_check_rejects_changed_trusted_path(self) -> None:
+        def request(url: str, token: str) -> dict:
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+                }
+            if "validate_repository.py" in url and "ref=abc123" in url:
+                return {"sha": "candidate-validator"}
+            if "validate_repository.py" in url and "ref=base456" in url:
+                return {"sha": "trusted-validator"}
+            return {"sha": "same-workflow"}
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                    "trusted_paths": [
+                        ".github/workflows/probe.yml",
+                        ".guardrails/validators/validate_repository.py",
+                    ],
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("trusted path", result["reason"].lower())
+
+    def test_native_actions_check_always_verifies_workflow_path_in_addition_to_trusted_paths(self) -> None:
+        requested_urls: list[str] = []
+
+        def request(url: str, token: str) -> dict:
+            requested_urls.append(url)
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+                }
+            if "probe.yml" in url and "ref=abc123" in url:
+                return {"sha": "candidate-workflow"}
+            if "probe.yml" in url and "ref=base456" in url:
+                return {"sha": "trusted-workflow"}
+            return {"sha": "same-validator"}
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                    "trusted_paths": [
+                        ".guardrails/validators/validate_repository.py",
+                    ],
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("workflow definition", result["reason"].lower())
+        self.assertTrue(any("probe.yml?ref=abc123" in url for url in requested_urls))
+        self.assertTrue(any("probe.yml?ref=base456" in url for url in requested_urls))
+
+    def test_native_actions_check_requires_trusted_base_revision(self) -> None:
+        with patch.object(MODULE, "_request", return_value={
+            "id": 908,
+            "name": "Probe",
+            "path": ".github/workflows/probe.yml",
+            "check_suite_id": 10908,
+            "head_sha": "abc123",
+            "event": "pull_request",
+            "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+        }):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+            )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("trusted base revision", result["reason"].lower())
+
+    def test_native_actions_check_fails_closed_when_trusted_path_api_lookup_fails(self) -> None:
+        def request(url: str, token: str) -> dict:
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [{"number": 17, "head": {"sha": "abc123"}}],
+                }
+            raise URLError("contents unavailable")
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                },
+                check_run("Probe", 908),
+                "Native Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "not_run")
+        self.assertIn("trusted path", result["reason"].lower())
 
     def test_non_pr_workflow_event_or_missing_exact_pr_head_is_not_trusted(self) -> None:
         fixtures = (

@@ -229,8 +229,7 @@ def between(
                 "--numstat",
                 "--diff-filter=ACMRD",
                 "-z",
-                resolved_base,
-                resolved_head,
+                f"{resolved_base}...{resolved_head}",
             ],
         )
     )

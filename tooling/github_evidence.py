@@ -162,6 +162,8 @@ def expected_checks(
                     contract["external_id_prefix"] = check["external_id_prefix"]
                 if "workflow_path" in check:
                     contract["workflow_path"] = check["workflow_path"]
+                if "trusted_paths" in check:
+                    contract["trusted_paths"] = check["trusted_paths"]
                 if "app_slug" in check:
                     contract["app_slug"] = check["app_slug"]
                 if "artifact_name_prefix" in check:
@@ -174,6 +176,7 @@ def expected_checks(
                     or existing["workflow"] != check["workflow"]
                     or existing.get("external_id_prefix") != check.get("external_id_prefix")
                     or existing.get("workflow_path") != check.get("workflow_path")
+                    or existing.get("trusted_paths") != check.get("trusted_paths")
                     or existing.get("app_slug") != check.get("app_slug")
                     or existing.get("artifact_name_prefix") != check.get("artifact_name_prefix")
                     or existing.get("artifact_member") != check.get("artifact_member")
@@ -242,6 +245,36 @@ def workflow_path_matches(expected: str, actual: Any) -> bool:
         actual == expected
         or (actual.startswith(f"{expected}@") and len(actual) > len(expected) + 1)
     )
+
+
+def trusted_paths_match_trusted_base(
+    repo: str,
+    trusted_paths: list[str],
+    revision: str,
+    trusted_base_revision: str,
+    token: str,
+) -> bool:
+    for path in trusted_paths:
+        encoded_path = quote(path, safe="/")
+        candidate = _request(
+            f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+            f"?ref={quote(revision, safe='')}",
+            token,
+        )
+        trusted = _request(
+            f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+            f"?ref={quote(trusted_base_revision, safe='')}",
+            token,
+        )
+        candidate_sha = candidate.get("sha") if isinstance(candidate, dict) else None
+        trusted_sha = trusted.get("sha") if isinstance(trusted, dict) else None
+        if not (
+            isinstance(candidate_sha, str)
+            and bool(candidate_sha)
+            and candidate_sha == trusted_sha
+        ):
+            return False
+    return True
 
 
 def artifact_document(archive_bytes: bytes, member: str) -> dict[str, Any]:
@@ -371,6 +404,8 @@ def proven_check_evidence(
         return not_run(check_name, "The GitHub check name does not match the declared provider contract.")
     if check.get("head_sha") != revision:
         return not_run(check_name, "The GitHub check did not bind to the exact revision under evaluation.")
+    if CONCLUSIONS.get(check.get("conclusion") or "in_progress", "not_run") == "not_run":
+        return check_run_evidence(check_name, provider_name, check)
     app = check.get("app")
     app_slug = contract.get("app_slug")
     workflow_path = contract.get("workflow_path")
@@ -441,6 +476,30 @@ def proven_check_evidence(
             or workflow_run.get("check_suite_id") != check_suite["id"]
         ):
             return not_run(check_name, "The GitHub Actions workflow run does not match the check suite identity.")
+        if not isinstance(trusted_base_revision, str) or not trusted_base_revision:
+            return not_run(check_name, "The GitHub Actions check requires an exact trusted base revision.")
+        trusted_paths = list(dict.fromkeys([
+            workflow_path,
+            *contract.get("trusted_paths", []),
+        ]))
+        try:
+            paths_match = trusted_paths_match_trusted_base(
+                repo,
+                trusted_paths,
+                revision,
+                trusted_base_revision,
+                token,
+            )
+        except (HTTPError, URLError, OSError, ValueError, KeyError):
+            return not_run(
+                check_name,
+                "The trusted path contents could not be verified against the trusted base.",
+            )
+        if not paths_match:
+            return not_run(
+                check_name,
+                "A trusted path, including the workflow definition, differs from the trusted base.",
+            )
     else:
         return run_artifact_evidence(
             repo, revision, token, run_id, contract, check, provider_name,

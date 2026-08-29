@@ -12,6 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ABSOLUTE_PATH_PATTERN = re.compile(r"(/Users/|/private/|\\\\Users\\\\)")
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+REPO_RELATIVE_PATH_PATTERN = re.compile(
+    r"^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\\)[^\x00-\x1f\x7f]+$"
+)
 CONTROL_FIELDS = {"id", "name", "purpose", "stage", "availability", "evidence_subject"}
 OPERATIONS = {"change", "release"}
 MODES = {"advisory", "enforced", "not_activated"}
@@ -150,7 +153,7 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
                 or not {"check_name", "workflow"}.issubset(check)
                 or set(check) - {
                     "check_name", "workflow", "workflow_path", "app_slug", "external_id_prefix",
-                    "artifact_name_prefix", "artifact_member",
+                    "artifact_name_prefix", "artifact_member", "trusted_paths",
                 }
             ):
                 raise ValueError(f"provider {provider_id} {capability} check is invalid")
@@ -173,6 +176,23 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
                 raise ValueError(
                     f"provider {provider_id} {capability} must declare exactly one of workflow_path or app_slug"
                 )
+            trusted_paths = check.get("trusted_paths")
+            if trusted_paths is not None:
+                if (
+                    "workflow_path" not in check
+                    or not isinstance(trusted_paths, list)
+                    or not trusted_paths
+                    or any(not isinstance(path, str) for path in trusted_paths)
+                    or len(trusted_paths) != len(set(trusted_paths))
+                    or any(
+                        len(path) > 300
+                        or REPO_RELATIVE_PATH_PATTERN.fullmatch(path) is None
+                        for path in trusted_paths
+                    )
+                ):
+                    raise ValueError(
+                        f"provider {provider_id} {capability} trusted_paths are invalid"
+                    )
             if "external_id_prefix" in check:
                 require_nonempty_string(
                     check["external_id_prefix"],

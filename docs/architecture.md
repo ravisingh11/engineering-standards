@@ -85,7 +85,13 @@ GitHub collection additionally verifies the exact check name/head/app, workflow
 run name and declared path (including GitHub's optional `@ref` suffix),
 pull-request event and exact PR-head association, and configured external-ID/run
 binding when present. Native Actions checks also require their workflow-run
-check suite. Custom checks published by a trusted `pull_request_target` probe do
+check suite and exact workflow definition at the trusted base. Provider
+contracts can extend that trust boundary with
+`trusted_paths`, covering candidate-controlled validator code, rule packs, and
+fixtures that define the check result. The collector compares every declared
+path at the exact PR head and trusted base revision; a missing, changed, or
+unverifiable path becomes `not_run`. Custom checks published by a trusted
+`pull_request_target` probe do
 not claim the probe's base-SHA workflow suite is the custom PR-head check suite.
 A missing, skipped, stale, ambiguous, or unproven check becomes `not_run`, never
 `passed`.

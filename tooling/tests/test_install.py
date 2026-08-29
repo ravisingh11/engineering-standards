@@ -335,6 +335,66 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(runtime.read_bytes(), MODULE.PRODUCER.read_bytes())
             self.assertEqual(workflow.read_text(), "name: Consumer Build\n")
 
+    def test_refresh_updates_builtins_and_preserves_custom_providers_and_selections(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False)
+            providers_path = target / ".guardrails/providers.yaml"
+            providers = json.loads(providers_path.read_text())
+            custom = dict(providers["providers"]["repository-build"])
+            custom["display_name"] = "Consumer Build Adapter"
+            providers["providers"]["consumer-build"] = custom
+            providers["providers"]["repository-build"]["display_name"] = "Stale Built-in"
+            providers["selections"]["build"] = {
+                "authoritative": "consumer-build",
+                "supplemental": ["repository-build"],
+            }
+            del providers["selections"]["runtime-soak"]
+            providers_path.write_text(json.dumps(providers, indent=2) + "\n")
+
+            MODULE.install(target, dry_run=False, refresh_existing=True)
+
+            refreshed = json.loads(providers_path.read_text())
+            canonical = json.loads(
+                (MODULE.ROOT / "policies/provider-config.yaml").read_text()
+            )
+            self.assertEqual(
+                refreshed["providers"]["repository-build"],
+                canonical["providers"]["repository-build"],
+            )
+            self.assertEqual(
+                refreshed["providers"]["consumer-build"]["display_name"],
+                "Consumer Build Adapter",
+            )
+            self.assertEqual(
+                refreshed["selections"]["build"],
+                {
+                    "authoritative": "consumer-build",
+                    "supplemental": ["repository-build"],
+                },
+            )
+            self.assertEqual(
+                refreshed["selections"]["runtime-soak"],
+                canonical["selections"]["runtime-soak"],
+            )
+
+    def test_refresh_rejects_invalid_merged_provider_document_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False)
+            providers_path = target / ".guardrails/providers.yaml"
+            providers = json.loads(providers_path.read_text())
+            providers["providers"]["consumer-build"] = {
+                "display_name": "Invalid Consumer Build"
+            }
+            providers_path.write_text(json.dumps(providers, indent=2) + "\n")
+            original = providers_path.read_bytes()
+
+            with self.assertRaisesRegex(ValueError, "consumer-build"):
+                MODULE.install(target, dry_run=False, refresh_existing=True)
+
+            self.assertEqual(providers_path.read_bytes(), original)
+
     def test_refresh_unions_explicit_core_with_installed_github_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
