@@ -25,13 +25,13 @@ jobs:
           docker run --rm --network none \
             -v "${GITHUB_WORKSPACE}:/src:ro" -w /src \
             semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796 \
-            semgrep scan --config .guardrails/semgrep-rules.yml --json \
+            semgrep scan --metrics off --config .guardrails/semgrep-rules.yml --json \
             .guardrails/semgrep-tests/fixtures/unsafe \
             > "${RUNNER_TEMP}/semgrep-unsafe.json"
           docker run --rm --network none \
             -v "${GITHUB_WORKSPACE}:/src:ro" -w /src \
             semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796 \
-            semgrep scan --config .guardrails/semgrep-rules.yml --json \
+            semgrep scan --metrics off --config .guardrails/semgrep-rules.yml --json \
             .guardrails/semgrep-tests/fixtures/safe \
             > "${RUNNER_TEMP}/semgrep-safe.json"
           python3 - "${RUNNER_TEMP}/semgrep-unsafe.json" "${RUNNER_TEMP}/semgrep-safe.json" <<'PY'
@@ -44,7 +44,12 @@ jobs:
               "guardrails.python-disabled-tls-verification",
               "guardrails.javascript-disabled-tls-verification",
           }
-          actual = {result["check_id"] for result in unsafe["results"]}
+          actual = set()
+          for result in unsafe["results"]:
+              check_id = result["check_id"]
+              if check_id.startswith("guardrails.guardrails."):
+                  check_id = check_id.removeprefix("guardrails.")
+              actual.add(check_id)
           if actual != expected:
               raise SystemExit(f"unsafe fixtures produced {sorted(actual)}, expected {sorted(expected)}")
           if safe["results"]:
@@ -55,6 +60,7 @@ jobs:
           docker run --rm --network none
           -v "${GITHUB_WORKSPACE}:/src:ro" -w /src
           semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
-          semgrep scan --error --config .guardrails/semgrep-rules.yml
+          semgrep scan --metrics off --error --config .guardrails/semgrep-rules.yml
           --exclude .guardrails/semgrep-tests/fixtures
+          --exclude examples/python-demo/.guardrails/semgrep-tests/fixtures
           --exclude security/semgrep/tests/fixtures .
