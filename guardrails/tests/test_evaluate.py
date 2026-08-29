@@ -49,6 +49,18 @@ def contracts() -> tuple[dict, dict, dict, dict]:
 
 
 class ProviderContractTests(unittest.TestCase):
+    def test_runtime_rejects_missing_or_unknown_control_stage(self) -> None:
+        _, _, catalog, _ = contracts()
+        for stage in (None, "unknown-stage"):
+            with self.subTest(stage=stage):
+                candidate = json.loads(json.dumps(catalog))
+                if stage is None:
+                    candidate["controls"][0].pop("stage")
+                else:
+                    candidate["controls"][0]["stage"] = stage
+                with self.assertRaisesRegex(ValueError, "stage"):
+                    MODULE.catalog_map(candidate)
+
     def test_repository_validator_trusts_every_outcome_defining_input(self) -> None:
         providers = json.loads(
             (ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8")

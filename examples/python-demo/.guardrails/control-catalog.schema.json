@@ -22,7 +22,7 @@
         "id": {"$ref": "#/$defs/identifier"},
         "name": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
         "purpose": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S"},
-        "stage": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+        "stage": {"enum": ["change", "change-and-release", "pre-release", "release", "deployment", "post-deployment", "runtime"]},
         "availability": {"enum": ["runnable", "evidence-only"]},
         "evidence_subject": {"enum": ["git-commit", "artifact", "environment"]}
       }

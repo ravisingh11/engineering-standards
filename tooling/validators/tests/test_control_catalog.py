@@ -84,11 +84,22 @@ class ControlCatalogPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "evidence_subject"):
             self.validator("validate_control_catalog_document")(catalog)
 
+    def test_rejects_missing_or_unknown_stage(self) -> None:
+        for stage in (None, "unknown-stage"):
+            with self.subTest(stage=stage):
+                catalog = load("policies/control-catalog.yaml")
+                if stage is None:
+                    catalog["controls"][0].pop("stage")
+                else:
+                    catalog["controls"][0]["stage"] = stage
+                with self.assertRaisesRegex(ValueError, "stage|fields"):
+                    self.validator("validate_control_catalog_document")(catalog)
+
     def test_catalog_string_boundaries_match_schema(self) -> None:
         schema = load("guardrails/control-catalog.schema.json")
         properties = schema["$defs"]["control"]["properties"]
 
-        for field in ("name", "purpose", "stage"):
+        for field in ("name", "purpose"):
             maximum = properties[field]["maxLength"]
             with self.subTest(field=field, boundary="maximum"):
                 catalog = load("policies/control-catalog.yaml")
@@ -100,12 +111,13 @@ class ControlCatalogPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, field):
                     self.validator("validate_control_catalog_document")(catalog)
 
+        self.assertEqual(set(properties["stage"]["enum"]), MODULE.CONTROL_STAGES)
+
     def test_schema_nonempty_strings_match_handwritten_nonblank_rule(self) -> None:
         constrained_fields = {
             "guardrails/control-catalog.schema.json": (
                 ("control", "name"),
                 ("control", "purpose"),
-                ("control", "stage"),
             ),
             "guardrails/profiles.schema.json": (
                 ("profile", "display_name"),

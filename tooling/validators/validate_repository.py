@@ -18,6 +18,10 @@ REPO_RELATIVE_PATH_PATTERN = re.compile(
 CONTROL_FIELDS = {"id", "name", "purpose", "stage", "availability", "evidence_subject"}
 OPERATIONS = {"change", "release"}
 MODES = {"advisory", "enforced", "not_activated"}
+CONTROL_STAGES = {
+    "change", "change-and-release", "pre-release", "release",
+    "deployment", "post-deployment", "runtime",
+}
 
 
 def fail(message: str) -> None:
@@ -80,6 +84,8 @@ def validate_control_catalog_document(catalog: dict) -> dict[str, dict]:
             require_nonempty_string(
                 control[field], f"control {control_id} {field}", maximum
             )
+        if control["stage"] not in CONTROL_STAGES:
+            raise ValueError(f"control {control_id} stage is invalid")
         if control["availability"] not in {"runnable", "evidence-only"}:
             raise ValueError(f"control {control_id} availability is invalid")
         if control["evidence_subject"] not in {"git-commit", "artifact", "environment"}:

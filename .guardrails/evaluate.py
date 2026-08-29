@@ -17,6 +17,10 @@ REPO_RELATIVE_PATH = re.compile(
 OPERATIONS = ("change", "release")
 MODES = {"advisory", "enforced", "not_activated"}
 STATUSES = {"passed", "failed", "blocked", "not_run"}
+CONTROL_STAGES = {
+    "change", "change-and-release", "pre-release", "release",
+    "deployment", "post-deployment", "runtime",
+}
 PROFILE_CONTROL_SETS = {
     "core": {
         "change": {
@@ -65,6 +69,8 @@ def catalog_map(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ValueError(f"duplicate control: {control_id}")
         if control.get("availability") not in {"runnable", "evidence-only"}:
             raise ValueError(f"control {control_id} availability is invalid")
+        if control.get("stage") not in CONTROL_STAGES:
+            raise ValueError(f"control {control_id} stage is invalid")
         if control.get("evidence_subject") not in {"git-commit", "artifact", "environment"}:
             raise ValueError(f"control {control_id} evidence subject is invalid")
         controls[control_id] = control
