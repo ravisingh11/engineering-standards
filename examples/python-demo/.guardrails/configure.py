@@ -219,6 +219,8 @@ def apply_changes(
         selection["supplemental"].append(provider_id)
 
     target_operations = list(OPERATIONS) if all_operations else [operation]
+    evaluator = evaluator_module()
+    mode_updates: list[tuple[str, str]] = []
     for choice in sets:
         control_id, mode = parse_choice(choice, "mode selection")
         if control_id not in controls:
@@ -227,6 +229,15 @@ def apply_changes(
             raise ValueError(f"cannot set evidence-only control: {control_id}")
         if mode not in MODES:
             raise ValueError(f"mode must be one of: {', '.join(MODES)}")
+        for target_operation in target_operations:
+            if not evaluator.operation_supports_stage(
+                target_operation,
+                controls[control_id]["stage"],
+            ):
+                raise ValueError(f"{control_id} cannot be configured for {target_operation}")
+        mode_updates.append((control_id, mode))
+
+    for control_id, mode in mode_updates:
         for target_operation in target_operations:
             policy["overrides"][target_operation][control_id] = mode
 
