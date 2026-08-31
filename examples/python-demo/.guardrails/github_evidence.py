@@ -404,7 +404,14 @@ def proven_check_evidence(
         return not_run(check_name, "The GitHub check name does not match the declared provider contract.")
     if check.get("head_sha") != revision:
         return not_run(check_name, "The GitHub check did not bind to the exact revision under evaluation.")
-    if CONCLUSIONS.get(check.get("conclusion") or "in_progress", "not_run") == "not_run":
+    platform_proof_required = contract.get("external_id_prefix") is not None or any(
+        field in contract for field in ("artifact_name_prefix", "artifact_member")
+    )
+    if (
+        CONCLUSIONS.get(check.get("conclusion") or "in_progress", "not_run")
+        == "not_run"
+        and not platform_proof_required
+    ):
         return check_run_evidence(check_name, provider_name, check)
     app = check.get("app")
     app_slug = contract.get("app_slug")
@@ -423,9 +430,6 @@ def proven_check_evidence(
         return not_run(check_name, "The check details URL does not identify a GitHub Actions workflow run.")
     run_id = int(match.group(1))
     external_id_prefix = contract.get("external_id_prefix")
-    platform_proof_required = external_id_prefix is not None or any(
-        field in contract for field in ("artifact_name_prefix", "artifact_member")
-    )
     if external_id_prefix is not None:
         expected_external_id = f"{external_id_prefix}{run_id}:{revision}"
         if check.get("external_id") != expected_external_id:

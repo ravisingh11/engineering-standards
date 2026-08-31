@@ -173,7 +173,7 @@ def unavailable_local_evidence(revision: str, reason: str) -> dict[str, Any]:
         ("repository-validation", "repository-validator", "local repository validation"),
         ("documentation-validation", "repository-validator", "local documentation validation"),
         ("repository-ground-truth", "repository-validator", "repository ground-truth validator"),
-        ("change-scope", "repository-validator", "local change-scope inspection"),
+        ("change-scope", "repository-change-scope", "local change-scope inspection"),
         ("build", "repository-build", "Repository Build Command"),
         ("unit-tests", "repository-unit-tests", "Repository Unit Test Command"),
         ("changed-code-coverage", "repository-changed-code-coverage", "Repository Changed Code Coverage Command"),
@@ -289,7 +289,7 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
             "status": "not_run",
             "reason": f"{scope_validator.relative_to(target)} is not installed in this repository",
         }
-    results["change-scope"] = {"repository-validator": record}
+    results["change-scope"] = {"repository-change-scope": record}
     producers = producer_module()
     for control_id, provider_id in (
         ("build", "repository-build"),

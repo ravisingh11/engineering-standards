@@ -108,6 +108,15 @@ class ScorecardV2Tests(unittest.TestCase):
         self.assertIn("supplemental: Snyk Code=failed", output)
         self.assertNotIn("Activation:", output)
 
+    def test_human_output_explains_non_passing_authoritative_result(self) -> None:
+        output = MODULE.render(self.card("failed", None))
+
+        self.assertIn("ORANGE Deep SAST — GitHub CodeQL: failed", output)
+        self.assertIn("evidence: run: github-codeql", output)
+
+        output = MODULE.render(self.card("not_run", None))
+        self.assertIn("reason: no result", output)
+
     def test_public_json_recursively_excludes_raw_producer_statuses(self) -> None:
         card = self.card("not_run", None)
 

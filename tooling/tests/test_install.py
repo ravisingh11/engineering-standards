@@ -16,6 +16,7 @@ SPEC.loader.exec_module(MODULE)
 
 CORE_WORKFLOWS = {
     "guardrails-scorecard.yml",
+    "change-scope.yml",
     "repository-validation.yml",
     "build.yml",
     "unit-tests.yml",
@@ -106,7 +107,7 @@ class InstallerTests(unittest.TestCase):
                     "Validate / repository",
                     "Validate / docs",
                     "Validate / ground truth",
-                    "Validate / scope",
+                    "PR Change Scope",
                     "Build",
                     "Unit Tests",
                     "Changed Code Coverage",

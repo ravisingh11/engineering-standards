@@ -236,8 +236,12 @@ class LocalEvidenceTests(unittest.TestCase):
                 with mock.patch.object(MODULE, "load", return_value={"status": "passed", "metrics": {"files": 1}}), mock.patch.object(MODULE, "producer_module", return_value=producer):
                     evidence = MODULE.local_evidence(target, "abc123", "HEAD~1")
 
-            for control_id in ("repository-validation", "documentation-validation", "repository-ground-truth", "change-scope"):
+            for control_id in ("repository-validation", "documentation-validation", "repository-ground-truth"):
                 self.assertEqual(set(evidence["results"][control_id]), {"repository-validator"})
+            self.assertEqual(
+                set(evidence["results"]["change-scope"]),
+                {"repository-change-scope"},
+            )
             self.assertEqual(set(evidence["results"]["build"]), {"repository-build"})
             self.assertEqual(set(evidence["results"]["unit-tests"]), {"repository-unit-tests"})
             self.assertEqual(set(evidence["results"]["changed-code-coverage"]), {"repository-changed-code-coverage"})

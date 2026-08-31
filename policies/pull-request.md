@@ -2,16 +2,18 @@
 
 ## Smaller PRs by default
 
-Target approximately:
+Default advisory target:
 
 ```text
-X00–Y00 meaningful changed lines per PR
+300–500 meaningful changed lines per PR
 ```
 
-The exact organizational threshold is intentionally configurable until the
-organization agrees on `X` and `Y`. PR size is not a blocking rule initially.
-AI should flag an oversized or multi-concern PR and explain why splitting it
-would improve reviewability.
+Repositories configure their thresholds in `.guardrails/change-scope.yaml`.
+PR size is not a blocking rule initially. Generated, vendor, dependency-lock,
+and documentation paths may be excluded from meaningful thresholds, but their
+volume should remain visible in total change metrics. AI should flag an
+oversized or multi-concern PR and explain why splitting it would improve
+reviewability.
 
 Example:
 

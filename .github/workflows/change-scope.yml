@@ -1,0 +1,97 @@
+# Guardrails v2 installer-owned workflow.
+name: PR Change Scope
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  checks: write
+
+jobs:
+  scope:
+    name: Evaluate trusted scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref && format('refs/heads/{0}', github.event.pull_request.base.ref) || github.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out trusted base runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Check out candidate Git data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect exact PR scope with trusted code and policy
+        run: |
+          set -euo pipefail
+          git -C candidate fetch --no-tags --depth=1 origin "${BASE_SHA}"
+          python3 trusted/.guardrails/validators/inspect_change_scope.py \
+            --repository-root candidate \
+            --policy trusted/.guardrails/change-scope.yaml \
+            --base-ref "${BASE_SHA}" \
+            --head-ref "${HEAD_SHA}" \
+            --output "${RUNNER_TEMP}/scope.json"
+          python3 trusted/.guardrails/configure.py \
+            --policy trusted/.guardrails/policy.yaml \
+            --profiles trusted/.guardrails/profiles.yaml \
+            --catalog trusted/.guardrails/control-catalog.yaml \
+            --providers trusted/.guardrails/providers.yaml \
+            --operation change \
+            --effective-mode change-scope > "${RUNNER_TEMP}/mode.json"
+          raw_status="$(jq -r '.status' "${RUNNER_TEMP}/scope.json")"
+          mode="$(jq -r '.mode' "${RUNNER_TEMP}/mode.json")"
+          summary="$(jq -r '"Meaningful: \(.metrics.files) files, \(.metrics.changed_lines) changed lines (\(.metrics.added_lines) added). Total: \(.metrics.total_files) files, \(.metrics.total_changed_lines) changed lines. Excluded: \(.metrics.excluded_files) files, \(.metrics.excluded_changed_lines) changed lines."' "${RUNNER_TEMP}/scope.json")"
+          jq -n \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --arg event "${GITHUB_EVENT_NAME}" \
+            --arg base_sha "${BASE_SHA}" \
+            --arg base_ref "${BASE_REF}" \
+            --arg head_sha "${HEAD_SHA}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg status "${raw_status}" \
+            --arg summary "${summary}" \
+            --arg mode "${mode}" \
+            --argjson metrics "$(jq '.metrics' "${RUNNER_TEMP}/scope.json")" \
+            '{version:1,run_id:$run_id,event:$event,base_sha:$base_sha,base_ref:$base_ref,head_sha:$head_sha,revision:$head_sha,repository:$repository,provider_id:"repository-change-scope",status:$status,summary:$summary,mode:$mode,metrics:$metrics}' \
+            > "${RUNNER_TEMP}/guardrails-evidence.json"
+      - name: Upload run-bound evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: guardrails-change-scope-${{ github.run_id }}
+          path: ${{ runner.temp }}/guardrails-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish PR Change Scope check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(jq -r '.status' "${RUNNER_TEMP}/guardrails-evidence.json")"
+          mode="$(jq -r '.mode' "${RUNNER_TEMP}/guardrails-evidence.json")"
+          summary="$(jq -r '.summary' "${RUNNER_TEMP}/guardrails-evidence.json")"
+          case "${status}:${mode}" in
+            passed:*) conclusion=success ;;
+            failed:advisory) conclusion=neutral ;;
+            failed:enforced) conclusion=failure ;;
+            not_run:*|failed:not_activated) conclusion=skipped ;;
+            *) echo "Invalid scope status or mode" >&2; exit 2 ;;
+          esac
+          details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          external_id="guardrails:change-scope:${GITHUB_RUN_ID}:${HEAD_SHA}"
+          payload="$(jq -n --arg sha "${HEAD_SHA}" --arg conclusion "${conclusion}" --arg summary "${summary}" --arg details_url "${details_url}" --arg external_id "${external_id}" '{name:"PR Change Scope",head_sha:$sha,status:"completed",conclusion:$conclusion,details_url:$details_url,external_id:$external_id,output:{title:"PR Change Scope",summary:$summary}}')"
+          printf '%s' "${payload}" | gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" --input - >/dev/null
+          printf '### PR Change Scope\n\n%s\n\nPolicy mode: `%s`; check conclusion: `%s`.\n' "${summary}" "${mode}" "${conclusion}" >> "${GITHUB_STEP_SUMMARY}"

@@ -36,7 +36,7 @@ An unset variable or missing token must remain `NO RESULT`.
 
 | Profile | Capability check names |
 | --- | --- |
-| Core | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `Validate / scope`, `Build`, `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, `Gitleaks` |
+| Core | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `PR Change Scope`, `Build`, `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, `Gitleaks` |
 | GitHub overlay | `CodeQL`, `Dependency Review`, `GitHub Secret Scan`, `Dependabot Verification` |
 
 `Artifact Provenance` is a release/dispatch attestation job, not a pull-request
@@ -46,6 +46,11 @@ release scorecard. Do not add it to branch-protection required checks.
 GitHub can render a workflow/job combination differently depending on how a
 workflow is installed. Always copy the context from a real check run rather
 than relying only on this table.
+
+Do not require `PR Change Scope` while it is advisory: an oversized PR then
+publishes a neutral custom check and remains `ORANGE / ALLOW`. After promotion
+to `enforced`, require the exact observed `PR Change Scope` context so an
+oversized PR blocks merge.
 
 ## Provider and policy separation
 

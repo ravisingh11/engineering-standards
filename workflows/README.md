@@ -20,7 +20,8 @@ the GitHub overlay. `--no-actions` installs no workflows.
 | Installed file | Workflow / check names | Activation |
 | --- | --- | --- |
 | `guardrails-scorecard.yml` | `Guardrail Scorecard` | Always for supported PR events and manual dispatch |
-| `repository-validation.yml` | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `Validate / scope` | Installed validators and repository configuration |
+| `repository-validation.yml` | `Validate / repository`, `Validate / docs`, `Validate / ground truth` | Installed validators and repository configuration |
+| `change-scope.yml` | `PR Change Scope` | Trusted exact-revision PR size evidence; neutral while advisory, failing when enforced |
 | `build.yml` | `Build` | `GUARDRAILS_BUILD_COMMAND` |
 | `unit-tests.yml` | `Unit Tests` | `GUARDRAILS_UNIT_TEST_COMMAND` |
 | `changed-code-coverage.yml` | `Changed Code Coverage` | `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |
@@ -116,7 +117,7 @@ behavior.
 ## Required checks
 
 Require only exact observed check names. Core examples are `Validate / repository`,
-`Validate / docs`, `Validate / ground truth`, `Validate / scope`, `Build`,
+`Validate / docs`, `Validate / ground truth`, `PR Change Scope`, `Build`,
 `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, and `Gitleaks`. GitHub
 profile examples are `CodeQL`, `Dependency Review`, `GitHub Secret Scan`,
 and `Dependabot Verification`. `Artifact Provenance` is release-only and must

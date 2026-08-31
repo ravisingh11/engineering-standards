@@ -100,6 +100,20 @@ class ConfigureGuardrailsV2Tests(unittest.TestCase):
         self.assertIn("Repository Build", output)
         self.assertIn("Snyk Code", output)
 
+    def test_effective_mode_output_is_machine_readable(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        policy["overrides"]["change"]["change-scope"] = "enforced"
+
+        output = MODULE.render_effective_mode(
+            policy, profiles, catalog, providers, "change", "change-scope"
+        )
+
+        self.assertEqual(json.loads(output), {
+            "control_id": "change-scope",
+            "mode": "enforced",
+            "operation": "change",
+        })
+
     def test_cli_exposes_only_v2_configuration_interfaces(self) -> None:
         result = subprocess.run([sys.executable, str(SCRIPT), "--help"], text=True, capture_output=True, check=True)
 
@@ -107,6 +121,7 @@ class ConfigureGuardrailsV2Tests(unittest.TestCase):
             "--enable-profile", "--disable-profile", "--select-provider",
             "--add-supplemental", "--remove-supplemental", "--set",
             "--operation", "--all-operations", "--list", "--dry-run",
+            "--effective-mode",
         ):
             self.assertIn(option, result.stdout)
         for retired in ("--manifest", "--sync-providers", "--enable-provider", "--set-provider-mode"):

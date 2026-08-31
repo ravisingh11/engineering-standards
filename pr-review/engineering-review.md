@@ -15,6 +15,17 @@ Review for:
 - Regression risk.
 - Oversized or multi-concern changes that should be split.
 
+For PR size and scope:
+
+- Use the authoritative `PR Change Scope` metrics when available. Do not
+  estimate or invent line, file, or concern counts.
+- Identify distinct concern clusters from the diff and suggest concrete split
+  boundaries when that would improve reviewability.
+- Treat an oversized PR as non-blocking unless repository policy explicitly
+  promotes `change-scope` to `enforced`.
+- Do not override the mechanical result. AI explains risk and proposes a
+  reviewable sequence; the deterministic provider owns the measurements.
+
 Require the reviewer to explain:
 
 1. What changed.

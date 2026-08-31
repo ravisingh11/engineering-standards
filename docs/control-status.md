@@ -39,6 +39,7 @@ catalog view.
 | Prior commit passed | Stale for the current commit; `NO RESULT`. |
 | Artifact attestation exists | Relevant only to that exact artifact subject. |
 | Scorecard job completed | Aggregation ran; inspect each capability and the overall decision. |
+| `PR Change Scope` is neutral | Trusted evidence found an oversized PR under advisory policy; inspect its exact metrics and split guidance. |
 
 ## Default profile state
 

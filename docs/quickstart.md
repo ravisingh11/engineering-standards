@@ -159,6 +159,14 @@ If a configured repository command delegates to a tracked helper, add that
 helper to the check's `trusted_paths`. Refreshes retain repository-specific
 trusted-path additions while restoring the canonical provider contract.
 
+Core also installs `PR Change Scope`. Base-owned validator code compares the
+exact PR base and head without executing candidate code. The default policy
+measures meaningful source changes against 300 added and 500 changed lines,
+while still showing excluded documentation, lockfile, generated, and vendor
+volume in total metrics. An oversized advisory PR produces a neutral provider
+check and `ORANGE / ALLOW`; promotion to `enforced` changes the provider check
+to failure.
+
 ## 8. Promote one proven capability
 
 Keep all capabilities advisory while tuning. After a provider has a stable
