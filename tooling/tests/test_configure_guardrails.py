@@ -59,6 +59,44 @@ class ConfigureGuardrailsV2Tests(unittest.TestCase):
         MODULE.apply_changes(policy, profiles, catalog, providers, operation="change", all_operations=True, sets=["build=not_activated"])
         self.assertEqual(policy["overrides"], {"change": {"build": "not_activated"}, "release": {"build": "not_activated"}})
 
+    def test_rejects_stage_inapplicable_mode_without_mutating_policy(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "artifact-provenance cannot be configured for change",
+        ):
+            MODULE.apply_changes(
+                policy,
+                profiles,
+                catalog,
+                providers,
+                operation="change",
+                all_operations=False,
+                sets=["artifact-provenance=enforced"],
+            )
+
+        self.assertEqual(policy["overrides"], {"change": {}, "release": {}})
+
+    def test_all_operations_rejects_control_that_does_not_apply_to_every_operation(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "artifact-provenance cannot be configured for change",
+        ):
+            MODULE.apply_changes(
+                policy,
+                profiles,
+                catalog,
+                providers,
+                operation="release",
+                all_operations=True,
+                sets=["artifact-provenance=advisory"],
+            )
+
+        self.assertEqual(policy["overrides"], {"change": {}, "release": {}})
+
     def test_rejects_unknown_or_evidence_only_policy_controls(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown control"):
             self.apply(enable_profiles=[], disable_profiles=[], sets=["unknown=advisory"])

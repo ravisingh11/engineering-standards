@@ -61,6 +61,18 @@ class ProviderContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "stage"):
                     MODULE.catalog_map(candidate)
 
+    def test_runtime_rejects_policy_override_outside_operation_stage(self) -> None:
+        policy, profiles, catalog, _ = contracts()
+        controls = MODULE.catalog_map(catalog)
+        profile_definitions = MODULE.validate_profiles(profiles, controls)
+        policy["overrides"]["change"]["artifact-provenance"] = "enforced"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "artifact-provenance cannot be configured for change",
+        ):
+            MODULE.validate_policy(policy, set(profile_definitions), controls)
+
     def test_repository_validator_trusts_every_outcome_defining_input(self) -> None:
         providers = json.loads(
             (ROOT / "policies" / "provider-config.yaml").read_text(encoding="utf-8")

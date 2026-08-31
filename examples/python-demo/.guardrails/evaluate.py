@@ -43,6 +43,14 @@ PROFILE_CONTROL_SETS = {
 }
 
 
+def operation_supports_stage(operation: str, stage: str) -> bool:
+    if operation == "change":
+        return stage in {"change", "change-and-release"}
+    if operation == "release":
+        return stage in {"release", "pre-release", "change-and-release"}
+    raise ValueError(f"unknown operation: {operation}")
+
+
 def load_document(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -248,6 +256,8 @@ def validate_policy(policy: dict[str, Any], profile_ids: set[str], controls: dic
                 raise ValueError(f"policy references unknown control: {control_id}")
             if controls[control_id]["availability"] != "runnable":
                 raise ValueError(f"policy cannot select evidence-only control: {control_id}")
+            if not operation_supports_stage(operation, controls[control_id]["stage"]):
+                raise ValueError(f"{control_id} cannot be configured for {operation}")
             if mode not in MODES:
                 raise ValueError(f"policy override for {control_id} is invalid")
 
@@ -319,13 +329,10 @@ def validate_evidence(
 
 
 def operation_applies(control: dict[str, Any], operation: str, subject_type: str) -> bool:
-    stage = control.get("stage", "")
-    operation_stage = (
-        stage in {"change", "change-and-release"}
-        if operation == "change"
-        else stage in {"release", "pre-release", "change-and-release"}
+    return (
+        operation_supports_stage(operation, control.get("stage", ""))
+        and control.get("evidence_subject") == subject_type
     )
-    return operation_stage and control.get("evidence_subject") == subject_type
 
 
 def effective_controls(

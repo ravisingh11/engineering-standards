@@ -130,7 +130,9 @@ python3 .guardrails/configure.py --add-supplemental deep-sast=snyk-code --dry-ru
 
 Remove `--dry-run` after reviewing the policy and provider changes. Use
 `--operation release` for release policy or `--all-operations` when the
-capability applies to both operations.
+capability applies to both operations. The configurator rejects a capability
+whose catalog stage does not apply to every selected operation, without writing
+the invalid override.
 
 Optional providers include SonarQube, Snyk, Semgrep AppSec Platform, and FOSSA.
 Each requires its own workflow or adapter, configuration, credentials, exact
