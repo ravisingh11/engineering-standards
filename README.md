@@ -62,6 +62,12 @@ artifact, or environment proves that a provider ran.
 Both profiles are advisory by default. Other vendors are providers, not
 runnable profiles.
 
+Core includes `PR Change Scope`, with repository-configurable thresholds in
+`.guardrails/change-scope.yaml`. It reports total, meaningful, and excluded
+change volume. The default 300-added-line and 500-changed-line thresholds are
+advisory: oversized PRs stay visible without blocking until a repository
+deliberately promotes the capability to `enforced`.
+
 ## Install
 
 Install Core runtime and Core GitHub Actions:

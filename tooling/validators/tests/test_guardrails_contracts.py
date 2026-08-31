@@ -86,6 +86,7 @@ class GuardrailsContractValidationTests(unittest.TestCase):
     def test_custom_probe_external_id_prefixes_are_explicit(self) -> None:
         providers = load("policies/provider-config.yaml")["providers"]
         cases = (
+            ("repository-change-scope", "change-scope", "guardrails:change-scope:", "guardrails-change-scope-"),
             ("github-secret-protection", "platform-secret-protection", "guardrails:secret-protection:", "guardrails-secret-protection-"),
             ("github-dependabot", "dependency-remediation", "guardrails:dependabot:", "guardrails-dependabot-"),
         )
@@ -115,6 +116,7 @@ class GuardrailsContractValidationTests(unittest.TestCase):
             enabled,
             {
                 "repository-validator",
+                "repository-change-scope",
                 "repository-build",
                 "repository-unit-tests",
                 "repository-changed-code-coverage",

@@ -138,14 +138,28 @@ def inspect(
     records: list[dict[str, Any]],
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    included = [
-        record
-        for record in records
-        if not excluded(record["path"], policy["exclude"])
-    ]
+    included = []
+    excluded_records = []
+    for record in records:
+        destination = (
+            excluded_records
+            if excluded(record["path"], policy["exclude"])
+            else included
+        )
+        destination.append(record)
     text_records = [
         record
         for record in included
+        if record["added"] is not None and record["deleted"] is not None
+    ]
+    all_text_records = [
+        record
+        for record in records
+        if record["added"] is not None and record["deleted"] is not None
+    ]
+    excluded_text_records = [
+        record
+        for record in excluded_records
         if record["added"] is not None and record["deleted"] is not None
     ]
     metrics = {
@@ -161,6 +175,24 @@ def inspect(
         "binary_files": sum(
             1
             for record in included
+            if record["added"] is None or record["deleted"] is None
+        ),
+        "total_files": len(records),
+        "total_added_lines": sum(record["added"] for record in all_text_records),
+        "total_changed_lines": sum(
+            record["added"] + record["deleted"] for record in all_text_records
+        ),
+        "excluded_files": len(excluded_records),
+        "excluded_added_lines": sum(
+            record["added"] for record in excluded_text_records
+        ),
+        "excluded_changed_lines": sum(
+            record["added"] + record["deleted"]
+            for record in excluded_text_records
+        ),
+        "excluded_binary_files": sum(
+            1
+            for record in excluded_records
             if record["added"] is None or record["deleted"] is None
         ),
     }
@@ -238,14 +270,32 @@ def between(
 
 def render(result: dict[str, Any]) -> str:
     metrics = result["metrics"]
+    meaningful_file_label = "file" if metrics["files"] == 1 else "files"
+    total_file_label = "file" if metrics["total_files"] == 1 else "files"
+    excluded_file_label = "file" if metrics["excluded_files"] == 1 else "files"
     lines = [
         f"CHANGE SCOPE {result['status'].upper()} "
         f"{result['subject']['type']}@{result['subject']['revision']}",
         (
-            f"Files: {metrics['files']}; added lines: {metrics['added_lines']}; "
-            f"changed lines: {metrics['changed_lines']}; largest addition: "
-            f"{metrics['max_added_lines_per_file']}; binary files: "
-            f"{metrics['binary_files']}"
+            f"Meaningful: {metrics['files']} {meaningful_file_label}, "
+            f"{metrics['changed_lines']} changed lines "
+            f"({metrics['added_lines']} added)"
+        ),
+        (
+            f"Total: {metrics['total_files']} {total_file_label}, "
+            f"{metrics['total_changed_lines']} changed lines "
+            f"({metrics['total_added_lines']} added)"
+        ),
+        (
+            f"Excluded: {metrics['excluded_files']} {excluded_file_label}, "
+            f"{metrics['excluded_changed_lines']} changed lines "
+            f"({metrics['excluded_added_lines']} added; "
+            f"{metrics['excluded_binary_files']} binary)"
+        ),
+        (
+            f"Largest meaningful addition: "
+            f"{metrics['max_added_lines_per_file']} lines; "
+            f"meaningful binary files: {metrics['binary_files']}"
         ),
     ]
     lines.extend(f"- advisory: {finding['message']}" for finding in result["findings"])
@@ -255,6 +305,12 @@ def render(result: dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Inspect file and line scope for a staged change or Git range"
+    )
+    parser.add_argument(
+        "--repository-root",
+        type=Path,
+        default=ROOT,
+        help="Git repository to inspect; the validator and policy may remain trusted elsewhere",
     )
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--base-ref")
@@ -270,14 +326,14 @@ def main() -> int:
         policy = load_policy(args.policy)
         result = (
             between(
-                ROOT,
+                args.repository_root,
                 policy,
                 args.base_ref,
                 args.head_ref,
                 args.fallback_base,
             )
             if args.base_ref
-            else staged(ROOT, policy)
+            else staged(args.repository_root, policy)
         )
         if args.output:
             args.output.write_text(

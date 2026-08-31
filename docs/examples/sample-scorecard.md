@@ -14,6 +14,7 @@ is `BLOCK`. Advisory gaps remain `ORANGE`; inactive capabilities remain `GRAY`.
 | Readiness | Mode | Capability — Provider | Evidence |
 | --- | --- | --- | --- |
 | GREEN | advisory | Repository Validation — Repository Validators | passed |
+| ORANGE | advisory | PR Change Scope — PR Change Scope | failed |
 | ORANGE | advisory | Documentation Validation — Repository Validators | no_result |
 | RED | enforced | Build — Repository Build Command | no_result |
 | GREEN | advisory | Unit Tests — Repository Unit Test Command | passed |
@@ -23,6 +24,17 @@ is `BLOCK`. Advisory gaps remain `ORANGE`; inactive capabilities remain `GRAY`.
 | GRAY | not_activated | Artifact Provenance — Not activated | not_activated |
 | GRAY | not_activated | Container Vulnerability — Not activated | not_activated |
 ```
+
+For example, a scope check can explain the orange row directly:
+
+```text
+Meaningful: 17 files, 1,284 changed lines (916 added). Total: 19 files,
+1,472 changed lines. Excluded: 2 files, 188 changed lines.
+```
+
+The mechanical provider owns those counts. AI review may identify three
+concern clusters and recommend independent PR boundaries, but it does not
+recalculate the metrics or change the policy decision.
 
 The real `--all-catalog-controls` report includes every catalog capability. The
 abbreviated table preserves the exact renderer vocabulary and row format. Its

@@ -124,9 +124,22 @@ def render(card: dict[str, Any]) -> str:
             details = ", ".join(f"{item['display_name']}={item['status']}" for item in control["supplemental"])
             line += f" (supplemental: {details})"
         lines.append(line)
+        if control["readiness"] in {"ORANGE", "RED"}:
+            result = control.get("authoritative_result") or {}
+            evidence = result.get("evidence")
+            reason = result.get("reason")
+            if isinstance(evidence, list) and evidence:
+                lines.append(f"    evidence: {bounded_summary(evidence[0])}")
+            elif isinstance(reason, str) and reason:
+                lines.append(f"    reason: {bounded_summary(reason)}")
     for finding in card["findings"]:
         lines.append(f"- {finding.get('mode', finding['kind'])}: {finding['message']}")
     return "\n".join(lines) + "\n"
+
+
+def bounded_summary(value: str, maximum: int = 240) -> str:
+    compact = " ".join(value.split())
+    return compact if len(compact) <= maximum else compact[: maximum - 3] + "..."
 
 
 def main() -> int:

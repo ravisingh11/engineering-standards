@@ -13,7 +13,7 @@ Core is selected by default. A normal install deploys its runtime and workflows.
 | Repository validation | Repository Validators | `Validate / repository` | Installed validator; no credential |
 | Documentation validation | Repository Validators | `Validate / docs` | Maintain `.guardrails/documentation.yaml` |
 | Repository ground truth | Repository Validators | `Validate / ground truth` | Maintain `.guardrails/ground-truth-ai.yaml` |
-| Change scope | Repository Validators | `Validate / scope` | Maintain `.guardrails/change-scope.yaml` |
+| PR change scope | PR Change Scope | `PR Change Scope` | Maintain `.guardrails/change-scope.yaml`; defaults are advisory |
 | Build | Repository Build Command | `Build` | Set `GUARDRAILS_BUILD_COMMAND` |
 | Unit tests | Repository Unit Test Command | `Unit Tests` | Set `GUARDRAILS_UNIT_TEST_COMMAND` |
 | Changed-code coverage | Repository Changed Code Coverage Command | `Changed Code Coverage` | Set `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |

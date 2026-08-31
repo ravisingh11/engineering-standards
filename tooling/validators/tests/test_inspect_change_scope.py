@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +66,39 @@ class ChangeScopeTests(unittest.TestCase):
             MODULE.ROOT / ".guardrails" / "change-scope.yaml",
         )
 
+    def test_cli_inspects_an_explicit_repository_root_with_trusted_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, head = diverged_commits(root)
+            policy_path = root.parent / f"{root.name}-policy.json"
+            policy_path.write_text(json.dumps(policy()), encoding="utf-8")
+            try:
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SCRIPT),
+                        "--repository-root",
+                        str(root),
+                        "--policy",
+                        str(policy_path),
+                        "--base-ref",
+                        base,
+                        "--head-ref",
+                        head,
+                        "--json",
+                    ],
+                    cwd=SCRIPT.parent,
+                    text=True,
+                    capture_output=True,
+                )
+            finally:
+                policy_path.unlink(missing_ok=True)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["subject"]["revision"], head)
+        self.assertEqual(result["metrics"]["files"], 1)
+
     def test_passes_change_within_advisory_thresholds(self) -> None:
         result = MODULE.inspect(
             "git-tree",
@@ -108,6 +143,73 @@ class ChangeScopeTests(unittest.TestCase):
         )
         self.assertEqual(result["metrics"]["files"], 1)
         self.assertEqual(result["metrics"]["added_lines"], 1)
+
+    def test_reports_total_meaningful_and_excluded_change_volume(self) -> None:
+        scope_policy = policy()
+        scope_policy["exclude"] = ["**/*.md", "**/*.lock", "**/generated/**"]
+
+        result = MODULE.inspect(
+            "git-tree",
+            "tree-id",
+            [
+                {"path": "README.md", "added": 100, "deleted": 20},
+                {"path": "src/app.py", "added": 10, "deleted": 2},
+                {"path": "requirements.lock", "added": 200, "deleted": 100},
+                {"path": "src/generated/schema.bin", "added": None, "deleted": None},
+            ],
+            scope_policy,
+        )
+
+        self.assertEqual(
+            result["metrics"],
+            {
+                "files": 1,
+                "added_lines": 10,
+                "changed_lines": 12,
+                "max_added_lines_per_file": 10,
+                "binary_files": 0,
+                "total_files": 4,
+                "total_added_lines": 310,
+                "total_changed_lines": 432,
+                "excluded_files": 3,
+                "excluded_added_lines": 300,
+                "excluded_changed_lines": 420,
+                "excluded_binary_files": 1,
+            },
+        )
+
+    def test_excluded_volume_does_not_trigger_meaningful_thresholds(self) -> None:
+        result = MODULE.inspect(
+            "git-tree",
+            "tree-id",
+            [
+                {"path": "README.md", "added": 1000, "deleted": 1000},
+                {"path": "src/app.py", "added": 1, "deleted": 1},
+            ],
+            policy(),
+        )
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["metrics"]["changed_lines"], 2)
+        self.assertEqual(result["metrics"]["total_changed_lines"], 2002)
+
+    def test_human_output_distinguishes_total_and_meaningful_scope(self) -> None:
+        result = MODULE.inspect(
+            "git-tree",
+            "tree-id",
+            [
+                {"path": "README.md", "added": 1000, "deleted": 0},
+                {"path": "src/app.py", "added": 16, "deleted": 10},
+            ],
+            policy(),
+        )
+
+        output = MODULE.render(result)
+
+        self.assertIn("Meaningful: 1 file, 26 changed lines", output)
+        self.assertIn("Total: 2 files, 1026 changed lines", output)
+        self.assertIn("Excluded: 1 file, 1000 changed lines", output)
+        self.assertIn("Largest meaningful addition: 16 lines", output)
 
     def test_counts_binary_files_without_inventing_line_counts(self) -> None:
         result = MODULE.inspect(

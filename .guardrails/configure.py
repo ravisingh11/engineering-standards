@@ -277,6 +277,27 @@ def render_listing(
     return "\n".join(lines) + "\n"
 
 
+def render_effective_mode(
+    policy: dict[str, Any],
+    profiles: dict[str, Any],
+    catalog: dict[str, Any],
+    provider_config: dict[str, Any],
+    operation: str,
+    control_id: str,
+) -> str:
+    controls, profile_definitions, _ = validate_documents(
+        policy, profiles, catalog, provider_config
+    )
+    if control_id not in controls:
+        raise ValueError(f"unknown control: {control_id}")
+    mode = effective_modes(policy, profile_definitions, operation).get(
+        control_id, "not_activated"
+    )
+    return json.dumps(
+        {"control_id": control_id, "mode": mode, "operation": operation}
+    ) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Configure Guardrails v2 profiles, modes, and providers")
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
@@ -292,6 +313,7 @@ def main() -> int:
     parser.add_argument("--operation", choices=OPERATIONS, default="change")
     parser.add_argument("--all-operations", action="store_true")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--effective-mode", metavar="CONTROL")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     try:
@@ -299,6 +321,21 @@ def main() -> int:
         profiles = load_object(args.profiles)
         catalog = load_object(args.catalog)
         providers = load_object(args.providers)
+        if args.list and args.effective_mode:
+            raise ValueError("use either --list or --effective-mode")
+        if args.effective_mode:
+            print(
+                render_effective_mode(
+                    policy,
+                    profiles,
+                    catalog,
+                    providers,
+                    args.operation,
+                    args.effective_mode,
+                ),
+                end="",
+            )
+            return 0
         if args.list:
             print(render_listing(policy, profiles, catalog, providers, args.operation), end="")
             return 0

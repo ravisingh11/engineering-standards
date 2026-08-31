@@ -1396,6 +1396,40 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         self.assertEqual(result["status"], "not_run")
         self.assertIn("pull_request_target", result["reason"])
 
+    def test_artifact_backed_neutral_check_uses_raw_failed_status(self) -> None:
+        run_id = 910
+        neutral_check = {
+            **check_run("Probe", run_id, conclusion="neutral"),
+            "external_id": f"custom:{run_id}:abc123",
+        }
+        with patch.object(
+            MODULE,
+            "_request",
+            side_effect=[
+                workflow_run(run_id),
+                {"total_count": 1, "artifacts": [run_artifact(run_id)]},
+            ],
+        ), patch.object(
+            MODULE,
+            "_request_bytes",
+            return_value=artifact_archive(
+                artifact_document(run_id, status="failed", summary="scope exceeded")
+            ),
+        ):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                artifact_contract(),
+                neutral_check,
+                "Custom Probe",
+                trusted_base_revision="base456",
+                trusted_workflow_ref="refs/heads/main",
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("scope exceeded", result["evidence"][0])
+
     def test_missing_wrong_expired_duplicate_or_wrong_run_artifact_is_not_trusted(self) -> None:
         cases = (
             ("missing", []),

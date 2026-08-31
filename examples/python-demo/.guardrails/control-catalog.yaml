@@ -4,7 +4,7 @@
     {"id": "repository-validation", "name": "Repository Validation", "purpose": "Validate repository-owned contracts and configuration", "stage": "change-and-release", "availability": "runnable", "evidence_subject": "git-commit"},
     {"id": "documentation-validation", "name": "Documentation Validation", "purpose": "Validate documentation structure, links, and declared targets", "stage": "change-and-release", "availability": "runnable", "evidence_subject": "git-commit"},
     {"id": "repository-ground-truth", "name": "Repository Ground Truth", "purpose": "Validate declared repository architecture and engineering documents", "stage": "change-and-release", "availability": "runnable", "evidence_subject": "git-commit"},
-    {"id": "change-scope", "name": "Change Scope", "purpose": "Detect oversized or unexpectedly broad changes", "stage": "change", "availability": "runnable", "evidence_subject": "git-commit"},
+    {"id": "change-scope", "name": "PR Change Scope", "purpose": "Detect oversized or unexpectedly broad changes", "stage": "change", "availability": "runnable", "evidence_subject": "git-commit"},
     {"id": "build", "name": "Build", "purpose": "Detect compilation, packaging, and build-time regressions", "stage": "change-and-release", "availability": "runnable", "evidence_subject": "git-commit"},
     {"id": "unit-tests", "name": "Unit Tests", "purpose": "Detect functional regressions in changed behavior", "stage": "change-and-release", "availability": "runnable", "evidence_subject": "git-commit"},
     {"id": "changed-code-coverage", "name": "Changed Code Coverage", "purpose": "Measure test coverage for changed code", "stage": "change", "availability": "runnable", "evidence_subject": "git-commit"},

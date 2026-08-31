@@ -23,6 +23,7 @@ INSTALLER_MARKER = "# Guardrails v2 installer-owned workflow."
 
 CORE_WORKFLOWS = {
     "guardrails-scorecard.yml": ROOT / "workflows" / "guardrails-scorecard.yml",
+    "change-scope.yml": ROOT / "workflows" / "change-scope.yml",
     "repository-validation.yml": ROOT / "workflows" / "repository-validation.yml",
     "build.yml": ROOT / "workflows" / "build.yml",
     "unit-tests.yml": ROOT / "workflows" / "unit-tests.yml",

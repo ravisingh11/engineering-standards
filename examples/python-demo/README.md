@@ -62,6 +62,10 @@ provider selection, documentation mappings, change-scope thresholds, ground
 truth, and consumer-owned workflows. The committed generated runtime and marked
 workflow copies are validated against the canonical distribution.
 
+Pull requests also run the trusted `PR Change Scope` producer. It reports exact
+total, meaningful, and excluded metrics; the demo keeps it advisory so an
+oversized example is visible as `ORANGE / ALLOW` without blocking iteration.
+
 ## Capability and provider flow
 
 Core supplies repository validators, repository commands, Semgrep CE, and

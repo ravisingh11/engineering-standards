@@ -100,13 +100,13 @@ class ProviderContractTests(unittest.TestCase):
                 ".guardrails/ground-truth-ai.yaml",
             ],
         )
-        self.assertEqual(
-            checks["change-scope"]["trusted_paths"],
-            [
-                ".guardrails/validators/inspect_change_scope.py",
-                ".guardrails/change-scope.yaml",
-            ],
-        )
+        scope = providers["providers"]["repository-change-scope"]["checks"][
+            "change-scope"
+        ]
+        self.assertEqual(scope["workflow_path"], ".github/workflows/change-scope.yml")
+        self.assertEqual(scope["external_id_prefix"], "guardrails:change-scope:")
+        self.assertEqual(scope["artifact_name_prefix"], "guardrails-change-scope-")
+        self.assertEqual(scope["artifact_member"], "guardrails-evidence.json")
 
     def test_runtime_rejects_actions_check_without_workflow_path(self) -> None:
         _, _, catalog, providers = contracts()

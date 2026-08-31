@@ -1,33 +1,9 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def scope_run_script(workflow: str) -> str:
-    scope_job = workflow.split("  scope:\n", 1)[1]
-    run_line = next(
-        line for line in scope_job.splitlines() if line.startswith("      - run:")
-    )
-    if run_line != "      - run: |":
-        return run_line.split("      - run: ", 1)[1]
-    lines = scope_job.splitlines()
-    start = lines.index(run_line) + 1
-    end = next(
-        (
-            index
-            for index in range(start, len(lines))
-            if lines[index] == "        env:"
-            or (lines[index] and not lines[index].startswith("        "))
-        ),
-        len(lines),
-    )
-    return "\n".join(line[8:] for line in lines[start:end])
 
 
 class RepositoryValidationWorkflowTests(unittest.TestCase):
@@ -71,43 +47,23 @@ class RepositoryValidationWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request_target:", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
 
-    def test_scope_job_fails_when_structured_result_is_failed(self) -> None:
+    def test_scope_is_owned_by_the_dedicated_trusted_workflow(self) -> None:
         for relative_path in (
             "workflows/repository-validation.yml",
             ".github/workflows/repository-validation.yml",
         ):
-            with self.subTest(workflow=relative_path), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                validator = root / ".guardrails/validators/inspect_change_scope.py"
-                validator.parent.mkdir(parents=True)
-                validator.write_text(
-                    """#!/usr/bin/env python3
-import json
-import sys
-from pathlib import Path
-
-output = Path(sys.argv[sys.argv.index("--output") + 1])
-output.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
-""",
-                    encoding="utf-8",
-                )
+            with self.subTest(workflow=relative_path):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
-                environment = os.environ | {
-                    "BASE_REF": "base",
-                    "HEAD_REF": "head",
-                    "RUNNER_TEMP": str(root / "runner-temp"),
-                }
-                (root / "runner-temp").mkdir()
+                self.assertNotIn("Validate / scope", workflow)
+                self.assertNotIn("inspect_change_scope.py", workflow)
 
-                completed = subprocess.run(
-                    ["bash", "-e", "-c", scope_run_script(workflow)],
-                    cwd=root,
-                    env=environment,
-                    capture_output=True,
-                    text=True,
-                )
-
-                self.assertNotEqual(completed.returncode, 0)
+        scope = (ROOT / "workflows/change-scope.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request_target:", scope)
+        self.assertIn("name: PR Change Scope", scope)
+        self.assertIn("--repository-root candidate", scope)
+        self.assertIn("--effective-mode change-scope", scope)
+        self.assertIn("guardrails:change-scope:", scope)
+        self.assertNotIn("python3 candidate/", scope)
 
 
 if __name__ == "__main__":
