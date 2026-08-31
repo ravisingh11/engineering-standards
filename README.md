@@ -1,29 +1,40 @@
 # Engineering Standards
 
-Executable engineering standards for faster, safer software delivery.
+**Engineering standards for an AI world.**
 
 [![Guardrail Scorecard](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml/badge.svg?branch=main)](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml)
 
-AI has made it faster than ever to create and change software. That speed makes
-strong engineering standards more important, not less. Practices that once
-felt optional are becoming non-negotiable: builds must run, tests must execute,
-security checks must report, and the evidence must belong to the exact change
-being shipped.
+AI changed the economics of software.
 
-I created this repository to make that discipline lightweight and executable.
-Guardrails is a small layer that verifies the checks and services a repository
-depends on actually ran and produced evidence. It does not replace those tools,
-interpret their findings, or own remediation. Each producer performs its
-analysis; Guardrails connects the results to policy and makes the state visible.
+We can create more code, touch more files, and ship more change than ever
+before. That is a huge unlock. It also creates a new problem: **velocity without
+discipline becomes chaos.**
 
-This repository combines policy, review guidance, reusable workflows, GitHub
-rulesets, and shared agent skills.
+The answer is not more meetings, more process, or a handbook nobody reads. It
+is lightweight guardrails that run with the work.
 
-Application repositories keep their own architecture and operating details.
-This project supplies the common engineering backbone without inventing
-repository-specific ground truth.
+This repository turns practical engineering habits into executable checks:
 
-## Guardrails v2 model
+- Keep changes small enough to understand.
+- Test what you change.
+- Review the code, including the code AI writes.
+- Do not ship known security problems.
+- Keep the repository's ground truth current.
+- Make the build tell you whether a change is ready.
+
+The philosophy is simple:
+
+> **Move fast. Prove it works.**
+
+Guardrails, not gates. The tools that do the work remain the source of their
+own findings; this repository connects those results to the exact change being
+shipped and makes the state visible. A missing check is not a pass.
+
+Make the safe path the easy path. Application repositories keep their own
+architecture and operating details; this project supplies a common engineering
+backbone without inventing repository-specific ground truth.
+
+## Guardrails model
 
 A **capability** is a vendor-neutral engineering outcome such as unit testing or
 secret detection. A **provider** is the tool that produces evidence for that
@@ -85,7 +96,7 @@ python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo
 
 `--local-hooks` requires `pre-commit` and refuses to overwrite an existing
 `.pre-commit-config.yaml`. Use `--dry-run`, `--merge-existing`, or
-`--refresh-existing` when adopting or updating an existing clean v2 install.
+`--refresh-existing` when adopting or updating an existing clean install.
 The installer never copies credentials.
 
 ## Configure and run
