@@ -217,6 +217,11 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
         reviews = provider.get("reviews", {})
         if not isinstance(reviews, dict) or any(capability not in capabilities for capability in reviews):
             raise ValueError(f"provider {provider_id} reviews are invalid")
+        overlapping_contracts = sorted(set(checks).intersection(reviews))
+        if overlapping_contracts:
+            raise ValueError(
+                f"provider {provider_id} {overlapping_contracts[0]} cannot declare both a check and a review"
+            )
         for capability, review in reviews.items():
             if not isinstance(review, dict) or set(review) != {"review_author"}:
                 raise ValueError(f"provider {provider_id} {capability} review is invalid")

@@ -33,12 +33,15 @@ Local and Actions producers use the same names:
 | `GUARDRAILS_BUILD_COMMAND` | Build | Build reports `NO RESULT`. |
 | `GUARDRAILS_UNIT_TEST_COMMAND` | Unit tests | Unit tests report `NO RESULT`. |
 | `GUARDRAILS_CHANGED_COVERAGE_COMMAND` | Changed-code coverage | Coverage reports `NO RESULT`. |
-| `GUARDRAILS_FORMAT_LINT_COMMAND` | Format and lint | Format/lint reports `NO RESULT`. |
-| `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` | Migration validation | Migration validation reports `NO RESULT`. |
+| `GUARDRAILS_FORMAT_LINT_COMMAND` | Format and lint | The Actions job fails visibly; a local scan reports `NO RESULT`. |
+| `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` | Migration validation | The Actions job fails visibly; a local scan reports `NO RESULT`. |
 | `GUARDRAILS_WORKING_DIRECTORY` | All repository commands | Defaults to `.`; must stay inside the repository. |
 
 Use repository variables in GitHub and environment variables locally. Commands
-run through `bash -euo pipefail -c` in the selected working directory.
+run through `bash -euo pipefail -c` in the selected working directory. Configure
+format/lint and migration validation before enabling their workflows on active
+pull requests. Their Actions jobs intentionally fail when the command is absent,
+preventing a promoted required check from passing through a skipped job.
 
 ### Pull-request metadata
 

@@ -89,6 +89,21 @@ class ActionDistributionTests(unittest.TestCase):
                     (ROOT / "workflows" / filename).read_bytes(),
                 )
 
+    def test_configurable_command_producers_fail_when_command_is_unavailable(self) -> None:
+        cases = {
+            "format-and-lint.yml": "GUARDRAILS_FORMAT_LINT_COMMAND",
+            "migration-validation.yml": "GUARDRAILS_MIGRATION_VALIDATION_COMMAND",
+        }
+
+        for filename, variable in cases.items():
+            with self.subTest(filename=filename):
+                workflow = (ROOT / "workflows" / filename).read_text()
+                self.assertNotIn(f"if: ${{{{ vars.{variable} != '' }}}}", workflow)
+                self.assertIn("name: Require configured command", workflow)
+                self.assertIn(f'if [[ -z "${{{variable}}}" ]]; then', workflow)
+                self.assertIn(f"::{variable} is not configured", workflow)
+                self.assertIn("exit 1", workflow)
+
     def test_all_distributed_workflows_parse(self) -> None:
         ruby = shutil.which("ruby")
         if ruby is None:

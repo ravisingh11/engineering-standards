@@ -23,8 +23,8 @@ the GitHub overlay. `--no-actions` installs no workflows.
 | `repository-validation.yml` | `Validate / repository`, `Validate / docs`, `Validate / ground truth` | Installed validators and repository configuration |
 | `change-scope.yml` | `PR Change Scope` | Trusted exact-revision PR size evidence; neutral while advisory, failing when enforced |
 | `pr-metadata.yml` | `PR Metadata` | Trusted mutable PR title/body evidence plus a run-bound custom check on the exact candidate head SHA |
-| `format-and-lint.yml` | `Format and Lint` | `GUARDRAILS_FORMAT_LINT_COMMAND` |
-| `migration-validation.yml` | `Migration Validation` | `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` |
+| `format-and-lint.yml` | `Format and Lint` | `GUARDRAILS_FORMAT_LINT_COMMAND`; the job fails visibly when unset |
+| `migration-validation.yml` | `Migration Validation` | `GUARDRAILS_MIGRATION_VALIDATION_COMMAND`; the job fails visibly when unset |
 | `build.yml` | `Build` | `GUARDRAILS_BUILD_COMMAND` |
 | `unit-tests.yml` | `Unit Tests` | `GUARDRAILS_UNIT_TEST_COMMAND` |
 | `changed-code-coverage.yml` | `Changed Code Coverage` | `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |
@@ -33,7 +33,10 @@ the GitHub overlay. `--no-actions` installs no workflows.
 
 Repository command workflows use optional
 `GUARDRAILS_SETUP_COMMAND` and default `GUARDRAILS_WORKING_DIRECTORY` to `.`.
-Unset capability commands skip their jobs and produce `NO RESULT`.
+Build, test, and coverage jobs remain inactive until configured. Format/lint and
+migration validation always create their named job; an absent command fails the
+job so a promoted required context cannot be satisfied by a skipped producer.
+Local scans continue to represent absent commands as `NO RESULT`.
 
 Semgrep CE runs its repository-owned rule tests, then `semgrep scan --error`
 from the exact pinned container with networking disabled. Gitleaks runs the MIT

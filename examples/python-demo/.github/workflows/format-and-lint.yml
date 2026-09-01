@@ -12,10 +12,17 @@ permissions:
 jobs:
   format-and-lint:
     name: Format and Lint
-    if: ${{ vars.GUARDRAILS_FORMAT_LINT_COMMAND != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require configured command
+        run: |
+          if [[ -z "${GUARDRAILS_FORMAT_LINT_COMMAND}" ]]; then
+            echo "::error::GUARDRAILS_FORMAT_LINT_COMMAND is not configured"
+            exit 1
+          fi
+        env:
+          GUARDRAILS_FORMAT_LINT_COMMAND: ${{ vars.GUARDRAILS_FORMAT_LINT_COMMAND }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -31,4 +38,3 @@ jobs:
         run: bash -euo pipefail -c "${GUARDRAILS_FORMAT_LINT_COMMAND}"
         env:
           GUARDRAILS_FORMAT_LINT_COMMAND: ${{ vars.GUARDRAILS_FORMAT_LINT_COMMAND }}
-

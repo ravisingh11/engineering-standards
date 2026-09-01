@@ -56,6 +56,11 @@ activation category, check contracts, declared secrets, and template metadata.
 Its `selections` object assigns exactly one authoritative provider and zero or
 more supplemental providers to every runnable capability.
 
+A provider may use check-run contracts for some capabilities and review
+contracts for others. It must not declare both contract types for the same
+capability; configuration validation rejects that ambiguity before evidence is
+collected.
+
 Only the authoritative provider can satisfy or block a capability. Supplemental
 providers appear in the scorecard with `advisory: true` and never change the
 decision.

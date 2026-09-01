@@ -77,6 +77,17 @@ class GuardrailsContractValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "workflow_path"):
             self.validator("validate_provider_document")(providers, self.catalog())
 
+    def test_rejects_overlapping_check_and_review_contracts(self) -> None:
+        providers = load("policies/provider-config.yaml")
+        provider = providers["providers"]["repository-build"]
+        provider["reviews"] = {"build": {"review_author": "build-reviewer[bot]"}}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "repository-build build cannot declare both a check and a review",
+        ):
+            self.validator("validate_provider_document")(providers, self.catalog())
+
     def test_non_actions_check_uses_explicit_app_identity_without_fake_path(self) -> None:
         check = self.providers()["semgrep-app"]["checks"]["custom-static-analysis"]
 

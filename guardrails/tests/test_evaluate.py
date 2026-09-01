@@ -216,6 +216,18 @@ class ProviderContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "workflow_path"):
             MODULE.validate_provider_config(providers, controls)
 
+    def test_runtime_rejects_overlapping_check_and_review_contracts(self) -> None:
+        _, _, catalog, providers = contracts()
+        provider = providers["providers"]["repository-build"]
+        provider["reviews"] = {"build": {"review_author": "build-reviewer[bot]"}}
+        controls = {control["id"]: control for control in catalog["controls"]}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "repository-build build cannot declare both a check and a review",
+        ):
+            MODULE.validate_provider_config(providers, controls)
+
     def test_runtime_rejects_unsafe_or_duplicate_trusted_paths(self) -> None:
         _, _, catalog, providers = contracts()
         controls = {control["id"]: control for control in catalog["controls"]}

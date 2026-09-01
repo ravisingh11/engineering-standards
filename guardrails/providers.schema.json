@@ -71,6 +71,7 @@
     },
     "provider": {
       "type": "object",
+      "$comment": "The property names in checks and reviews must be disjoint; Guardrails semantic validation enforces this cross-object constraint.",
       "additionalProperties": false,
       "required": ["display_name", "activation", "capabilities", "checks", "template", "template_available", "secrets", "enabled_by_default"],
       "properties": {
