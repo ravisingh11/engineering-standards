@@ -120,6 +120,16 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(result["decision"], "allow")
         self.assertEqual(result["controls"][0]["id"], "pr-metadata")
 
+    def test_pr_metadata_provider_declares_exact_head_artifact_contract(self) -> None:
+        _, _, catalog, providers = contracts()
+        controls = {control["id"]: control for control in catalog["controls"]}
+        definitions, _ = MODULE.validate_provider_config(providers, controls)
+        check = definitions["repository-pr-metadata"]["checks"]["pr-metadata"]
+
+        self.assertEqual(check["external_id_prefix"], "guardrails:pr-metadata:")
+        self.assertEqual(check["artifact_name_prefix"], "guardrails-pr-metadata-")
+        self.assertEqual(check["artifact_member"], "guardrails-evidence.json")
+
     def test_codex_review_provider_uses_exact_github_review_identity(self) -> None:
         _, _, catalog, providers = contracts()
         controls = {control["id"]: control for control in catalog["controls"]}

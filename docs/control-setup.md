@@ -58,6 +58,10 @@ or reopened. Its `pull-request` subject hashes repository, PR number, head SHA,
 update time, title, and body. A title/body edit invalidates older metadata
 evidence without invalidating commit-bound build or test evidence. Local scans
 do not fabricate pull-request context, so they do not evaluate this control.
+Because `pull_request_target` jobs belong to the trusted base workflow suite,
+the workflow also publishes a run-bound `PR Metadata` check explicitly against
+the candidate head SHA. Require that custom context—not the base-SHA job—when
+promoting the control.
 
 ### Semgrep CE
 

@@ -83,7 +83,9 @@ Core also includes mutable `PR Metadata` evidence. Configure title and body
 requirements in `.guardrails/pr-metadata.yaml`; editing either field creates a
 new pull-request fingerprint even when the head commit does not change. This
 control runs only in the trusted GitHub pull-request workflow, not in a local
-repository scan.
+repository scan. The trusted workflow publishes a separate `PR Metadata` check
+against the exact candidate head SHA, so repositories may promote that context
+after observing it on representative pull requests.
 
 ## Install
 

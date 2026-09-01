@@ -31,7 +31,7 @@
       "display_name": "Repository PR Metadata",
       "activation": "repository",
       "capabilities": ["pr-metadata"],
-      "checks": {"pr-metadata": {"check_name": "PR Metadata", "workflow": "PR Metadata", "workflow_path": ".github/workflows/pr-metadata.yml", "trusted_paths": [".guardrails/validators/validate_pr_metadata.py", ".guardrails/pr-metadata.yaml"]}},
+      "checks": {"pr-metadata": {"check_name": "PR Metadata", "workflow": "PR Metadata", "workflow_path": ".github/workflows/pr-metadata.yml", "trusted_paths": [".guardrails/validators/validate_pr_metadata.py", ".guardrails/pr-metadata.yaml"], "external_id_prefix": "guardrails:pr-metadata:", "artifact_name_prefix": "guardrails-pr-metadata-", "artifact_member": "guardrails-evidence.json"}},
       "template": "workflows/pr-metadata.yml",
       "template_available": true,
       "secrets": [],

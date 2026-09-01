@@ -22,7 +22,7 @@ the GitHub overlay. `--no-actions` installs no workflows.
 | `guardrails-scorecard.yml` | `Guardrail Scorecard` | Always for supported PR events and manual dispatch |
 | `repository-validation.yml` | `Validate / repository`, `Validate / docs`, `Validate / ground truth` | Installed validators and repository configuration |
 | `change-scope.yml` | `PR Change Scope` | Trusted exact-revision PR size evidence; neutral while advisory, failing when enforced |
-| `pr-metadata.yml` | `PR Metadata` | Trusted mutable PR title/body evidence from `.guardrails/pr-metadata.yaml` |
+| `pr-metadata.yml` | `PR Metadata` | Trusted mutable PR title/body evidence plus a run-bound custom check on the exact candidate head SHA |
 | `format-and-lint.yml` | `Format and Lint` | `GUARDRAILS_FORMAT_LINT_COMMAND` |
 | `migration-validation.yml` | `Migration Validation` | `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` |
 | `build.yml` | `Build` | `GUARDRAILS_BUILD_COMMAND` |
@@ -132,5 +132,9 @@ Require only exact observed check names. Core examples are `Validate / repositor
 profile examples are `CodeQL`, `Dependency Review`, `GitHub Secret Scan`,
 and `Dependabot Verification`. `Artifact Provenance` is release-only and must
 not be configured as a pull-request required check.
+
+For PR metadata, require the custom exact-head `PR Metadata` context published
+by the workflow. The workflow job itself runs in the trusted base-SHA check
+suite and is not the merge context.
 
 See [ruleset guidance](../rulesets/README.md) before adding contexts.

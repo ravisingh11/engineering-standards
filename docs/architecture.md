@@ -89,7 +89,10 @@ satisfy pull-request, artifact, or environment capabilities. `passed` and
 Mutable PR metadata uses a separate `pull-request` subject whose revision is a
 digest of repository, PR number, head SHA, update time, title, and body. This
 prevents a title or body edit from reusing evidence produced for earlier PR
-state while preserving commit-bound build and test evidence.
+state while preserving commit-bound build and test evidence. Its trusted
+`pull_request_target` workflow publishes a run-bound custom check whose
+`head_sha` is the candidate commit; the base-SHA workflow job is not the
+promotable merge context.
 
 GitHub collection additionally verifies the exact check name/head/app, workflow
 run name and declared path (including GitHub's optional `@ref` suffix),

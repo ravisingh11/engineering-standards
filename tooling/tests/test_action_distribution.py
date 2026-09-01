@@ -13,10 +13,13 @@ GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a
 CORE_WORKFLOWS = {
     "guardrails-scorecard.yml",
     "change-scope.yml",
+    "pr-metadata.yml",
     "repository-validation.yml",
     "build.yml",
     "unit-tests.yml",
     "changed-code-coverage.yml",
+    "format-and-lint.yml",
+    "migration-validation.yml",
     "semgrep-ce.yml",
     "gitleaks.yml",
 }
@@ -106,7 +109,7 @@ class ActionDistributionTests(unittest.TestCase):
                 self.assertIn("timeout-minutes:", text)
                 refs = re.findall(r"uses:\s+[^@\s]+@([^\s]+)", text)
                 self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in refs))
-                if "actions/checkout@" in text and filename != "change-scope.yml":
+                if "actions/checkout@" in text and filename not in {"change-scope.yml", "pr-metadata.yml"}:
                     self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
                     self.assertIn("persist-credentials: false", text)
                 if filename == "change-scope.yml":
@@ -114,6 +117,10 @@ class ActionDistributionTests(unittest.TestCase):
                     self.assertIn("ref: ${{ github.event.pull_request.base.sha || github.sha }}", text)
                     self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
                     self.assertNotIn("python3 candidate/", text)
+                if filename == "pr-metadata.yml":
+                    self.assertIn("pull_request_target:", text)
+                    self.assertIn("ref: ${{ github.event.pull_request.base.sha || github.sha }}", text)
+                    self.assertNotIn("python3 .guardrails-candidate/", text)
 
     def test_core_producers_use_exact_images_and_safe_modes(self) -> None:
         semgrep = (ROOT / "workflows/semgrep-ce.yml").read_text()
@@ -234,6 +241,32 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("scorecard-${GUARDRAILS_TIMESTAMP}.md", text)
         self.assertIn("--json", text)
         self.assertIn('cat "${SCORECARD_MARKDOWN}" >> "${GITHUB_STEP_SUMMARY}"', text)
+
+    def test_pr_metadata_publishes_an_exact_head_policy_aware_check(self) -> None:
+        text = (ROOT / "workflows/pr-metadata.yml").read_text()
+
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("actions: write", text)
+        self.assertIn("checks: write", text)
+        self.assertIn(
+            "HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
+            text,
+        )
+        self.assertIn("guardrails-pr-metadata-${{ github.run_id }}", text)
+        self.assertIn(
+            'external_id="guardrails:pr-metadata:${GITHUB_RUN_ID}:${HEAD_SHA}"',
+            text,
+        )
+        self.assertIn('name:"PR Metadata",head_sha:$sha', text)
+        self.assertIn('gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs"', text)
+        self.assertIn("*:not_activated) conclusion=skipped", text)
+        self.assertIn("failed:advisory) conclusion=neutral", text)
+        self.assertIn("failed:enforced) conclusion=failure", text)
+        self.assertIn("if: always()", text)
+        self.assertLess(
+            text.index("actions/upload-artifact@"),
+            text.index('"repos/${GITHUB_REPOSITORY}/check-runs"'),
+        )
 
     def test_repository_validation_runs_portable_and_optional_standards_validator(self) -> None:
         text = (ROOT / "workflows/repository-validation.yml").read_text()
