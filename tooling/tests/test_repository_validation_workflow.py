@@ -23,6 +23,7 @@ class RepositoryValidationWorkflowTests(unittest.TestCase):
         self.assertIn("name: Validate / standards source", standards_job)
         self.assertIn("hashFiles('tooling/validators/validate_repository.py')", standards_job)
         self.assertIn("python3 tooling/validators/validate_repository.py", standards_job)
+        self.assertIn("python3 tooling/validate-skills.py", standards_job)
 
     def test_pull_request_documentation_scan_uses_exact_event_revisions(self) -> None:
         workflow = (ROOT / "workflows" / "repository-validation.yml").read_text(

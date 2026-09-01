@@ -109,7 +109,8 @@ This repository uses itself as a working example:
 | Format and lint | Active through `tooling/lint.sh`. Ruff, yamllint, and committed/staged/unstaged whitespace checks run on every PR. |
 | Unit tests | Active through `tooling/test.sh`; all four Python test suites below run in the `Unit Tests` workflow. |
 | Semgrep CE and Gitleaks | Active on every PR with repository-owned configuration. An exact-head pass renders 🟢 **GREEN**. |
-| Build, changed-code coverage, and migration validation | Selected but repository commands are not configured. They render 🟠 **ORANGE** / `NO RESULT`, not a false pass. |
+| Build and changed-code coverage | Selected, but repository commands are not configured. Their skipped producers render 🟠 **ORANGE** / `NO RESULT`, not a false pass. |
+| Migration validation | Selected, but no repository command is configured. Its producer fails visibly and renders 🟠 **ORANGE** / `failed` while advisory. |
 | GitHub profile: CodeQL, Dependency Review, Secret Protection, Dependabot, and release provenance | Profile not selected. A complete catalog report renders these ⚪ **GRAY** for the current operation. |
 | SonarQube, Snyk, FOSSA, and AI review providers | Not selected as authoritative providers. A complete catalog report renders their capabilities ⚪ **GRAY**. |
 | Future artifact, deployment, and runtime capabilities | Evidence contracts only; they remain ⚪ **GRAY** until implemented and activated. |
