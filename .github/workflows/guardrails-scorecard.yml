@@ -4,7 +4,13 @@ name: Guardrail Scorecard
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
   workflow_dispatch:
+
+concurrency:
+  group: guardrail-scorecard-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   actions: read

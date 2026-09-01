@@ -277,6 +277,25 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         self.assertEqual(forged["status"], "not_run")
         self.assertIn("exact head and reviewer identity", forged["reason"])
 
+    def test_changes_requested_review_is_failed_evidence(self) -> None:
+        contract = {"review_author": "chatgpt-codex-connector[bot]"}
+        reviews = [{
+            "id": 74,
+            "commit_id": "abc123",
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-08-31T12:00:00Z",
+            "html_url": "https://github.com/owner/repo/pull/17#pullrequestreview-74",
+            "user": {"login": "chatgpt-codex-connector[bot]", "type": "Bot"},
+        }]
+
+        with patch.object(MODULE, "_request", return_value=reviews):
+            result = MODULE.collect_review_evidence(
+                "owner/repo", "abc123", "token", 17, contract, "Codex Code Review"
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("CHANGES_REQUESTED", result["evidence"][0])
+
     def test_duplicate_selected_provider_check_runs_are_terminal_not_run(self) -> None:
         policy, profiles, catalog, providers = contracts()
         queued = {"check_runs": [

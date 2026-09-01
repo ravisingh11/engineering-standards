@@ -114,7 +114,11 @@ GitHub review providers use a separate review contract. Guardrails accepts a
 completed review only when its `commit_id` equals the evaluated head SHA, its
 `user.login` exactly matches configured `review_author`, and GitHub identifies
 the account as a bot. The latest matching review is evidence that the review
-completed, not a guarantee that the reviewer found every defect.
+completed, not a guarantee that the reviewer found every defect. An approved or
+comment-only review reports `passed`; `CHANGES_REQUESTED` reports `failed`.
+Scorecard workflows refresh on review submission and dismissal, and cancel an
+older in-flight scorecard for the same pull request so stale review state cannot
+publish last.
 
 ## Promotion contract
 

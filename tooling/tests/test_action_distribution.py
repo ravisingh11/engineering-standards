@@ -258,6 +258,18 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("--json", text)
         self.assertIn('cat "${SCORECARD_MARKDOWN}" >> "${GITHUB_STEP_SUMMARY}"', text)
 
+    def test_scorecard_refreshes_when_pull_request_review_state_changes(self) -> None:
+        text = (ROOT / "workflows/guardrails-scorecard.yml").read_text()
+
+        self.assertIn("pull_request_review:", text)
+        self.assertIn("types: [submitted, dismissed]", text)
+        self.assertIn("concurrency:", text)
+        self.assertIn(
+            "group: guardrail-scorecard-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}",
+            text,
+        )
+        self.assertIn("cancel-in-progress: true", text)
+
     def test_pr_metadata_publishes_an_exact_head_policy_aware_check(self) -> None:
         text = (ROOT / "workflows/pr-metadata.yml").read_text()
 

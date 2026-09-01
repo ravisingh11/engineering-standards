@@ -320,9 +320,10 @@ def collect_review_evidence(
         ),
     )
     url = review.get("html_url") or "unavailable"
+    status = "failed" if review["state"] == "CHANGES_REQUESTED" else "passed"
     return bounded_result({
         "producer": f"GitHub Review: {provider_name}",
-        "status": "passed",
+        "status": status,
         "evidence": [f"{provider_name}: {review['state']}; {url}"],
     })
 
