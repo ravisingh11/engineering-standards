@@ -38,7 +38,7 @@ jobs:
       - name: Inspect exact PR scope with trusted code and policy
         run: |
           set -euo pipefail
-          git -C candidate fetch --no-tags --depth=1 origin "${BASE_SHA}"
+          git -C candidate fetch --no-tags origin "${BASE_SHA}"
           python3 trusted/.guardrails/validators/inspect_change_scope.py \
             --repository-root candidate \
             --policy trusted/.guardrails/change-scope.yaml \

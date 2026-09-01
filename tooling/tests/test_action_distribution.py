@@ -113,6 +113,14 @@ class ActionDistributionTests(unittest.TestCase):
                     self.assertIn("pull_request_target:", text)
                     self.assertIn("ref: ${{ github.event.pull_request.base.sha || github.sha }}", text)
                     self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
+                    self.assertIn(
+                        'git -C candidate fetch --no-tags origin "${BASE_SHA}"',
+                        text,
+                    )
+                    self.assertNotIn(
+                        'git -C candidate fetch --no-tags --depth=1 origin "${BASE_SHA}"',
+                        text,
+                    )
                     self.assertNotIn("python3 candidate/", text)
 
     def test_core_producers_use_exact_images_and_safe_modes(self) -> None:
