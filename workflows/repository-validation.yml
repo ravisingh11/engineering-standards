@@ -33,6 +33,9 @@ jobs:
       - name: Validate engineering standards source repository
         if: ${{ hashFiles('tooling/validators/validate_repository.py') != '' }}
         run: python3 tooling/validators/validate_repository.py
+      - name: Validate shared skills and focused tests
+        if: ${{ hashFiles('tooling/validate-skills.py') != '' }}
+        run: python3 tooling/validate-skills.py
   docs:
     name: Validate / docs
     runs-on: ubuntu-latest
