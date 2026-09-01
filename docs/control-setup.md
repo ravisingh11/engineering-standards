@@ -66,7 +66,9 @@ do not fabricate pull-request context, so they do not evaluate this control.
 Because `pull_request_target` jobs belong to the trusted base workflow suite,
 the workflow also publishes a run-bound `PR Metadata` check explicitly against
 the candidate head SHA. Require that custom context—not the base-SHA job—when
-promoting the control.
+promoting the control. New events cancel older in-progress runs for the same
+pull request. The custom check fails if its required run-bound evidence artifact
+cannot be uploaded.
 
 ### Semgrep CE
 

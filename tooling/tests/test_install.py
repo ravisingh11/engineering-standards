@@ -171,6 +171,25 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
+    def test_portable_validator_rejects_missing_pr_metadata_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, no_actions=True)
+            (target / ".guardrails/validators/validate_pr_metadata.py").unlink()
+
+            completed = subprocess.run(
+                ["python3", ".guardrails/validators/validate_repository.py"],
+                cwd=target,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                "validators/validate_pr_metadata.py",
+                completed.stdout + completed.stderr,
+            )
+
     def test_installed_prepare_safe_change_skill_executes_v2_evaluator_example(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

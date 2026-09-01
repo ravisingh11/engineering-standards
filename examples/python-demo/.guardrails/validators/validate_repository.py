@@ -33,6 +33,7 @@ REQUIRED_FILES = (
     "semgrep-rules.yml",
     "validators/validate_documentation.py",
     "validators/inspect_change_scope.py",
+    "validators/validate_pr_metadata.py",
 )
 
 

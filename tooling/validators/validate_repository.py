@@ -333,7 +333,7 @@ def validate_provider_template_names(config: dict, root: Path = ROOT) -> None:
 
 
 def validate_policy_document(
-    policy: dict, profiles: set[str], controls: set[str]
+    policy: dict, profiles: set[str], controls: dict[str, dict]
 ) -> None:
     if not isinstance(policy, dict) or policy.get("version") != 2:
         raise ValueError("policy version must be 2")
@@ -361,6 +361,13 @@ def validate_policy_document(
                 raise ValueError(
                     f"policy {operation} override references unknown control: {control_id}"
                 )
+            if (
+                mode == "enforced"
+                and controls[control_id].get("enforcement_policy") != "promotable"
+            ):
+                raise ValueError(
+                    f"control {control_id} is advisory-only and cannot be enforced"
+                )
 
 
 def validate_evidence_document(
@@ -373,7 +380,9 @@ def validate_evidence_document(
     subject = document.get("subject")
     if not isinstance(subject, dict) or set(subject) != {"type", "revision"}:
         raise ValueError("evidence subject is invalid")
-    if subject["type"] not in {"git-commit", "artifact", "environment"}:
+    if subject["type"] not in {
+        "git-commit", "artifact", "environment", "pull-request"
+    }:
         raise ValueError("evidence subject type is invalid")
     require_nonempty_string(subject["revision"], "evidence subject revision")
     results = document.get("results")
@@ -452,7 +461,7 @@ def validate_guardrail_contract() -> None:
     validate_policy_document(
         load_json_object(ROOT / "guardrails" / "baseline.yaml"),
         set(profiles["profiles"]),
-        set(catalog),
+        catalog,
     )
     validate_evidence_document(
         load_json_object(ROOT / "guardrails" / "evidence-example.yaml"),

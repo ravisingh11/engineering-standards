@@ -102,7 +102,10 @@ prevents a title or body edit from reusing evidence produced for earlier PR
 state while preserving commit-bound build and test evidence. Its trusted
 `pull_request_target` workflow publishes a run-bound custom check whose
 `head_sha` is the candidate commit; the base-SHA workflow job is not the
-promotable merge context.
+promotable merge context. A per-pull-request concurrency group cancels
+superseded runs so an older event cannot publish after a newer title, body, or
+head update. Artifact upload is part of the check contract: a failed proof
+upload forces the exact-head check to fail.
 
 GitHub collection additionally verifies the exact check name/head/app, workflow
 run name and declared path (including GitHub's optional `@ref` suffix),

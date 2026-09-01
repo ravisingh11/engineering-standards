@@ -55,6 +55,7 @@ class ActionDistributionTests(unittest.TestCase):
             ".guardrails/validators/validate_repository.py": "guardrails/validate_repository.py",
             ".guardrails/validators/validate_documentation.py": "tooling/validators/validate_documentation.py",
             ".guardrails/validators/inspect_change_scope.py": "tooling/validators/inspect_change_scope.py",
+            ".guardrails/validators/validate_pr_metadata.py": "tooling/validators/validate_pr_metadata.py",
         }
         for installed, source in copies.items():
             with self.subTest(installed=installed):
@@ -261,6 +262,12 @@ class ActionDistributionTests(unittest.TestCase):
         text = (ROOT / "workflows/pr-metadata.yml").read_text()
 
         self.assertIn("pull_request_target:", text)
+        self.assertIn("concurrency:", text)
+        self.assertIn(
+            "group: pr-metadata-${{ github.repository }}-${{ github.event.pull_request.number }}",
+            text,
+        )
+        self.assertIn("cancel-in-progress: true", text)
         self.assertNotIn("actions: write", text)
         self.assertIn("checks: write", text)
         self.assertIn(
@@ -277,6 +284,16 @@ class ActionDistributionTests(unittest.TestCase):
         self.assertIn("*:not_activated) conclusion=skipped", text)
         self.assertIn("failed:advisory) conclusion=neutral", text)
         self.assertIn("failed:enforced) conclusion=failure", text)
+        self.assertIn("id: proof-upload", text)
+        self.assertIn(
+            "PROOF_UPLOAD_OUTCOME: ${{ steps.proof-upload.outcome }}",
+            text,
+        )
+        self.assertIn(
+            'if [[ "${PROOF_UPLOAD_OUTCOME}" != "success" ]]; then',
+            text,
+        )
+        self.assertIn("conclusion=failure", text)
         self.assertIn("if: always()", text)
         self.assertLess(
             text.index("actions/upload-artifact@"),

@@ -221,6 +221,25 @@ class GuardrailsContractValidationTests(unittest.TestCase):
             load("guardrails/evidence-example.yaml"), self.catalog(), self.providers()
         )
 
+    def test_pull_request_evidence_contract_is_valid(self) -> None:
+        evidence = {
+            "version": 2,
+            "subject": {"type": "pull-request", "revision": "sha256:metadata"},
+            "results": {
+                "pr-metadata": {
+                    "repository-pr-metadata": {
+                        "producer": "Repository PR Metadata",
+                        "status": "passed",
+                        "evidence": ["Pull-request metadata satisfies the contract."],
+                    }
+                }
+            },
+        }
+
+        self.validator("validate_evidence_document")(
+            evidence, self.catalog(), self.providers()
+        )
+
     def test_rejects_malformed_nested_evidence(self) -> None:
         evidence = load("guardrails/evidence-example.yaml")
         result = next(iter(next(iter(evidence["results"].values())).values()))
@@ -338,7 +357,7 @@ class GuardrailsContractValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "override"):
             self.validator("validate_policy_document")(
-                policy, {"core", "github"}, set(self.catalog())
+                policy, {"core", "github"}, self.catalog()
             )
 
     def test_policy_rejects_unknown_override_control(self) -> None:
@@ -347,7 +366,19 @@ class GuardrailsContractValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown control"):
             self.validator("validate_policy_document")(
-                policy, {"core", "github"}, set(self.catalog())
+                policy, {"core", "github"}, self.catalog()
+            )
+
+    def test_policy_rejects_enforced_advisory_only_control(self) -> None:
+        policy = load("guardrails/baseline.yaml")
+        policy["overrides"]["change"]["ai-engineering-review"] = "enforced"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "ai-engineering-review is advisory-only and cannot be enforced",
+        ):
+            self.validator("validate_policy_document")(
+                policy, {"core", "github"}, self.catalog()
             )
 
 

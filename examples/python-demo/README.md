@@ -65,6 +65,8 @@ workflow copies are validated against the canonical distribution.
 Pull requests also run the trusted `PR Change Scope` producer. It reports exact
 total, meaningful, and excluded metrics; the demo keeps it advisory so an
 oversized example is visible as `ORANGE / ALLOW` without blocking iteration.
+The trusted `PR Metadata` producer cancels superseded runs per pull request and
+requires its run-bound evidence upload before its exact-head check can pass.
 
 ## Capability and provider flow
 

@@ -138,7 +138,11 @@ not be configured as a pull-request required check.
 
 For PR metadata, require the custom exact-head `PR Metadata` context published
 by the workflow. The workflow job itself runs in the trusted base-SHA check
-suite and is not the merge context.
+suite and is not the merge context. Workflow-level concurrency is scoped to the
+pull-request number, and a newer event cancels any older in-progress metadata
+run. The evidence upload outcome is part of the custom-check decision; upload
+failure always publishes a failing exact-head check rather than success without
+proof.
 
 For `Format and Lint` and `Migration Validation`, configure the repository
 command first and verify both success and failure behavior. The job remains

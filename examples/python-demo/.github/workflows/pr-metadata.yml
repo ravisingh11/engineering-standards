@@ -9,6 +9,10 @@ permissions:
   contents: read
   checks: write
 
+concurrency:
+  group: pr-metadata-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   pr-metadata:
     name: PR Metadata
@@ -102,6 +106,7 @@ jobs:
               > "${RUNNER_TEMP}/guardrails-evidence.json"
           fi
       - name: Upload run-bound PR metadata evidence
+        id: proof-upload
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -113,19 +118,25 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          PROOF_UPLOAD_OUTCOME: ${{ steps.proof-upload.outcome }}
         run: |
           set -euo pipefail
           status="$(jq -r '.status' "${RUNNER_TEMP}/guardrails-evidence.json")"
           mode="$(jq -r '.mode' "${RUNNER_TEMP}/guardrails-evidence.json")"
           summary="$(jq -r '.summary' "${RUNNER_TEMP}/guardrails-evidence.json")"
-          case "${status}:${mode}" in
-            *:not_activated) conclusion=skipped ;;
-            passed:*) conclusion=success ;;
-            failed:advisory) conclusion=neutral ;;
-            failed:enforced) conclusion=failure ;;
-            not_run:*) conclusion=skipped ;;
-            *) echo "Invalid PR metadata status or mode" >&2; exit 2 ;;
-          esac
+          if [[ "${PROOF_UPLOAD_OUTCOME}" != "success" ]]; then
+            conclusion=failure
+            summary="Run-bound PR metadata evidence could not be uploaded; this check cannot pass."
+          else
+            case "${status}:${mode}" in
+              *:not_activated) conclusion=skipped ;;
+              passed:*) conclusion=success ;;
+              failed:advisory) conclusion=neutral ;;
+              failed:enforced) conclusion=failure ;;
+              not_run:*) conclusion=skipped ;;
+              *) echo "Invalid PR metadata status or mode" >&2; exit 2 ;;
+            esac
+          fi
           details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           external_id="guardrails:pr-metadata:${GITHUB_RUN_ID}:${HEAD_SHA}"
           payload="$(jq -n --arg sha "${HEAD_SHA}" --arg conclusion "${conclusion}" --arg summary "${summary}" --arg details_url "${details_url}" --arg external_id "${external_id}" '{name:"PR Metadata",head_sha:$sha,status:"completed",conclusion:$conclusion,details_url:$details_url,external_id:$external_id,output:{title:"PR Metadata",summary:$summary}}')"

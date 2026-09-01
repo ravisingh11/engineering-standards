@@ -89,7 +89,9 @@ new pull-request fingerprint even when the head commit does not change. This
 control runs only in the trusted GitHub pull-request workflow, not in a local
 repository scan. The trusted workflow publishes a separate `PR Metadata` check
 against the exact candidate head SHA, so repositories may promote that context
-after observing it on representative pull requests.
+after observing it on representative pull requests. Runs are serialized per
+pull request and newer metadata events cancel older in-progress runs. The check
+cannot pass unless its run-bound evidence artifact uploads successfully.
 
 ## Install
 
