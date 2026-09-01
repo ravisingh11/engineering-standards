@@ -269,6 +269,10 @@ class ActionDistributionTests(unittest.TestCase):
             text,
         )
         self.assertIn("cancel-in-progress: true", text)
+        self.assertIn(
+            'grep -q -- "--pull-request-number"',
+            text,
+        )
 
     def test_pr_metadata_publishes_an_exact_head_policy_aware_check(self) -> None:
         text = (ROOT / "workflows/pr-metadata.yml").read_text()

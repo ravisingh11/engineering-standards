@@ -82,7 +82,10 @@ jobs:
           echo "GUARDRAILS_TIMESTAMP=${GUARDRAILS_TIMESTAMP}" >> "${GITHUB_ENV}"
           EVIDENCE_JSON=".artifacts/guardrails/evidence-${GUARDRAILS_TIMESTAMP}.json"
           review_args=()
-          if [ -n "${PULL_REQUEST_NUMBER}" ]; then
+          if [ -n "${PULL_REQUEST_NUMBER}" ] && \
+            python3 .guardrails-trusted/.guardrails/github_evidence.py --help 2>&1 | \
+              grep -q -- "--pull-request-number"
+          then
             review_args+=(--pull-request-number "${PULL_REQUEST_NUMBER}")
           fi
           python3 .guardrails-trusted/.guardrails/github_evidence.py \

@@ -170,6 +170,7 @@ class InstalledScorecardWorkflowTests(unittest.TestCase):
                 [
                     ".guardrails-trusted/.guardrails/configure.py",
                     ".guardrails-trusted/.guardrails/github_evidence.py",
+                    ".guardrails-trusted/.guardrails/github_evidence.py",
                     ".guardrails-trusted/.guardrails/scorecard.py",
                     ".guardrails-trusted/.guardrails/scorecard.py",
                 ],
