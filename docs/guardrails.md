@@ -51,6 +51,11 @@ Exactly one provider is authoritative for each runnable capability. This keeps
 the decision deterministic. Supplemental providers support comparison,
 migration, and defense in depth without creating ambiguous OR semantics.
 
+Check-run and pull-request-review contracts are distinct evidence sources. A
+provider may use each type for different capabilities, but it must not declare
+both for the same capability. Contract validation rejects the overlap rather
+than allowing one result to overwrite the other.
+
 ### Enforcement follows reliability
 
 All profile defaults are advisory. Promote a capability only after its provider

@@ -48,9 +48,11 @@ GUARDRAILS_MIGRATION_VALIDATION_COMMAND
 GUARDRAILS_WORKING_DIRECTORY
 ```
 
-Use environment variables locally and repository variables in Actions. Missing
-build, test, coverage, format/lint, or migration commands produce `not_run` /
-`NO RESULT`.
+Use environment variables locally and repository variables in Actions. Local
+scans represent missing commands as `not_run` / `NO RESULT`. In Actions, missing
+build, test, and coverage commands do not create passing evidence. Missing
+format/lint or migration commands fail their named jobs so those contexts cannot
+satisfy branch protection by being skipped.
 
 For the GitHub overlay, configure only applicable values:
 
@@ -110,7 +112,9 @@ Supplemental providers never change the decision.
 
 1. Confirm the producer runs on representative changes.
 2. Confirm exact-subject evidence and stable check naming.
-3. Confirm failures, skips, and unavailable states are truthful.
+3. Remove its required configuration and confirm the producer does not pass;
+   format/lint and migration validation must fail visibly when their command is
+   absent.
 4. Assign a remediation owner.
 5. Set the capability to `enforced`.
 6. Add the exact observed check context to the GitHub ruleset.

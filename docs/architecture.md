@@ -33,6 +33,11 @@ Exactly one authoritative provider can satisfy or block a selected capability.
 Supplemental providers are displayed for comparison and migration, but remain
 advisory regardless of their result.
 
+Each provider/capability pair has one GitHub evidence contract: either a check
+run or a pull-request review. A provider can use different contract types for
+different capabilities, but overlapping check and review definitions for the
+same capability are invalid and rejected before collection.
+
 ## Runnable profiles
 
 Core is selected by default and is portable across Git hosts. It covers:
@@ -41,6 +46,11 @@ Core is selected by default and is portable across Git hosts. It covers:
 - repository-defined build, unit-test, changed-code coverage, format/lint, and migration-validation commands;
 - tokenless Semgrep CE with repository-owned tested rules;
 - Gitleaks CLI secret detection.
+
+Local command producers report an absent command as `not_run`. In GitHub
+Actions, format/lint and migration validation always retain their named jobs and
+fail when the command is absent. This fail-closed behavior prevents either
+context from satisfying a ruleset through GitHub's skipped-job semantics.
 
 The optional GitHub profile is additive. Its runnable scorecard paths cover
 CodeQL, Dependency Review, GitHub Secret Protection, and Dependabot

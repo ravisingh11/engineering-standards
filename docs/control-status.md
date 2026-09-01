@@ -34,6 +34,7 @@ catalog view.
 | --- | --- |
 | Workflow installed | Configuration only; no result yet. |
 | Job skipped because a variable is unset | `NO RESULT`. |
+| Format/lint or migration command is unset in Actions | The named check fails; locally the capability is `NO RESULT`. |
 | Settings token exists | Probe can attempt access; not a pass. |
 | Supplemental provider passed | Useful advisory evidence; authoritative result still decides. |
 | Prior commit passed | Stale for the current commit; `NO RESULT`. |
@@ -65,7 +66,8 @@ Move a capability from advisory to enforced only after:
 - the authoritative provider is configured and reliable;
 - evidence is bound to the exact commit, artifact, or environment;
 - the check name and failure behavior are stable;
-- skipped and unavailable states become `NO RESULT`, not success;
+- skipped and unavailable states become `NO RESULT` or an explicit failure,
+  never success;
 - a remediation owner exists; and
 - the exact check context is added to the repository ruleset.
 

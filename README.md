@@ -42,6 +42,10 @@ capability. Each selected capability has exactly one authoritative provider.
 Supplemental providers remain visible and advisory; they cannot satisfy or
 block the capability.
 
+A provider may use GitHub check-run contracts for some capabilities and GitHub
+review contracts for others. It cannot declare both contract types for the same
+capability; Guardrails rejects that configuration before collecting evidence.
+
 ```text
 profile -> capability -> authoritative provider -> exact-subject evidence
                   \---- supplemental providers ----> advisory evidence
@@ -124,7 +128,8 @@ python3 .guardrails/scan.py
 
 The scanner writes nested JSON evidence and a timestamped Markdown scorecard to
 `.artifacts/guardrails/`. It binds local evidence to a clean, exact `HEAD`.
-Unavailable tools and unconfigured commands report `not_run` / `NO RESULT`.
+Unavailable local tools and unconfigured local commands report `not_run` /
+`NO RESULT`.
 
 For the embedded Python demo, these are real repository commands:
 
@@ -136,9 +141,13 @@ python3 .guardrails/scan.py
 ```
 
 The same names are GitHub Actions repository variables. Set command variables
-only when the repository has real commands for those capabilities. An unset
-build, test, coverage, format/lint, or migration command skips that producer
-and cannot create a pass.
+only when the repository has real commands for those capabilities. Unset build,
+test, and coverage commands do not create passing evidence. Format/lint and
+migration validation are stricter: their installed Actions jobs fail visibly
+when the corresponding command is absent, preventing a promoted required check
+from being satisfied by a skipped job. Configure both before the first pull
+request after installing those workflows; never use `true` or an unrelated
+command to manufacture a pass.
 
 Core runs Semgrep Community Edition with repository-owned tested rules via
 `semgrep scan`, and runs the Gitleaks CLI against complete Git history. Local

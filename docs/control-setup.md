@@ -42,6 +42,8 @@ run through `bash -euo pipefail -c` in the selected working directory. Configure
 format/lint and migration validation before enabling their workflows on active
 pull requests. Their Actions jobs intentionally fail when the command is absent,
 preventing a promoted required check from passing through a skipped job.
+Do not use a no-op command to make either check green: the command must exercise
+the repository's actual formatting/lint or migration contract.
 
 ### Pull-request metadata
 
@@ -216,7 +218,9 @@ for connection, automatic-review, and `@codex review` instructions.
 
 1. Run the provider on representative pull requests.
 2. Confirm evidence binds to the exact subject.
-3. Confirm the exact stable check name and failure behavior.
+3. Confirm the exact stable check name and failure behavior. Remove or invalidate
+   required configuration and verify the check does not pass; `Format and Lint`
+   and `Migration Validation` must fail when their command variable is absent.
 4. Assign a remediation owner.
 5. Set the capability to `enforced`.
 6. Add that exact check context to the repository ruleset.

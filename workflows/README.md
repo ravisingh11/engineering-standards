@@ -140,4 +140,9 @@ For PR metadata, require the custom exact-head `PR Metadata` context published
 by the workflow. The workflow job itself runs in the trusted base-SHA check
 suite and is not the merge context.
 
+For `Format and Lint` and `Migration Validation`, configure the repository
+command first and verify both success and failure behavior. The job remains
+present and fails when its command is absent; this is deliberate protection
+against a required context being satisfied by GitHub's skipped-job behavior.
+
 See [ruleset guidance](../rulesets/README.md) before adding contexts.

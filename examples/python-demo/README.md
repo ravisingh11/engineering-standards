@@ -102,6 +102,11 @@ GUARDRAILS_WORKING_DIRECTORY=.
 
 The demo does not claim changed-code coverage; that capability remains
 `NO RESULT` until a consuming repository configures a real coverage command.
+The installed `Format and Lint` and `Migration Validation` workflows also
+require real repository commands before the demo is run as a standalone GitHub
+repository. Unlike the local scanner, those two Actions jobs fail when their
+command is absent so they cannot satisfy a required context through a skip. Do
+not configure either variable with a no-op merely to make the example green.
 
 Set `GUARDRAILS_CODEQL_LANGUAGES=python` and
 `GUARDRAILS_DEPENDENCY_REVIEW_ENABLED=true` only when the GitHub profile checks

@@ -63,6 +63,10 @@ format/lint and migration Actions jobs fail visibly when their command is absent
 local scans represent the same absence as `NO RESULT`.
 `GUARDRAILS_WORKING_DIRECTORY` must resolve inside the repository.
 
+Before opening the first pull request, configure real format/lint and migration
+commands for any installed workflows you intend to run. Do not use a no-op or
+an unrelated validation command: a green check must prove its named capability.
+
 ## 4. Declare repository ground truth
 
 Edit `.guardrails/ground-truth-ai.yaml` so each entry names an existing path:

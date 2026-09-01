@@ -30,13 +30,16 @@ For each capability:
 
 Do not require a setup job, configuration probe, supplemental provider, or
 scorecard aggregation as a substitute for authoritative capability evidence.
-An unset variable or missing token must remain `NO RESULT`.
+An unset variable or missing token must never satisfy a capability. Depending
+on the producer, it becomes `NO RESULT` or an explicit failing check. Format and
+lint and migration validation intentionally fail when their repository command
+is absent.
 
 ## Current v2 check names
 
 | Profile | Capability check names |
 | --- | --- |
-| Core | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `PR Change Scope`, `Build`, `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, `Gitleaks` |
+| Core | `Validate / repository`, `Validate / docs`, `Validate / ground truth`, `PR Change Scope`, `PR Metadata`, `Format and Lint`, `Migration Validation`, `Build`, `Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, `Gitleaks` |
 | GitHub overlay | `CodeQL`, `Dependency Review`, `GitHub Secret Scan`, `Dependabot Verification` |
 
 `Artifact Provenance` is a release/dispatch attestation job, not a pull-request
@@ -46,6 +49,11 @@ release scorecard. Do not add it to branch-protection required checks.
 GitHub can render a workflow/job combination differently depending on how a
 workflow is installed. Always copy the context from a real check run rather
 than relying only on this table.
+
+Before requiring `Format and Lint` or `Migration Validation`, set its repository
+command variable, observe a successful and a failing representative run, and
+then copy the exact context into the ruleset. If the variable is later removed,
+the named check fails instead of satisfying branch protection through a skip.
 
 Do not require `PR Change Scope` while it is advisory: an oversized PR then
 publishes a neutral custom check and remains `ORANGE / ALLOW`. After promotion
