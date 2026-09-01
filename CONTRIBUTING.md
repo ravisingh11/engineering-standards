@@ -63,6 +63,7 @@ python3 -m unittest discover -s tooling/tests -p 'test_*.py'
 python3 -m unittest discover -s tooling/validators/tests -p 'test_*.py'
 python3 -m unittest discover -s examples/python-demo -p 'test_*.py'
 python3 examples/python-demo/tools/validate_demo.py --documentation
+tooling/lint.sh
 git diff --check
 ```
 

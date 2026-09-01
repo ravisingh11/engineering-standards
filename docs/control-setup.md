@@ -45,6 +45,28 @@ preventing a promoted required check from passing through a skipped job.
 Do not use a no-op command to make either check green: the command must exercise
 the repository's actual formatting/lint or migration contract.
 
+This repository uses a deliberately narrow, debt-aware baseline:
+
+```sh
+python3 -m pip install --disable-pip-version-check \
+  -r tooling/requirements-lint.txt
+tooling/lint.sh
+```
+
+Its GitHub repository variables are:
+
+```text
+GUARDRAILS_SETUP_COMMAND=python3 -m pip install --disable-pip-version-check -r tooling/requirements-lint.txt
+GUARDRAILS_FORMAT_LINT_COMMAND=tooling/lint.sh
+```
+
+The script checks whitespace errors in committed, staged, and unstaged content,
+Python syntax and name errors through Ruff, and YAML structure and duplicate
+keys through yamllint.
+The pinned configuration intentionally does not make historical Python or YAML
+style debt a prerequisite for unrelated changes. Tighten the checked rules in
+small, separately reviewed changes.
+
 ### Pull-request metadata
 
 `.guardrails/pr-metadata.yaml` defines a title regular expression and required

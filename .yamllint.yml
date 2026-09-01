@@ -1,0 +1,6 @@
+extends: relaxed
+
+rules:
+  # Existing workflow and policy files intentionally contain long commands and
+  # compact JSON-compatible YAML. Structural YAML failures remain blocking.
+  line-length: disable
