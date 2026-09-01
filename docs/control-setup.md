@@ -58,14 +58,19 @@ Its GitHub repository variables are:
 ```text
 GUARDRAILS_SETUP_COMMAND=python3 -m pip install --disable-pip-version-check -r tooling/requirements-lint.txt
 GUARDRAILS_FORMAT_LINT_COMMAND=tooling/lint.sh
+GUARDRAILS_UNIT_TEST_COMMAND=tooling/test.sh
 ```
 
-The script checks whitespace errors in committed, staged, and unstaged content,
-Python syntax and name errors through Ruff, and YAML structure and duplicate
-keys through yamllint.
+`tooling/lint.sh` checks whitespace errors in committed, staged, and unstaged
+content, Python syntax and name errors through Ruff, and YAML structure and
+duplicate keys through yamllint.
 The pinned configuration intentionally does not make historical Python or YAML
 style debt a prerequisite for unrelated changes. Tighten the checked rules in
 small, separately reviewed changes.
+
+`tooling/test.sh` is this repository's canonical unit-test entry point. It runs
+the Guardrails runtime, tooling, validator, and embedded consumer-demo suites;
+the `Unit Tests` GitHub workflow invokes the same command.
 
 ### Pull-request metadata
 

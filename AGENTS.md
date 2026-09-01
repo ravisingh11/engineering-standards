@@ -37,10 +37,7 @@ Run the smallest relevant checks while working. Before opening or updating a
 pull request, run the complete repository validation:
 
 ```sh
-python3 -m unittest discover -s guardrails/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/validators/tests -p 'test_*.py'
-python3 -m unittest discover -s examples/python-demo -p 'test_*.py'
+tooling/test.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 python3 tooling/validate-skills.py
 python3 tooling/validators/validate_repository.py

@@ -93,6 +93,31 @@ after observing it on representative pull requests. Runs are serialized per
 pull request and newer metadata events cancel older in-progress runs. The check
 cannot pass unless its run-bound evidence artifact uploads successfully.
 
+## What runs on GitHub
+
+Installing Guardrails with Actions adds independent workflows. Opening or
+updating a pull request starts the applicable producers; the scorecard then
+collects their results for the exact PR head. A workflow file means the check
+is available, not that it passed.
+
+This repository uses itself as a working example:
+
+| Controls | GitHub behavior in this repository |
+| --- | --- |
+| Repository, documentation, and ground-truth validation | Active on every PR. An exact-head pass renders 🟢 **GREEN**. |
+| PR change scope and PR metadata | Active on every PR update. Passing evidence renders 🟢 **GREEN**; an oversized PR remains advisory. |
+| Format and lint | Active through `tooling/lint.sh`. Ruff, yamllint, and committed/staged/unstaged whitespace checks run on every PR. |
+| Unit tests | Active through `tooling/test.sh`; all four Python test suites below run in the `Unit Tests` workflow. |
+| Semgrep CE and Gitleaks | Active on every PR with repository-owned configuration. An exact-head pass renders 🟢 **GREEN**. |
+| Build, changed-code coverage, and migration validation | Selected but repository commands are not configured. They render 🟠 **ORANGE** / `NO RESULT`, not a false pass. |
+| GitHub profile: CodeQL, Dependency Review, Secret Protection, Dependabot, and release provenance | Profile not selected. A complete catalog report renders these ⚪ **GRAY** for the current operation. |
+| SonarQube, Snyk, FOSSA, and AI review providers | Not selected as authoritative providers. A complete catalog report renders their capabilities ⚪ **GRAY**. |
+| Future artifact, deployment, and runtime capabilities | Evidence contracts only; they remain ⚪ **GRAY** until implemented and activated. |
+
+Consumer repositories receive the same workflow contracts, but must provide
+their own real build, test, lint, coverage, and migration commands. See
+[control setup](docs/control-setup.md).
+
 ## Install
 
 Install Core runtime and Core GitHub Actions:
@@ -195,12 +220,12 @@ in Codex settings (recommended) or request one with `@codex review`, then enable
 
 ## Status vocabulary
 
-| Readiness | Meaning |
-| --- | --- |
-| **GREEN** | The authoritative provider passed for the exact subject. |
-| **ORANGE** | An advisory capability lacks a passing authoritative result. The operation may still be allowed. |
-| **RED** | An enforced capability lacks a passing authoritative result, or evidence targets the wrong subject. The operation is blocked. |
-| **GRAY** | The capability is not activated for this operation and subject type. |
+| Symbol | Readiness | Meaning |
+| --- | --- | --- |
+| 🟢 | **GREEN** | The authoritative provider passed for the exact subject. |
+| 🟠 | **ORANGE** | An advisory capability lacks a passing authoritative result. The operation may still be allowed. |
+| 🔴 | **RED** | An enforced capability lacks a passing authoritative result, or evidence targets the wrong subject. The operation is blocked. |
+| ⚪ | **GRAY** | The capability is not activated for this operation and subject type. |
 
 Raw producer statuses are `passed`, `failed`, `blocked`, and `not_run`. Public
 scorecards display `not_run` or missing evidence as `no_result`. Supplemental
@@ -256,14 +281,32 @@ tools for those future lifecycle capabilities.
 This repository is MIT licensed. Third-party tools, Actions, services, and rule
 packs retain their own terms; see [licensing](docs/licensing.md).
 
+The repository test and validation surfaces are deliberately visible:
+
+| Surface | What it proves | GitHub check |
+| --- | --- | --- |
+| `guardrails/tests` | Evaluator, schema, policy, and evidence behavior | `Unit Tests` |
+| `tooling/tests` | Installer, configurator, scanner, scorecard, workflow, and integration behavior | `Unit Tests` |
+| `tooling/validators/tests` | Catalog, documentation, repository, scope, and metadata validation behavior | `Unit Tests` |
+| `examples/python-demo` | A real consumer can install and execute Guardrails | `Unit Tests` |
+| `tooling/validate-skills.py` | Shared skills and their focused tests are valid | `Validate / standards source` |
+| Repository and documentation validators | Distributed contracts, internal links, and declared documentation targets are valid | `Validate / repository`, `Validate / standards source`, `Validate / docs` |
+| `tooling/lint.sh` | Python correctness baseline, YAML structure, and whitespace rules | `Format and Lint` |
+
+Run the four unit-test suites with the same entry point used by GitHub:
+
 ```sh
-python3 -m unittest discover -s guardrails/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/validators/tests -p 'test_*.py'
-python3 -m unittest discover -s examples/python-demo -p 'test_*.py'
+tooling/test.sh
+```
+
+Run the complete local validation before opening or updating a PR:
+
+```sh
+tooling/test.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 python3 tooling/validate-skills.py
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
+tooling/lint.sh
 git diff --check
 ```

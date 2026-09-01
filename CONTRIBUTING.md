@@ -58,10 +58,7 @@ third-party integrations or copied material.
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
 python3 tooling/validate-skills.py
-python3 -m unittest discover -s guardrails/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/tests -p 'test_*.py'
-python3 -m unittest discover -s tooling/validators/tests -p 'test_*.py'
-python3 -m unittest discover -s examples/python-demo -p 'test_*.py'
+tooling/test.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 tooling/lint.sh
 git diff --check
