@@ -15,5 +15,7 @@ command -v yamllint >/dev/null 2>&1 || {
 
 empty_tree="$(git hash-object -t tree /dev/null)"
 git diff --check "${empty_tree}" HEAD
+git diff --cached --check
+git diff --check
 ruff check .
 yamllint --strict .

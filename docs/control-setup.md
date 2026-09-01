@@ -60,8 +60,9 @@ GUARDRAILS_SETUP_COMMAND=python3 -m pip install --disable-pip-version-check -r t
 GUARDRAILS_FORMAT_LINT_COMMAND=tooling/lint.sh
 ```
 
-The script checks repository-wide whitespace errors, Python syntax and name
-errors through Ruff, and YAML structure and duplicate keys through yamllint.
+The script checks whitespace errors in committed, staged, and unstaged content,
+Python syntax and name errors through Ruff, and YAML structure and duplicate
+keys through yamllint.
 The pinned configuration intentionally does not make historical Python or YAML
 style debt a prerequisite for unrelated changes. Tighten the checked rules in
 small, separately reviewed changes.
