@@ -1,0 +1,6 @@
+target-version = "py39"
+
+[lint]
+# Start with correctness rules that can be applied to the whole repository
+# without turning historical formatting debt into a release blocker.
+select = ["E9", "F63", "F7", "F82"]

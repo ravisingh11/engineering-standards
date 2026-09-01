@@ -45,6 +45,7 @@ python3 examples/python-demo/tools/validate_demo.py --documentation
 python3 tooling/validate-skills.py
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
+tooling/lint.sh
 git diff --check
 ```
 

@@ -133,6 +133,16 @@ The scanner writes nested JSON evidence and a timestamped Markdown scorecard to
 Unavailable local tools and unconfigured local commands report `not_run` /
 `NO RESULT`.
 
+This repository's own format/lint producer is configured in `ruff.toml`,
+`.yamllint.yml`, and `tooling/lint.sh`. Install its pinned tools and run the same
+command used by CI:
+
+```sh
+python3 -m pip install --disable-pip-version-check \
+  -r tooling/requirements-lint.txt
+tooling/lint.sh
+```
+
 For the embedded Python demo, these are real repository commands:
 
 ```sh
