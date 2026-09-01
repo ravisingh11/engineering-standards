@@ -38,6 +38,7 @@ producers report `not_run` / `NO RESULT`.
 Every evaluation names a subject type and immutable revision:
 
 - `git-commit` for change evidence;
+- `pull-request` for mutable title/body state tied to a head SHA;
 - `artifact` for release artifacts;
 - `environment` for deployment or runtime evidence.
 
@@ -55,6 +56,10 @@ migration, and defense in depth without creating ambiguous OR semantics.
 All profile defaults are advisory. Promote a capability only after its provider
 is reliable, exact-subject evidence is proven, the check name and failure
 behavior are stable, and a remediation owner exists.
+
+The catalog may further restrict promotion. `advisory-only` controls cannot be
+set to `enforced`; all AI review controls use this contract so AI is never the
+sole merge gate. Other runnable controls are `promotable`.
 
 ### Configuration grants no authority
 

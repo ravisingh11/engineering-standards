@@ -53,6 +53,11 @@ Future lifecycle capabilities marked `evidence-only` are also omitted by
 default and appear `GRAY` only in the complete catalog view. They cannot be
 selected or promoted until runtime/provider contracts are implemented.
 
+Runnable controls also declare an enforcement policy. `promotable` controls
+may move from advisory to enforced after validation. `advisory-only` controls
+cannot; all AI review controls are advisory-only so an AI result cannot become
+the sole merge gate.
+
 ## Promotion gate
 
 Move a capability from advisory to enforced only after:

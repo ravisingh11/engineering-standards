@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect nested Guardrails v2 evidence from selected GitHub checks."""
+"""Collect nested Guardrails v2 evidence from GitHub checks and PR reviews."""
 
 from __future__ import annotations
 
@@ -37,6 +37,8 @@ MAX_EVIDENCE_RECORD_LENGTH = 1_000
 MAX_REASON_LENGTH = 1_000
 CHECK_RUNS_PER_PAGE = 100
 MAX_CHECK_RUN_PAGES = 10
+PULL_REQUEST_REVIEWS_PER_PAGE = 100
+MAX_PULL_REQUEST_REVIEW_PAGES = 10
 ARTIFACT_STATUSES = {"passed", "failed", "not_run"}
 
 
@@ -104,7 +106,7 @@ def check_run_evidence(control_id: str, provider_name: str, check: dict[str, Any
     return bounded_result(result)
 
 
-def _request(url: str, token: str) -> dict[str, Any]:
+def _request(url: str, token: str) -> Any:
     request = Request(url, headers={
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
@@ -191,6 +193,27 @@ def expected_checks(
     return expected
 
 
+def expected_reviews(
+    policy: dict[str, Any], profiles: dict[str, Any], catalog: dict[str, Any],
+    provider_config: dict[str, Any], operation: str,
+) -> list[dict[str, Any]]:
+    selected, _, providers = evaluator_module().effective_controls(
+        policy, profiles, catalog, provider_config, operation, "git-commit"
+    )
+    expected: list[dict[str, Any]] = []
+    for control_id, selection in selected.items():
+        for provider_id in [selection["authoritative"], *selection["supplemental"]]:
+            review = providers[provider_id].get("reviews", {}).get(control_id)
+            if review:
+                expected.append({
+                    "control_id": control_id,
+                    "provider_id": provider_id,
+                    "provider_name": providers[provider_id]["display_name"],
+                    "review_author": review["review_author"],
+                })
+    return expected
+
+
 def not_run(check_name: str, reason: str) -> dict[str, Any]:
     return bounded_result({
         "producer": f"GitHub Check: {check_name}",
@@ -238,6 +261,70 @@ def enumerate_check_runs(
         if len(check_runs) == validated_total:
             return check_runs
     raise ValueError("check-run enumeration exceeded the safe page limit")
+
+
+def enumerate_pull_request_reviews(
+    repo: str, pull_request_number: int, token: str,
+) -> list[dict[str, Any]]:
+    reviews: list[dict[str, Any]] = []
+    for page in range(1, MAX_PULL_REQUEST_REVIEW_PAGES + 1):
+        payload = _request(
+            f"https://api.github.com/repos/{repo}/pulls/{pull_request_number}/reviews"
+            f"?per_page={PULL_REQUEST_REVIEWS_PER_PAGE}&page={page}",
+            token,
+        )
+        if not isinstance(payload, list) or any(
+            not isinstance(review, dict) for review in payload
+        ):
+            raise ValueError("pull-request review response must be a list of objects")
+        reviews.extend(payload)
+        if len(payload) < PULL_REQUEST_REVIEWS_PER_PAGE:
+            return reviews
+    raise ValueError("pull-request review enumeration exceeds the safe page limit")
+
+
+def collect_review_evidence(
+    repo: str,
+    revision: str,
+    token: str,
+    pull_request_number: int | None,
+    contract: dict[str, Any],
+    provider_name: str,
+) -> dict[str, Any]:
+    if pull_request_number is None:
+        return not_run(
+            provider_name,
+            "A pull-request number is required to collect GitHub review evidence.",
+        )
+    reviews = enumerate_pull_request_reviews(repo, pull_request_number, token)
+    author = contract["review_author"]
+    matching = [
+        review
+        for review in reviews
+        if review.get("commit_id") == revision
+        and isinstance(review.get("user"), dict)
+        and review["user"].get("login") == author
+        and review["user"].get("type") == "Bot"
+        and review.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED"}
+    ]
+    if not matching:
+        return not_run(
+            provider_name,
+            "No completed GitHub review matched the exact head and reviewer identity.",
+        )
+    review = max(
+        matching,
+        key=lambda item: (
+            str(item.get("submitted_at") or ""),
+            str(item.get("id") or ""),
+        ),
+    )
+    url = review.get("html_url") or "unavailable"
+    return bounded_result({
+        "producer": f"GitHub Review: {provider_name}",
+        "status": "passed",
+        "evidence": [f"{provider_name}: {review['state']}; {url}"],
+    })
 
 
 def workflow_path_matches(expected: str, actual: Any) -> bool:
@@ -525,10 +612,12 @@ def collect_checks(
     subject_type: str = "git-commit",
     trusted_base_revision: str | None = None,
     trusted_workflow_ref: str | None = None,
+    pull_request_number: int | None = None,
 ) -> dict[str, Any]:
     if subject_type != "git-commit":
         raise ValueError("GitHub check collection is git-commit only")
     expected = expected_checks(policy, profiles, catalog, provider_config, operation)
+    reviews = expected_reviews(policy, profiles, catalog, provider_config, operation)
     providers = provider_config["providers"]
     check_names = set(expected)
     deadline = time.monotonic() + max(0, wait_seconds)
@@ -581,6 +670,42 @@ def collect_checks(
             )
         for control_id in contract["control_ids"]:
             results.setdefault(control_id, {})[provider_id] = copy.deepcopy(result)
+    review_attempts = 0
+    pending_reviews = list(reviews)
+    review_results: dict[tuple[str, str], dict[str, Any]] = {}
+    while pending_reviews:
+        review_attempts += 1
+        next_pending = []
+        for contract in pending_reviews:
+            key = (contract["control_id"], contract["provider_id"])
+            try:
+                result = collect_review_evidence(
+                    repo,
+                    revision,
+                    token,
+                    pull_request_number,
+                    contract,
+                    contract["provider_name"],
+                )
+            except (HTTPError, URLError, OSError, ValueError, KeyError):
+                result = not_run(
+                    contract["provider_name"],
+                    "Complete GitHub pull-request review enumeration could not be proven.",
+                )
+            review_results[key] = result
+            if (
+                result["status"] != "passed"
+                and pull_request_number is not None
+                and time.monotonic() < deadline
+                and review_attempts < maximum_attempts
+            ):
+                next_pending.append(contract)
+        if not next_pending:
+            break
+        pending_reviews = next_pending
+        time.sleep(10)
+    for (control_id, provider_id), result in review_results.items():
+        results.setdefault(control_id, {})[provider_id] = result
     return {"version": 2, "subject": {"type": "git-commit", "revision": revision}, "results": results}
 
 
@@ -598,6 +723,7 @@ def main() -> int:
     parser.add_argument("--operation", choices=("change", "release"), default="change")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wait-seconds", type=int, default=0)
+    parser.add_argument("--pull-request-number", type=int)
     args = parser.parse_args()
     if not args.repo or not args.token:
         print("ERROR --repo and --token are required", file=sys.stderr)
@@ -609,6 +735,7 @@ def main() -> int:
             wait_seconds=args.wait_seconds,
             trusted_base_revision=args.trusted_base_revision,
             trusted_workflow_ref=args.trusted_workflow_ref,
+            pull_request_number=args.pull_request_number,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

@@ -34,7 +34,7 @@ Evidence groups provider results under the capability they support:
 }
 ```
 
-Subject types are `git-commit`, `artifact`, and `environment`. The catalog
+Subject types are `git-commit`, `pull-request`, `artifact`, and `environment`. The catalog
 declares which subject type each capability accepts.
 
 ## Result requirements
@@ -105,11 +105,19 @@ separate base-SHA suite.
 
 Unverifiable provenance is `not_run`. A check name alone is insufficient.
 
+GitHub review providers use a separate review contract. Guardrails accepts a
+completed review only when its `commit_id` equals the evaluated head SHA, its
+`user.login` exactly matches configured `review_author`, and GitHub identifies
+the account as a bot. The latest matching review is evidence that the review
+completed, not a guarantee that the reviewer found every defect.
+
 ## Promotion contract
 
 Before selecting a provider as authoritative or setting its capability to
 `enforced`, verify its workflow/adapter, credentials and configuration,
 exact-subject binding, check name, failure behavior, and remediation owner. A
 credential or workflow file alone does not activate or pass the capability.
+Controls marked `advisory-only` in the catalog, including every AI review
+control, cannot be promoted to `enforced`.
 
 See [control setup](control-setup.md) and [status](control-status.md).

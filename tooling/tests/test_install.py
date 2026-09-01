@@ -21,6 +21,9 @@ CORE_WORKFLOWS = {
     "build.yml",
     "unit-tests.yml",
     "changed-code-coverage.yml",
+    "format-and-lint.yml",
+    "migration-validation.yml",
+    "pr-metadata.yml",
     "semgrep-ce.yml",
     "gitleaks.yml",
 }
@@ -43,6 +46,7 @@ CANONICAL_DISTRIBUTION = {
     ".guardrails/control-catalog.schema.json": "guardrails/control-catalog.schema.json",
     ".guardrails/documentation.yaml": "guardrails/defaults/documentation.yaml",
     ".guardrails/change-scope.yaml": "guardrails/defaults/change-scope.yaml",
+    ".guardrails/pr-metadata.yaml": "guardrails/defaults/pr-metadata.yaml",
     ".guardrails/ground-truth-ai.yaml": "guardrails/defaults/ground-truth-ai.yaml",
     ".guardrails/evaluate.py": "guardrails/evaluate.py",
     ".guardrails/scorecard.py": "tooling/guardrail_scorecard.py",
@@ -55,6 +59,7 @@ CANONICAL_DISTRIBUTION = {
     ".guardrails/validators/validate_repository.py": "guardrails/validate_repository.py",
     ".guardrails/validators/validate_documentation.py": "tooling/validators/validate_documentation.py",
     ".guardrails/validators/inspect_change_scope.py": "tooling/validators/inspect_change_scope.py",
+    ".guardrails/validators/validate_pr_metadata.py": "tooling/validators/validate_pr_metadata.py",
 }
 
 
@@ -111,6 +116,8 @@ class InstallerTests(unittest.TestCase):
                     "Build",
                     "Unit Tests",
                     "Changed Code Coverage",
+                    "Format and Lint",
+                    "Migration Validation",
                     "Semgrep CE",
                     "Gitleaks",
                 },

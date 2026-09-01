@@ -10,6 +10,7 @@ permissions:
   actions: read
   contents: read
   checks: read
+  pull-requests: read
 
 jobs:
   scorecard:
@@ -67,12 +68,17 @@ jobs:
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           TRUSTED_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.sha }}
           TRUSTED_WORKFLOW_REF: ${{ github.event.pull_request.base.ref && format('refs/heads/{0}', github.event.pull_request.base.ref) || github.ref }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
           mkdir -p .artifacts/guardrails
           GUARDRAILS_TIMESTAMP="$(date -u +%Y%m%d-%H%M%SZ)"
           echo "GUARDRAILS_TIMESTAMP=${GUARDRAILS_TIMESTAMP}" >> "${GITHUB_ENV}"
           EVIDENCE_JSON=".artifacts/guardrails/evidence-${GUARDRAILS_TIMESTAMP}.json"
+          review_args=()
+          if [ -n "${PULL_REQUEST_NUMBER}" ]; then
+            review_args+=(--pull-request-number "${PULL_REQUEST_NUMBER}")
+          fi
           python3 .guardrails-trusted/.guardrails/github_evidence.py \
             --revision "${REVISION}" \
             --policy .guardrails-trusted/.guardrails/policy.yaml \
@@ -81,6 +87,7 @@ jobs:
             --providers .guardrails-trusted/.guardrails/providers.yaml \
             --trusted-base-revision "${TRUSTED_BASE_REVISION}" \
             --trusted-workflow-ref "${TRUSTED_WORKFLOW_REF}" \
+            "${review_args[@]}" \
             --output "${EVIDENCE_JSON}" \
             --wait-seconds 1800
           cp "${EVIDENCE_JSON}" .artifacts/guardrails/evidence.json

@@ -27,6 +27,36 @@
       "secrets": [],
       "enabled_by_default": true
     },
+    "repository-pr-metadata": {
+      "display_name": "Repository PR Metadata",
+      "activation": "repository",
+      "capabilities": ["pr-metadata"],
+      "checks": {"pr-metadata": {"check_name": "PR Metadata", "workflow": "PR Metadata", "workflow_path": ".github/workflows/pr-metadata.yml", "trusted_paths": [".guardrails/validators/validate_pr_metadata.py", ".guardrails/pr-metadata.yaml"]}},
+      "template": "workflows/pr-metadata.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "repository-format-and-lint": {
+      "display_name": "Repository Format and Lint Command",
+      "activation": "repository",
+      "capabilities": ["format-and-lint"],
+      "checks": {"format-and-lint": {"check_name": "Format and Lint", "workflow": "Format and Lint", "workflow_path": ".github/workflows/format-and-lint.yml"}},
+      "template": "workflows/format-and-lint.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
+    "repository-migration-validation": {
+      "display_name": "Repository Migration Validation Command",
+      "activation": "repository",
+      "capabilities": ["migration-validation"],
+      "checks": {"migration-validation": {"check_name": "Migration Validation", "workflow": "Migration Validation", "workflow_path": ".github/workflows/migration-validation.yml"}},
+      "template": "workflows/migration-validation.yml",
+      "template_available": true,
+      "secrets": [],
+      "enabled_by_default": true
+    },
     "repository-build": {
       "display_name": "Repository Build Command",
       "activation": "repository",
@@ -196,6 +226,17 @@
       "secrets": [],
       "enabled_by_default": false
     },
+    "codex-github-review": {
+      "display_name": "Codex Code Review",
+      "activation": "external",
+      "capabilities": ["ai-engineering-review"],
+      "checks": {},
+      "reviews": {"ai-engineering-review": {"review_author": "chatgpt-codex-connector[bot]"}},
+      "template": null,
+      "template_available": false,
+      "secrets": [],
+      "enabled_by_default": false
+    },
     "ai-qa-adapter": {
       "display_name": "AI QA Review Adapter",
       "activation": "external",
@@ -242,6 +283,9 @@
     "documentation-validation": {"authoritative": "repository-validator", "supplemental": []},
     "repository-ground-truth": {"authoritative": "repository-validator", "supplemental": []},
     "change-scope": {"authoritative": "repository-change-scope", "supplemental": []},
+    "pr-metadata": {"authoritative": "repository-pr-metadata", "supplemental": []},
+    "format-and-lint": {"authoritative": "repository-format-and-lint", "supplemental": []},
+    "migration-validation": {"authoritative": "repository-migration-validation", "supplemental": []},
     "build": {"authoritative": "repository-build", "supplemental": []},
     "unit-tests": {"authoritative": "repository-unit-tests", "supplemental": []},
     "changed-code-coverage": {"authoritative": "repository-changed-code-coverage", "supplemental": []},
@@ -255,7 +299,7 @@
     "static-quality": {"authoritative": "sonarqube", "supplemental": []},
     "dependency-vulnerability": {"authoritative": "snyk-open-source", "supplemental": []},
     "license-compliance": {"authoritative": "fossa", "supplemental": []},
-    "ai-engineering-review": {"authoritative": "ai-engineering-adapter", "supplemental": []},
+    "ai-engineering-review": {"authoritative": "codex-github-review", "supplemental": []},
     "ai-qa-review": {"authoritative": "ai-qa-adapter", "supplemental": []},
     "ai-security-review": {"authoritative": "ai-security-adapter", "supplemental": []},
     "ai-repository-standards-review": {"authoritative": "ai-repository-standards-adapter", "supplemental": []},

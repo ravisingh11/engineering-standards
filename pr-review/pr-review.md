@@ -18,8 +18,9 @@ repository knows application-specific architecture or commands.
 - `P2` — Should fix before or near merge; not automatically blocking.
 - `P3` — Recommendation or future improvement.
 
-Unresolved `P0` or `P1` findings fail the AI PR review. A repository may apply
-stricter rules, but should document the difference.
+Unresolved `P0` or `P1` findings make the AI review itself unsuccessful and
+should be resolved or explicitly triaged. The AI review capability remains
+advisory-only: its check or review must not be the sole merge gate.
 
 ## Review contract
 
@@ -66,7 +67,8 @@ the path in `AI_REVIEW_RESULT`:
 ```
 
 The adapter must exit non-zero when it cannot complete the review or when
-unresolved `P0`/`P1` findings are present. The shared workflow consolidates
+unresolved `P0`/`P1` findings are present. This keeps the review outcome
+truthful without granting it merge authority. The shared workflow consolidates
 the result files but does not choose an AI provider.
 
 ## Consolidation

@@ -291,11 +291,7 @@ def local_evidence(target: Path, revision: str, base_ref: str) -> dict[str, Any]
         }
     results["change-scope"] = {"repository-change-scope": record}
     producers = producer_module()
-    for control_id, provider_id in (
-        ("build", "repository-build"),
-        ("unit-tests", "repository-unit-tests"),
-        ("changed-code-coverage", "repository-changed-code-coverage"),
-    ):
+    for control_id, (_, provider_id, _) in producers.COMMAND_PRODUCERS.items():
         results[control_id] = {
             provider_id: producers.repository_command_result(
                 control_id, os.environ, target, revision=revision

@@ -49,6 +49,94 @@ def contracts() -> tuple[dict, dict, dict, dict]:
 
 
 class ProviderContractTests(unittest.TestCase):
+    def test_catalog_declares_ai_reviews_advisory_only(self) -> None:
+        _, _, catalog, _ = contracts()
+        policies = {
+            control["id"]: control["enforcement_policy"]
+            for control in catalog["controls"]
+        }
+
+        self.assertEqual(policies["build"], "promotable")
+        self.assertEqual(policies["ai-engineering-review"], "advisory-only")
+        self.assertEqual(policies["ai-qa-review"], "advisory-only")
+        self.assertEqual(policies["ai-security-review"], "advisory-only")
+        self.assertEqual(
+            policies["ai-repository-standards-review"], "advisory-only"
+        )
+
+    def test_core_profile_includes_configurable_repository_quality_commands(self) -> None:
+        _, profiles, catalog, providers = contracts()
+        change = profiles["profiles"]["core"]["defaults"]["change"]
+        catalog_ids = {control["id"] for control in catalog["controls"]}
+
+        self.assertEqual(change["format-and-lint"], "advisory")
+        self.assertEqual(change["migration-validation"], "advisory")
+        self.assertIn("format-and-lint", catalog_ids)
+        self.assertIn("migration-validation", catalog_ids)
+        self.assertEqual(
+            providers["selections"]["format-and-lint"]["authoritative"],
+            "repository-format-and-lint",
+        )
+        self.assertEqual(
+            providers["selections"]["migration-validation"]["authoritative"],
+            "repository-migration-validation",
+        )
+
+    def test_pull_request_subject_is_supported_for_pr_metadata(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        control = next(
+            item for item in catalog["controls"] if item["id"] == "pr-metadata"
+        )
+
+        self.assertEqual(control["evidence_subject"], "pull-request")
+        self.assertEqual(
+            providers["selections"]["pr-metadata"]["authoritative"],
+            "repository-pr-metadata",
+        )
+        policy["overrides"]["change"]["pr-metadata"] = "advisory"
+        result = MODULE.evaluate(
+            policy,
+            profiles,
+            catalog,
+            providers,
+            {
+                "version": 2,
+                "subject": {"type": "pull-request", "revision": "sha256:abc123"},
+                "results": {
+                    "pr-metadata": {
+                        "repository-pr-metadata": {
+                            "producer": "Repository PR Metadata",
+                            "status": "passed",
+                            "evidence": ["PR metadata satisfied the configured contract"],
+                        }
+                    }
+                },
+            },
+            "change",
+            "sha256:abc123",
+            "pull-request",
+        )
+
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["controls"][0]["id"], "pr-metadata")
+
+    def test_codex_review_provider_uses_exact_github_review_identity(self) -> None:
+        _, _, catalog, providers = contracts()
+        controls = {control["id"]: control for control in catalog["controls"]}
+        definitions, selections = MODULE.validate_provider_config(providers, controls)
+        codex = definitions["codex-github-review"]
+
+        self.assertEqual(codex["activation"], "external")
+        self.assertEqual(codex["checks"], {})
+        self.assertEqual(
+            codex["reviews"]["ai-engineering-review"]["review_author"],
+            "chatgpt-codex-connector[bot]",
+        )
+        self.assertEqual(
+            selections["ai-engineering-review"]["authoritative"],
+            "codex-github-review",
+        )
+
     def test_runtime_rejects_missing_or_unknown_control_stage(self) -> None:
         _, _, catalog, _ = contracts()
         for stage in (None, "unknown-stage"):
@@ -218,6 +306,24 @@ class EvaluateV2Tests(unittest.TestCase):
         self.assertEqual(result["decision"], "block")
         self.assertEqual(result["summary"]["enforced"], {"passed": 0, "total": 1})
         self.assertEqual(result["controls"][0]["effective_mode"], "enforced")
+
+    def test_runtime_rejects_enforced_advisory_only_control(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        policy["overrides"]["change"]["ai-engineering-review"] = "enforced"
+
+        with self.assertRaisesRegex(
+            ValueError, "ai-engineering-review is advisory-only"
+        ):
+            MODULE.evaluate(
+                policy,
+                profiles,
+                catalog,
+                providers,
+                evidence(),
+                "change",
+                "abc123",
+                "git-commit",
+            )
 
     def test_selected_profiles_are_additive(self) -> None:
         policy, _, _, _ = contracts()

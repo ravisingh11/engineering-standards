@@ -1,0 +1,60 @@
+# Guardrails v2 installer-owned workflow.
+name: PR Metadata
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-metadata:
+    name: PR Metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted Guardrails runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .guardrails-trusted
+          persist-credentials: false
+      - name: Validate pull-request metadata
+        id: validate
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/guardrails
+          revision="$(python3 .guardrails-trusted/.guardrails/validators/validate_pr_metadata.py \
+            --event "${EVENT_PATH}" \
+            --config .guardrails-trusted/.guardrails/pr-metadata.yaml \
+            --output .artifacts/guardrails/pr-metadata-evidence.json)"
+          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+      - name: Render pull-request scorecard
+        env:
+          PR_REVISION: ${{ steps.validate.outputs.revision }}
+        run: |
+          set -euo pipefail
+          status=0
+          python3 .guardrails-trusted/.guardrails/scorecard.py \
+            --policy .guardrails-trusted/.guardrails/policy.yaml \
+            --profiles .guardrails-trusted/.guardrails/profiles.yaml \
+            --catalog .guardrails-trusted/.guardrails/control-catalog.yaml \
+            --providers .guardrails-trusted/.guardrails/providers.yaml \
+            --evidence .artifacts/guardrails/pr-metadata-evidence.json \
+            --operation change \
+            --revision "${PR_REVISION}" \
+            --subject-type pull-request \
+            > .artifacts/guardrails/pr-metadata-scorecard.md || status=$?
+          cat .artifacts/guardrails/pr-metadata-scorecard.md >> "${GITHUB_STEP_SUMMARY}"
+          exit "${status}"
+      - name: Upload PR metadata evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr-metadata-${{ github.run_id }}
+          path: .artifacts/guardrails
+          if-no-files-found: error
+

@@ -14,6 +14,9 @@ Core is selected by default. A normal install deploys its runtime and workflows.
 | Documentation validation | Repository Validators | `Validate / docs` | Maintain `.guardrails/documentation.yaml` |
 | Repository ground truth | Repository Validators | `Validate / ground truth` | Maintain `.guardrails/ground-truth-ai.yaml` |
 | PR change scope | PR Change Scope | `PR Change Scope` | Maintain `.guardrails/change-scope.yaml`; defaults are advisory |
+| PR metadata | Repository PR Metadata | `PR Metadata` | Maintain `.guardrails/pr-metadata.yaml`; binds mutable title/body state independently of the head SHA |
+| Format and lint | Repository Format and Lint Command | `Format and Lint` | Set `GUARDRAILS_FORMAT_LINT_COMMAND` |
+| Migration validation | Repository Migration Validation Command | `Migration Validation` | Set `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` |
 | Build | Repository Build Command | `Build` | Set `GUARDRAILS_BUILD_COMMAND` |
 | Unit tests | Repository Unit Test Command | `Unit Tests` | Set `GUARDRAILS_UNIT_TEST_COMMAND` |
 | Changed-code coverage | Repository Changed Code Coverage Command | `Changed Code Coverage` | Set `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |
@@ -26,14 +29,35 @@ Local and Actions producers use the same names:
 
 | Variable | Required for | Behavior when absent |
 | --- | --- | --- |
-| `GUARDRAILS_SETUP_COMMAND` | Optional setup before build/test/coverage | Setup step is omitted. |
+| `GUARDRAILS_SETUP_COMMAND` | Optional setup before repository commands | Setup step is omitted. |
 | `GUARDRAILS_BUILD_COMMAND` | Build | Build reports `NO RESULT`. |
 | `GUARDRAILS_UNIT_TEST_COMMAND` | Unit tests | Unit tests report `NO RESULT`. |
 | `GUARDRAILS_CHANGED_COVERAGE_COMMAND` | Changed-code coverage | Coverage reports `NO RESULT`. |
+| `GUARDRAILS_FORMAT_LINT_COMMAND` | Format and lint | Format/lint reports `NO RESULT`. |
+| `GUARDRAILS_MIGRATION_VALIDATION_COMMAND` | Migration validation | Migration validation reports `NO RESULT`. |
 | `GUARDRAILS_WORKING_DIRECTORY` | All repository commands | Defaults to `.`; must stay inside the repository. |
 
 Use repository variables in GitHub and environment variables locally. Commands
 run through `bash -euo pipefail -c` in the selected working directory.
+
+### Pull-request metadata
+
+`.guardrails/pr-metadata.yaml` defines a title regular expression and required
+body markers:
+
+```json
+{
+  "version": 2,
+  "title_pattern": "^ENG-[0-9]+ ",
+  "required_body_markers": ["## Summary", "## Testing"]
+}
+```
+
+The trusted workflow runs when a pull request is opened, edited, synchronized,
+or reopened. Its `pull-request` subject hashes repository, PR number, head SHA,
+update time, title, and body. A title/body edit invalidates older metadata
+evidence without invalidating commit-bound build or test evidence. Local scans
+do not fabricate pull-request context, so they do not evaluate this control.
 
 ### Semgrep CE
 
@@ -168,9 +192,18 @@ installed as active integrations:
 | Snyk Open Source | Dependency vulnerability | `SNYK_TOKEN` | Supply a repository or organization workflow/adapter and exact-head `Snyk Open Source` evidence. |
 | Semgrep AppSec Platform | Custom static analysis, deep SAST | `SEMGREP_APP_TOKEN` | Supply an organization-approved integration and exact-head `Semgrep` evidence. |
 | FOSSA | Dependency vulnerability, license compliance | `FOSSA_API_KEY` | Supply a repository or organization workflow/adapter and exact-head `FOSSA` evidence. |
+| Codex Code Review | AI engineering review | None | Connect the repository to Codex, enable native automatic reviews in Codex settings (recommended) or comment `@codex review`, then set `ai-engineering-review=advisory`. Guardrails accepts only an exact-head review from `chatgpt-codex-connector[bot]`. |
 
 Do not add a credential until the adapter is ready. Do not select a vendor as
 authoritative until its evidence contract and failure behavior are verified.
+
+Codex posts a standard GitHub review and can follow repository `AGENTS.md`
+guidance. The provider marks exact-head review completion; it does not claim
+that AI found every defect. If your GitHub installation uses a different bot
+login, update `review_author` in `.guardrails/providers.yaml` to the exact
+observed login. AI review controls remain advisory-only and cannot be promoted.
+See [OpenAI's Codex GitHub review setup](https://learn.chatgpt.com/docs/third-party/github)
+for connection, automatic-review, and `@codex review` instructions.
 
 ## Promote to enforcement
 
@@ -188,6 +221,8 @@ python3 .guardrails/configure.py --set unit-tests=enforced
 
 Policy enforcement without a matching ruleset does not protect merge. A
 required status check without a reliable provider can deadlock merge.
+The promotion sequence applies only to controls whose catalog
+`enforcement_policy` is `promotable`; AI review controls are `advisory-only`.
 
 ## Evidence-only lifecycle controls
 

@@ -18,6 +18,9 @@ CONTROL_IDS = {
     "documentation-validation",
     "repository-ground-truth",
     "change-scope",
+    "pr-metadata",
+    "format-and-lint",
+    "migration-validation",
     "build",
     "unit-tests",
     "changed-code-coverage",
@@ -64,7 +67,10 @@ class ControlCatalogPolicyTests(unittest.TestCase):
         self.validator("validate_control_catalog_document")(catalog)
 
     def test_every_control_has_v2_contract_fields(self) -> None:
-        required = {"id", "name", "purpose", "stage", "availability", "evidence_subject"}
+        required = {
+            "id", "name", "purpose", "stage", "availability",
+            "evidence_subject", "enforcement_policy",
+        }
 
         for control in load("policies/control-catalog.yaml")["controls"]:
             with self.subTest(control_id=control["id"]):
@@ -79,7 +85,7 @@ class ControlCatalogPolicyTests(unittest.TestCase):
 
     def test_rejects_invalid_evidence_subject(self) -> None:
         catalog = load("policies/control-catalog.yaml")
-        catalog["controls"][0]["evidence_subject"] = "pull-request"
+        catalog["controls"][0]["evidence_subject"] = "unknown-subject"
 
         with self.assertRaisesRegex(ValueError, "evidence_subject"):
             self.validator("validate_control_catalog_document")(catalog)
@@ -174,6 +180,9 @@ class ControlCatalogPolicyTests(unittest.TestCase):
                     "documentation-validation",
                     "repository-ground-truth",
                     "change-scope",
+                    "pr-metadata",
+                    "format-and-lint",
+                    "migration-validation",
                     "build",
                     "unit-tests",
                     "changed-code-coverage",

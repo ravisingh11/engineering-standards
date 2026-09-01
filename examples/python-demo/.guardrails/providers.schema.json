@@ -56,6 +56,19 @@
         "artifact_member": ["external_id_prefix", "artifact_name_prefix"]
       }
     },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_author"],
+      "properties": {
+        "review_author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\[bot\\])?$"
+        }
+      }
+    },
     "provider": {
       "type": "object",
       "additionalProperties": false,
@@ -68,6 +81,11 @@
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/identifier"},
           "additionalProperties": {"$ref": "#/$defs/check"}
+        },
+        "reviews": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/review"}
         },
         "template": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "pattern": "\\S"},
         "template_available": {"type": "boolean"},

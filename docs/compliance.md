@@ -43,11 +43,14 @@ GUARDRAILS_SETUP_COMMAND
 GUARDRAILS_BUILD_COMMAND
 GUARDRAILS_UNIT_TEST_COMMAND
 GUARDRAILS_CHANGED_COVERAGE_COMMAND
+GUARDRAILS_FORMAT_LINT_COMMAND
+GUARDRAILS_MIGRATION_VALIDATION_COMMAND
 GUARDRAILS_WORKING_DIRECTORY
 ```
 
 Use environment variables locally and repository variables in Actions. Missing
-build, test, or coverage commands produce `not_run` / `NO RESULT`.
+build, test, coverage, format/lint, or migration commands produce `not_run` /
+`NO RESULT`.
 
 For the GitHub overlay, configure only applicable values:
 

@@ -117,6 +117,9 @@ class GuardrailsContractValidationTests(unittest.TestCase):
             {
                 "repository-validator",
                 "repository-change-scope",
+                "repository-pr-metadata",
+                "repository-format-and-lint",
+                "repository-migration-validation",
                 "repository-build",
                 "repository-unit-tests",
                 "repository-changed-code-coverage",

@@ -1,0 +1,34 @@
+# Guardrails v2 installer-owned workflow.
+name: Format and Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format-and-lint:
+    name: Format and Lint
+    if: ${{ vars.GUARDRAILS_FORMAT_LINT_COMMAND != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Setup repository
+        if: ${{ vars.GUARDRAILS_SETUP_COMMAND != '' }}
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_SETUP_COMMAND}"
+        env:
+          GUARDRAILS_SETUP_COMMAND: ${{ vars.GUARDRAILS_SETUP_COMMAND }}
+      - name: Verify formatting and lint
+        working-directory: ${{ vars.GUARDRAILS_WORKING_DIRECTORY || '.' }}
+        run: bash -euo pipefail -c "${GUARDRAILS_FORMAT_LINT_COMMAND}"
+        env:
+          GUARDRAILS_FORMAT_LINT_COMMAND: ${{ vars.GUARDRAILS_FORMAT_LINT_COMMAND }}
+
