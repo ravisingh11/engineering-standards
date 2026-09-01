@@ -140,7 +140,28 @@ class LocalEvidenceTests(unittest.TestCase):
             result("not_run", "build"),
             result("not_run", "tests"),
             result("not_run", "coverage"),
+            result("not_run", "format"),
+            result("not_run", "migrations"),
         ]
+        producer.COMMAND_PRODUCERS = {
+            "build": ("BUILD", "repository-build", "Build"),
+            "unit-tests": ("TEST", "repository-unit-tests", "Tests"),
+            "changed-code-coverage": (
+                "COVERAGE",
+                "repository-changed-code-coverage",
+                "Coverage",
+            ),
+            "format-and-lint": (
+                "FORMAT",
+                "repository-format-and-lint",
+                "Format",
+            ),
+            "migration-validation": (
+                "MIGRATIONS",
+                "repository-migration-validation",
+                "Migrations",
+            ),
+        }
         producer.semgrep_result.return_value = result("passed", "semgrep")
         producer.gitleaks_result.return_value = result("passed", "gitleaks")
         return producer
@@ -228,7 +249,10 @@ class LocalEvidenceTests(unittest.TestCase):
                 result("not_run", "build"),
                 result("not_run", "tests"),
                 result("not_run", "coverage"),
+                result("not_run", "format"),
+                result("not_run", "migrations"),
             ]
+            producer.COMMAND_PRODUCERS = self.producer().COMMAND_PRODUCERS
             producer.semgrep_result.return_value = result("passed", "semgrep")
             producer.gitleaks_result.return_value = result("passed", "gitleaks")
 
@@ -245,6 +269,8 @@ class LocalEvidenceTests(unittest.TestCase):
             self.assertEqual(set(evidence["results"]["build"]), {"repository-build"})
             self.assertEqual(set(evidence["results"]["unit-tests"]), {"repository-unit-tests"})
             self.assertEqual(set(evidence["results"]["changed-code-coverage"]), {"repository-changed-code-coverage"})
+            self.assertEqual(set(evidence["results"]["format-and-lint"]), {"repository-format-and-lint"})
+            self.assertEqual(set(evidence["results"]["migration-validation"]), {"repository-migration-validation"})
             self.assertEqual(set(evidence["results"]["custom-static-analysis"]), {"semgrep-ce"})
             self.assertEqual(set(evidence["results"]["secret-detection"]), {"gitleaks"})
 

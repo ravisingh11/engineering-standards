@@ -27,6 +27,16 @@ COMMAND_PRODUCERS = {
         "repository-changed-code-coverage",
         "Repository Changed Code Coverage Command",
     ),
+    "format-and-lint": (
+        "GUARDRAILS_FORMAT_LINT_COMMAND",
+        "repository-format-and-lint",
+        "Repository Format and Lint Command",
+    ),
+    "migration-validation": (
+        "GUARDRAILS_MIGRATION_VALIDATION_COMMAND",
+        "repository-migration-validation",
+        "Repository Migration Validation Command",
+    ),
 }
 
 Runner = Callable[[list[str], Path], tuple[int, str]]

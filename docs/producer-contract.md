@@ -34,7 +34,7 @@ Evidence groups provider results under the capability they support:
 }
 ```
 
-Subject types are `git-commit`, `artifact`, and `environment`. The catalog
+Subject types are `git-commit`, `pull-request`, `artifact`, and `environment`. The catalog
 declares which subject type each capability accepts.
 
 ## Result requirements
@@ -55,6 +55,11 @@ contain credentials or secret values.
 activation category, check contracts, declared secrets, and template metadata.
 Its `selections` object assigns exactly one authoritative provider and zero or
 more supplemental providers to every runnable capability.
+
+A provider may use check-run contracts for some capabilities and review
+contracts for others. It must not declare both contract types for the same
+capability; configuration validation rejects that ambiguity before evidence is
+collected.
 
 Only the authoritative provider can satisfy or block a capability. Supplemental
 providers appear in the scorecard with `advisory: true` and never change the
@@ -105,11 +110,23 @@ separate base-SHA suite.
 
 Unverifiable provenance is `not_run`. A check name alone is insufficient.
 
+GitHub review providers use a separate review contract. Guardrails accepts a
+completed review only when its `commit_id` equals the evaluated head SHA, its
+`user.login` exactly matches configured `review_author`, and GitHub identifies
+the account as a bot. The latest matching review is evidence that the review
+completed, not a guarantee that the reviewer found every defect. An approved or
+comment-only review reports `passed`; `CHANGES_REQUESTED` reports `failed`.
+Scorecard workflows refresh on review submission and dismissal, and cancel an
+older in-flight scorecard for the same pull request so stale review state cannot
+publish last.
+
 ## Promotion contract
 
 Before selecting a provider as authoritative or setting its capability to
 `enforced`, verify its workflow/adapter, credentials and configuration,
 exact-subject binding, check name, failure behavior, and remediation owner. A
 credential or workflow file alone does not activate or pass the capability.
+Controls marked `advisory-only` in the catalog, including every AI review
+control, cannot be promoted to `enforced`.
 
 See [control setup](control-setup.md) and [status](control-status.md).

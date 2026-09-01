@@ -207,6 +207,95 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         self.assertEqual(evidence["results"]["build"]["external-build"]["status"], "passed")
         self.assertNotIn("deep-sast", evidence["results"])
 
+    def test_collects_codex_review_only_for_exact_head_and_bot_identity(self) -> None:
+        policy, profiles, catalog, providers = contracts()
+        for control_id in list(policy["overrides"]["change"]):
+            policy["overrides"]["change"][control_id] = "not_activated"
+        policy["overrides"]["change"]["build"] = "not_activated"
+        policy["overrides"]["change"]["ai-engineering-review"] = "advisory"
+        providers["selections"]["ai-engineering-review"] = {
+            "authoritative": "codex-github-review",
+            "supplemental": [],
+        }
+        reviews = [
+            {
+                "id": 71,
+                "commit_id": "older",
+                "state": "COMMENTED",
+                "submitted_at": "2026-08-31T11:00:00Z",
+                "html_url": "https://github.com/owner/repo/pull/17#pullrequestreview-71",
+                "user": {"login": "chatgpt-codex-connector[bot]", "type": "Bot"},
+            },
+            {
+                "id": 72,
+                "commit_id": "abc123",
+                "state": "COMMENTED",
+                "submitted_at": "2026-08-31T12:00:00Z",
+                "html_url": "https://github.com/owner/repo/pull/17#pullrequestreview-72",
+                "user": {"login": "chatgpt-codex-connector[bot]", "type": "Bot"},
+            },
+        ]
+
+        with patch.object(MODULE, "_request", return_value=reviews):
+            evidence = MODULE.collect_checks(
+                "owner/repo",
+                "abc123",
+                "token",
+                policy,
+                profiles,
+                catalog,
+                providers,
+                "change",
+                pull_request_number=17,
+            )
+
+        result = evidence["results"]["ai-engineering-review"]["codex-github-review"]
+        self.assertEqual(result["status"], "passed")
+        self.assertIn("pullrequestreview-72", result["evidence"][0])
+
+    def test_codex_review_is_not_run_without_pr_or_exact_identity(self) -> None:
+        contract = {"review_author": "chatgpt-codex-connector[bot]"}
+        wrong_author = [{
+            "id": 73,
+            "commit_id": "abc123",
+            "state": "COMMENTED",
+            "submitted_at": "2026-08-31T12:00:00Z",
+            "html_url": "https://github.com/owner/repo/pull/17#pullrequestreview-73",
+            "user": {"login": "forged-reviewer[bot]", "type": "Bot"},
+        }]
+
+        missing = MODULE.collect_review_evidence(
+            "owner/repo", "abc123", "token", None, contract, "Codex Code Review"
+        )
+        with patch.object(MODULE, "_request", return_value=wrong_author):
+            forged = MODULE.collect_review_evidence(
+                "owner/repo", "abc123", "token", 17, contract, "Codex Code Review"
+            )
+
+        self.assertEqual(missing["status"], "not_run")
+        self.assertIn("pull-request number", missing["reason"])
+        self.assertEqual(forged["status"], "not_run")
+        self.assertIn("exact head and reviewer identity", forged["reason"])
+
+    def test_changes_requested_review_is_failed_evidence(self) -> None:
+        contract = {"review_author": "chatgpt-codex-connector[bot]"}
+        reviews = [{
+            "id": 74,
+            "commit_id": "abc123",
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-08-31T12:00:00Z",
+            "html_url": "https://github.com/owner/repo/pull/17#pullrequestreview-74",
+            "user": {"login": "chatgpt-codex-connector[bot]", "type": "Bot"},
+        }]
+
+        with patch.object(MODULE, "_request", return_value=reviews):
+            result = MODULE.collect_review_evidence(
+                "owner/repo", "abc123", "token", 17, contract, "Codex Code Review"
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("CHANGES_REQUESTED", result["evidence"][0])
+
     def test_duplicate_selected_provider_check_runs_are_terminal_not_run(self) -> None:
         policy, profiles, catalog, providers = contracts()
         queued = {"check_runs": [

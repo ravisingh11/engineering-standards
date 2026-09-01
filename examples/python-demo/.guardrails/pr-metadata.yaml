@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "title_pattern": ".+",
+  "required_body_markers": []
+}

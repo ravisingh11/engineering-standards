@@ -16,6 +16,8 @@ contracts and evaluator.
 | `tooling/guardrail_scorecard.py` | `.guardrails/scorecard.py` | Public scorecard rendering |
 | `tooling/github_evidence.py` | `.guardrails/github_evidence.py` | Exact-head GitHub check collection and provenance validation |
 | `tooling/produce_guardrail_evidence.py` | `.guardrails/produce.py` | Repository command, Semgrep CE, and Gitleaks evidence |
+| `tooling/validators/validate_pr_metadata.py` | `.guardrails/validators/validate_pr_metadata.py` | Mutable pull-request fingerprint and metadata evidence |
+| `guardrails/validate_repository.py` | `.guardrails/validators/validate_repository.py` | Installed runtime inventory and contract validation |
 
 ## Installed configuration
 
@@ -37,6 +39,11 @@ provider selection, documentation, scope, and ground-truth files.
 
 Invalid configuration or evidence exits `2`. An allowed decision exits `0`; a
 blocked decision exits `1`.
+
+The portable repository validator requires every executable installed runtime
+component, including the PR metadata validator. It accepts all catalog subject
+types and enforces catalog promotion restrictions, so `advisory-only` controls
+cannot pass repository validation with an `enforced` policy override.
 
 Future lifecycle capabilities remain catalog/evidence definitions and have no
 runtime producers. See [architecture](architecture.md) and

@@ -12,7 +12,7 @@ findings, or treat configuration as evidence.
 | Profiles | `policies/profiles.yaml` | Selects runnable capabilities and advisory defaults for `change` and `release`. |
 | Providers | `policies/provider-config.yaml` | Maps tools to capabilities, check names, workflows, secrets, and authoritative/supplemental selections. |
 | Repository policy | `.guardrails/policy.yaml` | Selects profiles and repository-specific mode overrides. |
-| Evidence | `.artifacts/guardrails/evidence*.json` | Records provider results for one exact commit, artifact, or environment. |
+| Evidence | `.artifacts/guardrails/evidence*.json` | Records provider results for one exact commit, pull-request state, artifact, or environment. |
 | Evaluator | `.guardrails/evaluate.py` | Validates contracts and determines readiness and allow/block. |
 
 ## Evaluation flow
@@ -33,14 +33,24 @@ Exactly one authoritative provider can satisfy or block a selected capability.
 Supplemental providers are displayed for comparison and migration, but remain
 advisory regardless of their result.
 
+Each provider/capability pair has one GitHub evidence contract: either a check
+run or a pull-request review. A provider can use different contract types for
+different capabilities, but overlapping check and review definitions for the
+same capability are invalid and rejected before collection.
+
 ## Runnable profiles
 
 Core is selected by default and is portable across Git hosts. It covers:
 
-- repository, documentation, ground-truth, and change-scope validation;
-- repository-defined build, unit-test, and changed-code coverage commands;
+- repository, documentation, ground-truth, change-scope, and PR-metadata validation;
+- repository-defined build, unit-test, changed-code coverage, format/lint, and migration-validation commands;
 - tokenless Semgrep CE with repository-owned tested rules;
 - Gitleaks CLI secret detection.
+
+Local command producers report an absent command as `not_run`. In GitHub
+Actions, format/lint and migration validation always retain their named jobs and
+fail when the command is absent. This fail-closed behavior prevents either
+context from satisfying a ruleset through GitHub's skipped-job semantics.
 
 The optional GitHub profile is additive. Its runnable scorecard paths cover
 CodeQL, Dependency Review, GitHub Secret Protection, and Dependabot
@@ -49,10 +59,15 @@ but that workflow does not yet emit nested artifact evidence or feed a release
 scorecard. Artifact provenance therefore remains incomplete as a Guardrails
 runtime path. Both profiles default every selected capability to `advisory`.
 
-SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, AI review adapters, and a
+SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, Codex Code Review, other AI review adapters, and a
 repository soak command are provider definitions, not runnable profiles. A
 repository activates them with a mode override and provider selection after it
 implements the required adapter.
+
+Catalog controls also declare an `enforcement_policy`. Most deterministic
+controls are `promotable`; all AI review controls are `advisory-only`. The
+evaluator rejects policy that attempts to make an advisory-only control an
+enforced merge gate.
 
 ## Evidence boundary
 
@@ -78,8 +93,19 @@ Evidence uses a nested capability/provider shape:
 ```
 
 The evaluator requires an exact subject match. Git commit evidence cannot
-satisfy artifact or environment capabilities. `passed` and `failed` require
-evidence records; `blocked` and `not_run` require a reason.
+satisfy pull-request, artifact, or environment capabilities. `passed` and
+`failed` require evidence records; `blocked` and `not_run` require a reason.
+
+Mutable PR metadata uses a separate `pull-request` subject whose revision is a
+digest of repository, PR number, head SHA, update time, title, and body. This
+prevents a title or body edit from reusing evidence produced for earlier PR
+state while preserving commit-bound build and test evidence. Its trusted
+`pull_request_target` workflow publishes a run-bound custom check whose
+`head_sha` is the candidate commit; the base-SHA workflow job is not the
+promotable merge context. A per-pull-request concurrency group cancels
+superseded runs so an older event cannot publish after a newer title, body, or
+head update. Artifact upload is part of the check contract: a failed proof
+upload forces the exact-head check to fail.
 
 GitHub collection additionally verifies the exact check name/head/app, workflow
 run name and declared path (including GitHub's optional `@ref` suffix),
@@ -93,7 +119,8 @@ path at the exact PR head and trusted base revision; a missing, changed, or
 unverifiable path becomes `not_run`. Custom checks published by a trusted
 `pull_request_target` probe do
 not claim the probe's base-SHA workflow suite is the custom PR-head check suite.
-A missing, skipped, stale, ambiguous, or unproven check becomes `not_run`, never
+A configured GitHub review provider is instead bound by exact review author and
+`commit_id`. A missing, skipped, stale, ambiguous, or unproven check or review becomes `not_run`, never
 `passed`.
 
 ## Status and decision

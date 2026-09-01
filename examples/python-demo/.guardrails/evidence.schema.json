@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "required": ["type", "revision"],
       "properties": {
-        "type": {"enum": ["git-commit", "artifact", "environment"]},
+        "type": {"enum": ["git-commit", "artifact", "environment", "pull-request"]},
         "revision": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"}
       }
     },

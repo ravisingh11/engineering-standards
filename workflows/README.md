@@ -22,15 +22,21 @@ the GitHub overlay. `--no-actions` installs no workflows.
 | `guardrails-scorecard.yml` | `Guardrail Scorecard` | Always for supported PR events and manual dispatch |
 | `repository-validation.yml` | `Validate / repository`, `Validate / docs`, `Validate / ground truth` | Installed validators and repository configuration |
 | `change-scope.yml` | `PR Change Scope` | Trusted exact-revision PR size evidence; neutral while advisory, failing when enforced |
+| `pr-metadata.yml` | `PR Metadata` | Trusted mutable PR title/body evidence plus a run-bound custom check on the exact candidate head SHA |
+| `format-and-lint.yml` | `Format and Lint` | `GUARDRAILS_FORMAT_LINT_COMMAND`; the job fails visibly when unset |
+| `migration-validation.yml` | `Migration Validation` | `GUARDRAILS_MIGRATION_VALIDATION_COMMAND`; the job fails visibly when unset |
 | `build.yml` | `Build` | `GUARDRAILS_BUILD_COMMAND` |
 | `unit-tests.yml` | `Unit Tests` | `GUARDRAILS_UNIT_TEST_COMMAND` |
 | `changed-code-coverage.yml` | `Changed Code Coverage` | `GUARDRAILS_CHANGED_COVERAGE_COMMAND` |
 | `semgrep-ce.yml` | `Semgrep CE` | Installed tested rules; no secret |
 | `gitleaks.yml` | `Gitleaks` | Full Git history; no secret |
 
-Build, test, and coverage workflows use optional
+Repository command workflows use optional
 `GUARDRAILS_SETUP_COMMAND` and default `GUARDRAILS_WORKING_DIRECTORY` to `.`.
-Unset capability commands skip their jobs and produce `NO RESULT`.
+Build, test, and coverage jobs remain inactive until configured. Format/lint and
+migration validation always create their named job; an absent command fails the
+job so a promoted required context cannot be satisfied by a skipped producer.
+Local scans continue to represent absent commands as `NO RESULT`.
 
 Semgrep CE runs its repository-owned rule tests, then `semgrep scan --error`
 from the exact pinned container with networking disabled. Gitleaks runs the MIT
@@ -95,11 +101,17 @@ overall `GREEN`, `ORANGE`, or `RED` status and every capability/provider row.
 
 ## Optional providers
 
-SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, AI review adapters, and soak
+SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, Codex Code Review, AI review adapters, and soak
 testing are not installed as runnable profiles. A repository must supply a
 workflow or adapter, required credentials/configuration, exact check/evidence
 binding, and an explicit provider selection. A credential alone does not
 activate or satisfy a capability.
+
+Codex Code Review is a native GitHub review provider rather than a check-run
+workflow. The collector requires the configured bot login and exact reviewed
+head SHA. Enable native automatic review in Codex settings; do not create a
+workflow that posts synthetic `@codex` comments. AI review controls are
+advisory-only and must never be the sole required merge context.
 
 Provider definitions declare these secret names where applicable:
 
@@ -118,9 +130,23 @@ behavior.
 
 Require only exact observed check names. Core examples are `Validate / repository`,
 `Validate / docs`, `Validate / ground truth`, `PR Change Scope`, `Build`,
-`Unit Tests`, `Changed Code Coverage`, `Semgrep CE`, and `Gitleaks`. GitHub
+`PR Metadata`, `Format and Lint`, `Migration Validation`, `Unit Tests`,
+`Changed Code Coverage`, `Semgrep CE`, and `Gitleaks`. GitHub
 profile examples are `CodeQL`, `Dependency Review`, `GitHub Secret Scan`,
 and `Dependabot Verification`. `Artifact Provenance` is release-only and must
 not be configured as a pull-request required check.
+
+For PR metadata, require the custom exact-head `PR Metadata` context published
+by the workflow. The workflow job itself runs in the trusted base-SHA check
+suite and is not the merge context. Workflow-level concurrency is scoped to the
+pull-request number, and a newer event cancels any older in-progress metadata
+run. The evidence upload outcome is part of the custom-check decision; upload
+failure always publishes a failing exact-head check rather than success without
+proof.
+
+For `Format and Lint` and `Migration Validation`, configure the repository
+command first and verify both success and failure behavior. The job remains
+present and fails when its command is absent; this is deliberate protection
+against a required context being satisfied by GitHub's skipped-job behavior.
 
 See [ruleset guidance](../rulesets/README.md) before adding contexts.

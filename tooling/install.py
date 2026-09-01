@@ -24,10 +24,13 @@ INSTALLER_MARKER = "# Guardrails v2 installer-owned workflow."
 CORE_WORKFLOWS = {
     "guardrails-scorecard.yml": ROOT / "workflows" / "guardrails-scorecard.yml",
     "change-scope.yml": ROOT / "workflows" / "change-scope.yml",
+    "pr-metadata.yml": ROOT / "workflows" / "pr-metadata.yml",
     "repository-validation.yml": ROOT / "workflows" / "repository-validation.yml",
     "build.yml": ROOT / "workflows" / "build.yml",
     "unit-tests.yml": ROOT / "workflows" / "unit-tests.yml",
     "changed-code-coverage.yml": ROOT / "workflows" / "changed-code-coverage.yml",
+    "format-and-lint.yml": ROOT / "workflows" / "format-and-lint.yml",
+    "migration-validation.yml": ROOT / "workflows" / "migration-validation.yml",
     "semgrep-ce.yml": ROOT / "workflows" / "semgrep-ce.yml",
     "gitleaks.yml": ROOT / "workflows" / "gitleaks.yml",
 }
@@ -42,6 +45,7 @@ PRESERVED_CONFIGURATION = {
     Path(".guardrails/policy.yaml"),
     Path(".guardrails/documentation.yaml"),
     Path(".guardrails/change-scope.yaml"),
+    Path(".guardrails/pr-metadata.yaml"),
     Path(".guardrails/ground-truth-ai.yaml"),
 }
 V1_PATHS = (
@@ -87,6 +91,7 @@ def runtime_sources(target: Path) -> list[InstallItem]:
         "control-catalog.schema.json": ROOT / "guardrails/control-catalog.schema.json",
         "documentation.yaml": ROOT / "guardrails/defaults/documentation.yaml",
         "change-scope.yaml": ROOT / "guardrails/defaults/change-scope.yaml",
+        "pr-metadata.yaml": ROOT / "guardrails/defaults/pr-metadata.yaml",
         "ground-truth-ai.yaml": ROOT / "guardrails/defaults/ground-truth-ai.yaml",
         "evaluate.py": ROOT / "guardrails/evaluate.py",
         "scorecard.py": ROOT / "tooling/guardrail_scorecard.py",
@@ -101,6 +106,7 @@ def runtime_sources(target: Path) -> list[InstallItem]:
         "validate_repository.py": ROOT / "guardrails/validate_repository.py",
         "validate_documentation.py": ROOT / "tooling/validators/validate_documentation.py",
         "inspect_change_scope.py": ROOT / "tooling/validators/inspect_change_scope.py",
+        "validate_pr_metadata.py": ROOT / "tooling/validators/validate_pr_metadata.py",
     }
     items = [InstallItem(source, target / ".guardrails" / name) for name, source in files.items()]
     items.extend(InstallItem(source, target / ".guardrails/validators" / name) for name, source in validators.items())

@@ -151,7 +151,7 @@ def main() -> int:
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--operation", required=True, choices=("change", "release"))
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--subject-type", required=True, choices=("git-commit", "artifact", "environment"))
+    parser.add_argument("--subject-type", required=True, choices=("git-commit", "artifact", "environment", "pull-request"))
     parser.add_argument("--all-catalog-controls", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()

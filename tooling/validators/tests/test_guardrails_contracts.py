@@ -77,6 +77,17 @@ class GuardrailsContractValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "workflow_path"):
             self.validator("validate_provider_document")(providers, self.catalog())
 
+    def test_rejects_overlapping_check_and_review_contracts(self) -> None:
+        providers = load("policies/provider-config.yaml")
+        provider = providers["providers"]["repository-build"]
+        provider["reviews"] = {"build": {"review_author": "build-reviewer[bot]"}}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "repository-build build cannot declare both a check and a review",
+        ):
+            self.validator("validate_provider_document")(providers, self.catalog())
+
     def test_non_actions_check_uses_explicit_app_identity_without_fake_path(self) -> None:
         check = self.providers()["semgrep-app"]["checks"]["custom-static-analysis"]
 
@@ -117,6 +128,9 @@ class GuardrailsContractValidationTests(unittest.TestCase):
             {
                 "repository-validator",
                 "repository-change-scope",
+                "repository-pr-metadata",
+                "repository-format-and-lint",
+                "repository-migration-validation",
                 "repository-build",
                 "repository-unit-tests",
                 "repository-changed-code-coverage",
@@ -205,6 +219,25 @@ class GuardrailsContractValidationTests(unittest.TestCase):
     def test_nested_evidence_contract_is_valid(self) -> None:
         self.validator("validate_evidence_document")(
             load("guardrails/evidence-example.yaml"), self.catalog(), self.providers()
+        )
+
+    def test_pull_request_evidence_contract_is_valid(self) -> None:
+        evidence = {
+            "version": 2,
+            "subject": {"type": "pull-request", "revision": "sha256:metadata"},
+            "results": {
+                "pr-metadata": {
+                    "repository-pr-metadata": {
+                        "producer": "Repository PR Metadata",
+                        "status": "passed",
+                        "evidence": ["Pull-request metadata satisfies the contract."],
+                    }
+                }
+            },
+        }
+
+        self.validator("validate_evidence_document")(
+            evidence, self.catalog(), self.providers()
         )
 
     def test_rejects_malformed_nested_evidence(self) -> None:
@@ -324,7 +357,7 @@ class GuardrailsContractValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "override"):
             self.validator("validate_policy_document")(
-                policy, {"core", "github"}, set(self.catalog())
+                policy, {"core", "github"}, self.catalog()
             )
 
     def test_policy_rejects_unknown_override_control(self) -> None:
@@ -333,7 +366,19 @@ class GuardrailsContractValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown control"):
             self.validator("validate_policy_document")(
-                policy, {"core", "github"}, set(self.catalog())
+                policy, {"core", "github"}, self.catalog()
+            )
+
+    def test_policy_rejects_enforced_advisory_only_control(self) -> None:
+        policy = load("guardrails/baseline.yaml")
+        policy["overrides"]["change"]["ai-engineering-review"] = "enforced"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "ai-engineering-review is advisory-only and cannot be enforced",
+        ):
+            self.validator("validate_policy_document")(
+                policy, {"core", "github"}, self.catalog()
             )
 
 

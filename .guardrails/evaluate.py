@@ -25,8 +25,9 @@ PROFILE_CONTROL_SETS = {
     "core": {
         "change": {
             "repository-validation", "documentation-validation", "repository-ground-truth",
-            "change-scope", "build", "unit-tests", "changed-code-coverage",
-            "custom-static-analysis", "secret-detection",
+            "change-scope", "pr-metadata", "build", "unit-tests", "changed-code-coverage",
+            "format-and-lint", "migration-validation", "custom-static-analysis",
+            "secret-detection",
         },
         "release": {
             "repository-validation", "documentation-validation", "repository-ground-truth",
@@ -79,8 +80,10 @@ def catalog_map(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ValueError(f"control {control_id} availability is invalid")
         if control.get("stage") not in CONTROL_STAGES:
             raise ValueError(f"control {control_id} stage is invalid")
-        if control.get("evidence_subject") not in {"git-commit", "artifact", "environment"}:
+        if control.get("evidence_subject") not in {"git-commit", "artifact", "environment", "pull-request"}:
             raise ValueError(f"control {control_id} evidence subject is invalid")
+        if control.get("enforcement_policy") not in {"promotable", "advisory-only"}:
+            raise ValueError(f"control {control_id} enforcement policy is invalid")
         controls[control_id] = control
     return controls
 
@@ -123,6 +126,9 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
     selections = config.get("selections")
     if config.get("version") != 2 or not isinstance(providers, dict) or not isinstance(selections, dict):
         raise ValueError("provider config must contain version 2, providers, and selections")
+    review_author_pattern = re.compile(
+        r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?$"
+    )
     for provider_id, provider in providers.items():
         if not valid_identifier(provider_id) or not isinstance(provider, dict):
             raise ValueError("provider config contains an invalid provider")
@@ -208,6 +214,24 @@ def validate_provider_config(config: dict[str, Any], controls: dict[str, dict[st
                 raise ValueError(f"provider {provider_id} {capability} artifact contract requires external_id_prefix")
             if prefix is not None and workflow_path is None:
                 raise ValueError(f"provider {provider_id} {capability} artifact contract requires workflow_path")
+        reviews = provider.get("reviews", {})
+        if not isinstance(reviews, dict) or any(capability not in capabilities for capability in reviews):
+            raise ValueError(f"provider {provider_id} reviews are invalid")
+        overlapping_contracts = sorted(set(checks).intersection(reviews))
+        if overlapping_contracts:
+            raise ValueError(
+                f"provider {provider_id} {overlapping_contracts[0]} cannot declare both a check and a review"
+            )
+        for capability, review in reviews.items():
+            if not isinstance(review, dict) or set(review) != {"review_author"}:
+                raise ValueError(f"provider {provider_id} {capability} review is invalid")
+            author = review["review_author"]
+            if (
+                not isinstance(author, str)
+                or len(author) > 100
+                or review_author_pattern.fullmatch(author) is None
+            ):
+                raise ValueError(f"provider {provider_id} {capability} review_author is invalid")
         template = provider.get("template")
         if template is not None:
             expected_path = f".github/workflows/{Path(template).name}"
@@ -260,6 +284,8 @@ def validate_policy(policy: dict[str, Any], profile_ids: set[str], controls: dic
                 raise ValueError(f"{control_id} cannot be configured for {operation}")
             if mode not in MODES:
                 raise ValueError(f"policy override for {control_id} is invalid")
+            if mode == "enforced" and controls[control_id]["enforcement_policy"] == "advisory-only":
+                raise ValueError(f"{control_id} is advisory-only and cannot be enforced")
 
 
 def validate_evidence(
@@ -275,7 +301,7 @@ def validate_evidence(
     subject = evidence.get("subject")
     if not isinstance(subject, dict) or set(subject) != {"type", "revision"}:
         raise ValueError("evidence subject is invalid")
-    if subject["type"] not in {"git-commit", "artifact", "environment"}:
+    if subject["type"] not in {"git-commit", "artifact", "environment", "pull-request"}:
         raise ValueError("evidence subject type is invalid")
     if not isinstance(subject["revision"], str) or not subject["revision"].strip() or len(subject["revision"]) > 200:
         raise ValueError("evidence subject revision is invalid")
@@ -385,7 +411,7 @@ def evaluate(
 ) -> dict[str, Any]:
     if not expected_revision or len(expected_revision) > 200:
         raise ValueError("expected revision must be 1-200 characters")
-    if expected_subject_type not in {"git-commit", "artifact", "environment"}:
+    if expected_subject_type not in {"git-commit", "artifact", "environment", "pull-request"}:
         raise ValueError("expected subject type is invalid")
     selected, controls, providers = effective_controls(
         policy, profiles, catalog, provider_config, operation, expected_subject_type
@@ -507,7 +533,7 @@ def main() -> int:
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--operation", required=True, choices=OPERATIONS)
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--subject-type", required=True, choices=("git-commit", "artifact", "environment"))
+    parser.add_argument("--subject-type", required=True, choices=("git-commit", "artifact", "environment", "pull-request"))
     parser.add_argument("--all-catalog-controls", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()

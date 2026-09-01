@@ -97,6 +97,16 @@ class ConfigureGuardrailsV2Tests(unittest.TestCase):
 
         self.assertEqual(policy["overrides"], {"change": {}, "release": {}})
 
+    def test_set_rejects_enforced_advisory_only_control(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "ai-engineering-review is advisory-only"
+        ):
+            self.apply(
+                enable_profiles=[],
+                disable_profiles=[],
+                sets=["ai-engineering-review=enforced"],
+            )
+
     def test_rejects_unknown_or_evidence_only_policy_controls(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown control"):
             self.apply(enable_profiles=[], disable_profiles=[], sets=["unknown=advisory"])

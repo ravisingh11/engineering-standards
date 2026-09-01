@@ -55,10 +55,17 @@ export GUARDRAILS_WORKING_DIRECTORY='.'
 ```
 
 Use the same names as GitHub Actions repository variables. Configure
-`GUARDRAILS_SETUP_COMMAND` and `GUARDRAILS_CHANGED_COVERAGE_COMMAND` only when
-the repository has real commands for those capabilities. Unset build, test, or
-coverage commands produce `NO RESULT` rather than pass.
+`GUARDRAILS_SETUP_COMMAND`, `GUARDRAILS_CHANGED_COVERAGE_COMMAND`,
+`GUARDRAILS_FORMAT_LINT_COMMAND`, and `GUARDRAILS_MIGRATION_VALIDATION_COMMAND`
+only when the repository has real commands for those capabilities. Unset build,
+test, or coverage commands produce `NO RESULT` rather than pass. The installed
+format/lint and migration Actions jobs fail visibly when their command is absent;
+local scans represent the same absence as `NO RESULT`.
 `GUARDRAILS_WORKING_DIRECTORY` must resolve inside the repository.
+
+Before opening the first pull request, configure real format/lint and migration
+commands for any installed workflows you intend to run. Do not use a no-op or
+an unrelated validation command: a green check must prove its named capability.
 
 ## 4. Declare repository ground truth
 

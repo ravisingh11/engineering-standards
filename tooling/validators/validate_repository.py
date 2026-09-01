@@ -15,7 +15,10 @@ IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 REPO_RELATIVE_PATH_PATTERN = re.compile(
     r"^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\\)[^\x00-\x1f\x7f]+$"
 )
-CONTROL_FIELDS = {"id", "name", "purpose", "stage", "availability", "evidence_subject"}
+CONTROL_FIELDS = {
+    "id", "name", "purpose", "stage", "availability", "evidence_subject",
+    "enforcement_policy",
+}
 OPERATIONS = {"change", "release"}
 MODES = {"advisory", "enforced", "not_activated"}
 CONTROL_STAGES = {
@@ -88,8 +91,10 @@ def validate_control_catalog_document(catalog: dict) -> dict[str, dict]:
             raise ValueError(f"control {control_id} stage is invalid")
         if control["availability"] not in {"runnable", "evidence-only"}:
             raise ValueError(f"control {control_id} availability is invalid")
-        if control["evidence_subject"] not in {"git-commit", "artifact", "environment"}:
+        if control["evidence_subject"] not in {"git-commit", "artifact", "environment", "pull-request"}:
             raise ValueError(f"control {control_id} evidence_subject is invalid")
+        if control["enforcement_policy"] not in {"promotable", "advisory-only"}:
+            raise ValueError(f"control {control_id} enforcement_policy is invalid")
     return {control["id"]: control for control in catalog["controls"]}
 
 
@@ -137,7 +142,7 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
     for provider_id, provider in providers.items():
         if not valid_identifier(provider_id) or not isinstance(provider, dict):
             raise ValueError("provider entries must use valid identifiers and objects")
-        if set(provider) != provider_fields:
+        if set(provider) not in (provider_fields, provider_fields | {"reviews"}):
             raise ValueError(f"provider {provider_id} has invalid fields")
         require_nonempty_string(provider["display_name"], f"provider {provider_id} display_name")
         if provider["activation"] not in {"repository", "github", "external"}:
@@ -226,6 +231,31 @@ def validate_provider_document(config: dict, catalog: dict[str, dict]) -> None:
                 raise ValueError(f"provider {provider_id} {capability} artifact contract requires external_id_prefix")
             if "external_id_prefix" in check and "workflow_path" not in check:
                 raise ValueError(f"provider {provider_id} {capability} artifact contract requires workflow_path")
+        reviews = provider.get("reviews", {})
+        if not isinstance(reviews, dict) or any(
+            capability not in capabilities for capability in reviews
+        ):
+            raise ValueError(f"provider {provider_id} reviews are invalid")
+        overlapping_contracts = sorted(set(checks).intersection(reviews))
+        if overlapping_contracts:
+            raise ValueError(
+                f"provider {provider_id} {overlapping_contracts[0]} cannot declare both a check and a review"
+            )
+        for capability, review in reviews.items():
+            if not isinstance(review, dict) or set(review) != {"review_author"}:
+                raise ValueError(f"provider {provider_id} {capability} review is invalid")
+            author = review["review_author"]
+            if (
+                not isinstance(author, str)
+                or len(author) > 100
+                or re.fullmatch(
+                    r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?",
+                    author,
+                ) is None
+            ):
+                raise ValueError(
+                    f"provider {provider_id} {capability} review_author is invalid"
+                )
         template = provider["template"]
         if template is not None:
             require_nonempty_string(template, f"provider {provider_id} template")
@@ -303,7 +333,7 @@ def validate_provider_template_names(config: dict, root: Path = ROOT) -> None:
 
 
 def validate_policy_document(
-    policy: dict, profiles: set[str], controls: set[str]
+    policy: dict, profiles: set[str], controls: dict[str, dict]
 ) -> None:
     if not isinstance(policy, dict) or policy.get("version") != 2:
         raise ValueError("policy version must be 2")
@@ -331,6 +361,13 @@ def validate_policy_document(
                 raise ValueError(
                     f"policy {operation} override references unknown control: {control_id}"
                 )
+            if (
+                mode == "enforced"
+                and controls[control_id].get("enforcement_policy") != "promotable"
+            ):
+                raise ValueError(
+                    f"control {control_id} is advisory-only and cannot be enforced"
+                )
 
 
 def validate_evidence_document(
@@ -343,7 +380,9 @@ def validate_evidence_document(
     subject = document.get("subject")
     if not isinstance(subject, dict) or set(subject) != {"type", "revision"}:
         raise ValueError("evidence subject is invalid")
-    if subject["type"] not in {"git-commit", "artifact", "environment"}:
+    if subject["type"] not in {
+        "git-commit", "artifact", "environment", "pull-request"
+    }:
         raise ValueError("evidence subject type is invalid")
     require_nonempty_string(subject["revision"], "evidence subject revision")
     results = document.get("results")
@@ -422,7 +461,7 @@ def validate_guardrail_contract() -> None:
     validate_policy_document(
         load_json_object(ROOT / "guardrails" / "baseline.yaml"),
         set(profiles["profiles"]),
-        set(catalog),
+        catalog,
     )
     validate_evidence_document(
         load_json_object(ROOT / "guardrails" / "evidence-example.yaml"),

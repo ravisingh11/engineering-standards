@@ -25,6 +25,38 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 class RepositoryCommandTests(unittest.TestCase):
+    def test_format_and_migration_commands_use_distinct_contracts(self) -> None:
+        cases = (
+            (
+                "format-and-lint",
+                "GUARDRAILS_FORMAT_LINT_COMMAND",
+                "Repository Format and Lint Command",
+            ),
+            (
+                "migration-validation",
+                "GUARDRAILS_MIGRATION_VALIDATION_COMMAND",
+                "Repository Migration Validation Command",
+            ),
+        )
+        for control_id, variable, producer in cases:
+            with self.subTest(control_id=control_id), tempfile.TemporaryDirectory() as directory:
+                missing = MODULE.repository_command_result(
+                    control_id, {}, Path(directory), runner=mock.Mock()
+                )
+                self.assertEqual(missing["status"], "not_run")
+                self.assertIn(variable, missing["reason"])
+
+                runner = mock.Mock(return_value=(0, "validated"))
+                passed = MODULE.repository_command_result(
+                    control_id,
+                    {variable: "./tooling/validate"},
+                    Path(directory),
+                    runner=runner,
+                )
+                self.assertEqual(passed["producer"], producer)
+                self.assertEqual(passed["status"], "passed")
+                self.assertIn(f"{control_id} command digest", passed["evidence"][0])
+
     def test_missing_command_is_not_run(self) -> None:
         result = MODULE.repository_command_result(
             "build", {}, Path("/repo"), runner=mock.Mock()

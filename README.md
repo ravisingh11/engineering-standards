@@ -42,13 +42,17 @@ capability. Each selected capability has exactly one authoritative provider.
 Supplemental providers remain visible and advisory; they cannot satisfy or
 block the capability.
 
+A provider may use GitHub check-run contracts for some capabilities and GitHub
+review contracts for others. It cannot declare both contract types for the same
+capability; Guardrails rejects that configuration before collecting evidence.
+
 ```text
 profile -> capability -> authoritative provider -> exact-subject evidence
                   \---- supplemental providers ----> advisory evidence
 ```
 
 Configuration expresses intent. Only fresh evidence for the exact commit,
-artifact, or environment proves that a provider ran.
+pull-request state, artifact, or environment proves that a provider ran.
 
 ## Start here
 
@@ -67,7 +71,7 @@ artifact, or environment proves that a provider ran.
 
 | Profile | Selection | Capabilities |
 | --- | --- | --- |
-| `core` | Default | Repository and documentation validation, repository ground truth, change scope, build, unit tests, changed-code coverage, Semgrep CE, and Gitleaks CLI |
+| `core` | Default | Repository and documentation validation, repository ground truth, change scope, PR metadata, format/lint, migration validation, build, unit tests, changed-code coverage, Semgrep CE, and Gitleaks CLI |
 | `github` | Optional additive overlay | CodeQL, Dependency Review, GitHub Secret Protection, Dependabot verification, plus a release-attestation workflow that is not yet scorecard evidence |
 
 Both profiles are advisory by default. Other vendors are providers, not
@@ -78,6 +82,16 @@ Core includes `PR Change Scope`, with repository-configurable thresholds in
 change volume. The default 300-added-line and 500-changed-line thresholds are
 advisory: oversized PRs stay visible without blocking until a repository
 deliberately promotes the capability to `enforced`.
+
+Core also includes mutable `PR Metadata` evidence. Configure title and body
+requirements in `.guardrails/pr-metadata.yaml`; editing either field creates a
+new pull-request fingerprint even when the head commit does not change. This
+control runs only in the trusted GitHub pull-request workflow, not in a local
+repository scan. The trusted workflow publishes a separate `PR Metadata` check
+against the exact candidate head SHA, so repositories may promote that context
+after observing it on representative pull requests. Runs are serialized per
+pull request and newer metadata events cancel older in-progress runs. The check
+cannot pass unless its run-bound evidence artifact uploads successfully.
 
 ## Install
 
@@ -116,7 +130,8 @@ python3 .guardrails/scan.py
 
 The scanner writes nested JSON evidence and a timestamped Markdown scorecard to
 `.artifacts/guardrails/`. It binds local evidence to a clean, exact `HEAD`.
-Unavailable tools and unconfigured commands report `not_run` / `NO RESULT`.
+Unavailable local tools and unconfigured local commands report `not_run` /
+`NO RESULT`.
 
 For the embedded Python demo, these are real repository commands:
 
@@ -127,10 +142,14 @@ export GUARDRAILS_WORKING_DIRECTORY='.'
 python3 .guardrails/scan.py
 ```
 
-The same names are GitHub Actions repository variables. Configure
-`GUARDRAILS_SETUP_COMMAND` and `GUARDRAILS_CHANGED_COVERAGE_COMMAND` only when
-the repository has real commands for those capabilities. An unset build, test,
-or coverage command skips that producer and cannot create a pass.
+The same names are GitHub Actions repository variables. Set command variables
+only when the repository has real commands for those capabilities. Unset build,
+test, and coverage commands do not create passing evidence. Format/lint and
+migration validation are stricter: their installed Actions jobs fail visibly
+when the corresponding command is absent, preventing a promoted required check
+from being satisfied by a skipped job. Configure both before the first pull
+request after installing those workflows; never use `true` or an unrelated
+command to manufacture a pass.
 
 Core runs Semgrep Community Edition with repository-owned tested rules via
 `semgrep scan`, and runs the Gitleaks CLI against complete Git history. Local
@@ -151,10 +170,17 @@ capability applies to both operations. The configurator rejects a capability
 whose catalog stage does not apply to every selected operation, without writing
 the invalid override.
 
-Optional providers include SonarQube, Snyk, Semgrep AppSec Platform, and FOSSA.
+Optional providers include SonarQube, Snyk, Semgrep AppSec Platform, FOSSA, and
+Codex Code Review.
 Each requires its own workflow or adapter, configuration, credentials, exact
 evidence binding, and explicit authoritative or supplemental selection. A token
 alone does not activate or pass a capability.
+
+AI review controls are contractually `advisory-only`: configuration rejects
+attempts to promote them to `enforced`. They may add review evidence, but they
+must not become the sole merge gate. For Codex, enable native automatic reviews
+in Codex settings (recommended) or request one with `@codex review`, then enable
+`ai-engineering-review=advisory`. No repository secret is required.
 
 ## Status vocabulary
 
