@@ -44,16 +44,17 @@ state. Missing, skipped, stale, or unconfigured work must never become a pass.
 6. Run targeted tests, then the complete validation required by `AGENTS.md`.
    Check workflow syntax, schema consistency, internal links, and
    `git diff --check`.
-7. Configure GitHub variables, secrets, platform settings, and provider-side
-   projects only when required. Never commit credentials or print their values.
-8. Open a real pull request for the change, then run the representative hosted
-   operation for the control's declared subject: change/PR for `git-commit` or
-   `pull-request`, release for `artifact`, and the applicable environment stage
-   for `environment`. For active controls, verify exact-subject evidence,
-   scorecard visibility, and failure/no-result semantics. For removals, verify
-   canonical/distributed absence, stale-evidence rejection, and the declared
-   inactive-or-absent scorecard outcome. Verify comments, summaries, and
-   artifacts when those outputs are part of the contract.
+7. Change GitHub variables, secrets, platform settings, or provider projects
+   only with explicit authorization and under consumer security/contribution
+   rules; otherwise mark hosted activation pending. Never expose credentials.
+8. When explicitly authorized, follow the repository contribution process to
+   open a pull request and run the representative hosted operation for the
+   declared subject: change/PR for `git-commit` or `pull-request`, release for
+   `artifact`, and the applicable environment stage for `environment`. For
+   active controls, verify exact-subject evidence, scorecard visibility, and
+   failure/no-result semantics. For removals, verify canonical/distributed
+   absence, stale-evidence rejection, and the declared inactive-or-absent
+   scorecard outcome. Verify only the outputs promised by the contract.
 9. Keep the control advisory until representative runs prove reliability,
    ownership, and remediation. Never promote an `advisory-only` control or make
    AI review the sole merge gate. Add a required check only after its producer
