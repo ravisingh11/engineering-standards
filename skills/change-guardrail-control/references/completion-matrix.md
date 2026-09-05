@@ -11,8 +11,8 @@ only when its evidence is current and directly supports the claim.
 | Distribution | Pending | Installer mapping and installed self/demo copies match canonical sources. | |
 | Local behavior | Pending | Clean exact-revision scan shows expected pass, fail, blocked, and no-result behavior. | |
 | GitHub activation | Pending | Required variables, secrets, settings, and provider-side configuration are present without exposing values. | |
-| Hosted lifecycle proof | Pending | Active: a representative pull-request producer executes and reports the expected check. Removed: the PR proves contract/copy absence and the intended inactive state. | |
-| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite, and exact subject/revision. Removed: no stale provider evidence is accepted. | |
+| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Removed: the change proves contract/copy absence and the intended inactive-or-absent state. | |
+| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite where applicable, and exact subject/revision. Removed: no stale provider evidence is accepted. | |
 | Scorecard outputs | Pending | PR comment, job summary, and retained artifact show the provider result and correct readiness/decision. | |
 | Enforcement | Pending | Advisory/enforced mode matches policy; required-check rules reference only active, stable producer contexts. | |
 | Documentation | Pending | Setup, status, troubleshooting, provider extension, and migration guidance use the public vocabulary. | |
@@ -26,7 +26,7 @@ only when its evidence is current and directly supports the claim.
 - Select an operation-inapplicable or advisory-only enforcement mode: policy
   validation must reject it.
 - Remove a provider or control: installed copies must drop it and the scorecard
-  must show or omit it according to the declared inactive contract.
+  must show inactivity or omit it according to the declared removal contract.
 
 ## Stop conditions
 

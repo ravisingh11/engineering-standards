@@ -12,10 +12,10 @@ workflows, evidence, scorecards, and documentation.
 
 Do not call a control active because its configuration, token, or workflow file
 exists. Activation and behavior changes require fresh provider evidence for the
-exact subject of a representative run. Decommissioning requires fresh PR-head
-evidence that the producer contract and distributed copies are absent and the
-scorecard reports the intended `not_activated` state. Missing, skipped, stale,
-or unconfigured work must never become a pass.
+declared operation and exact subject of a representative run. Decommissioning
+requires fresh change evidence that the producer contract and distributed
+copies are absent and the scorecard reflects the intended inactive-or-absent
+state. Missing, skipped, stale, or unconfigured work must never become a pass.
 
 ## Workflow
 
@@ -46,12 +46,14 @@ or unconfigured work must never become a pass.
    `git diff --check`.
 7. Configure GitHub variables, secrets, platform settings, and provider-side
    projects only when required. Never commit credentials or print their values.
-8. Open a real pull request. For active controls, verify the producer runs for
-   the current head, publishes verifiable exact-subject evidence, appears in
-   the scorecard, and preserves failure/no-result semantics. For removals,
-   verify absence from canonical and distributed contracts and the expected
-   inactive scorecard state. Verify comments, summaries, and artifacts when
-   those outputs are part of the contract.
+8. Open a real pull request for the change, then run the representative hosted
+   operation for the control's declared subject: change/PR for `git-commit` or
+   `pull-request`, release for `artifact`, and the applicable environment stage
+   for `environment`. For active controls, verify exact-subject evidence,
+   scorecard visibility, and failure/no-result semantics. For removals, verify
+   canonical/distributed absence, stale-evidence rejection, and the declared
+   inactive-or-absent scorecard outcome. Verify comments, summaries, and
+   artifacts when those outputs are part of the contract.
 9. Keep the control advisory until representative runs prove reliability,
    ownership, and remediation. Never promote an `advisory-only` control or make
    AI review the sole merge gate. Add a required check only after its producer
