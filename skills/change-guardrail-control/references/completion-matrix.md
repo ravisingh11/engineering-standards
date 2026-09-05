@@ -11,8 +11,8 @@ only when its evidence is current and directly supports the claim.
 | Distribution | Pending | Installer mapping and installed self/demo copies match canonical sources. | |
 | Local behavior | Pending | Clean exact-revision scan shows expected pass, fail, blocked, and no-result behavior. | |
 | GitHub activation | Pending | Required variables, secrets, settings, and provider-side configuration are present without exposing values. | |
-| Hosted producer | Pending | A representative pull-request run executes rather than skipping and reports the expected native/custom check. | |
-| Evidence provenance | Pending | Collector accepts the expected provider, workflow, event, run ID, check suite, and exact subject/revision. | |
+| Hosted lifecycle proof | Pending | Active: a representative pull-request producer executes and reports the expected check. Removed: the PR proves contract/copy absence and the intended inactive state. | |
+| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite, and exact subject/revision. Removed: no stale provider evidence is accepted. | |
 | Scorecard outputs | Pending | PR comment, job summary, and retained artifact show the provider result and correct readiness/decision. | |
 | Enforcement | Pending | Advisory/enforced mode matches policy; required-check rules reference only active, stable producer contexts. | |
 | Documentation | Pending | Setup, status, troubleshooting, provider extension, and migration guidance use the public vocabulary. | |
@@ -25,10 +25,12 @@ only when its evidence is current and directly supports the claim.
 - Remove a distributed runtime dependency: repository validation must fail.
 - Select an operation-inapplicable or advisory-only enforcement mode: policy
   validation must reject it.
+- Remove a provider or control: installed copies must drop it and the scorecard
+  must show or omit it according to the declared inactive contract.
 
 ## Stop conditions
 
-Do not merge while any applicable row lacks evidence, a required producer is
-skipped, a generated copy differs from its canonical source, or unresolved P0/P1
-findings remain. Leave optional provider activation work clearly marked instead
-of manufacturing a green result.
+Do not merge while any applicable row lacks evidence, an active required
+producer is skipped, a generated copy differs from its canonical source, stale
+evidence survives a removal, or unresolved P0/P1 findings remain. Leave optional
+provider activation work clearly marked instead of manufacturing a green result.
