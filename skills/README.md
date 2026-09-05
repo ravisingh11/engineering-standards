@@ -73,6 +73,7 @@ install only the skills they actually need.
 
 ### Repository Operations
 
+- `change-guardrail-control`
 - `commit-message-enforcer`
 - `dependency-remediation`
 - `github-actions-hardening`
@@ -89,6 +90,8 @@ install only the skills they actually need.
 ## Which Skill To Use
 
 - Use `repo-bootstrap` for a new or newly adopted repo.
+- Use `change-guardrail-control` whenever a capability, provider, producer,
+  evidence contract, activation setting, or enforcement mode changes.
 - Use `repo-admin-hygiene` for descriptions, homepages, topics, labels, default branches, Wikis, Projects, and GitHub metadata.
 - Use `license-compliance` for root `LICENSE` files and first-party package metadata.
 - Use `dependency-remediation` for Dependabot, Snyk, npm audit, package drift, and lockfile cleanup.
