@@ -11,10 +11,10 @@ only when its evidence is current and directly supports the claim.
 | Distribution | Pending | Installer mapping and installed self/demo copies match canonical sources. | |
 | Local behavior | Pending | Clean exact-revision scan shows expected pass, fail, blocked, and no-result behavior. | |
 | GitHub activation | Pending | Required variables, secrets, settings, and provider-side configuration are present without exposing values. | |
-| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Control removed: the change proves contract/copy absence and the intended inactive-or-absent state. Provider replaced: the capability remains active through the replacement selection. | |
+| Hosted lifecycle proof | Pending | Active: a representative hosted operation reports the expected result for its subject. Scoped deactivation: only the intended operation/profile becomes inactive. Catalog removed: contract/copy absence and inactive-or-absent output are proven. Provider replaced: the capability remains active through the replacement selection. | |
 | Evidence provenance | Pending | The collector accepts the provider identity, exact subject/revision, and proof required by its check-run, review, local, artifact, or environment contract. Control removed: no stale evidence satisfies the control. Provider replaced: the former provider cannot satisfy the affected selection; require global rejection only when it is decommissioned. | |
 | Scorecard outputs | Pending | Every output promised by the workflow contract shows the provider result and correct readiness/decision; require a PR comment only when implemented. | |
-| Enforcement | Pending | Advisory/enforced mode matches policy; required-check rules reference only active, stable producer contexts. | |
+| Enforcement | Pending | Policy and GitHub rules agree: promoted controls use active, stable required contexts; demoted controls no longer retain those merge gates. | |
 | Documentation | Pending | Setup, status, troubleshooting, provider extension, and migration guidance use the public vocabulary. | |
 
 ## Required negative proofs
@@ -31,6 +31,10 @@ only when its evidence is current and directly supports the claim.
   affected capability, and the replacement must keep that capability active.
   Drop global provider copies and reject all its evidence only when the provider
   itself is decommissioned.
+- Deactivate an operation or profile: prove only that scope is inactive and
+  retain shared contracts and producers still used elsewhere.
+- Demote an enforced control: remove or replace its exact required context;
+  otherwise report hosted enforcement as pending rather than advisory.
 
 ## Stop conditions
 

@@ -10,31 +10,25 @@ workflows, evidence, scorecards, and documentation.
 
 ## Non-negotiable outcome
 
-Do not call a control active because its configuration, token, or workflow file
-exists. Activation and behavior changes require fresh provider evidence for the
-declared operation and exact subject of a representative run. Control
-decommissioning requires fresh change evidence that the producer contract and
-distributed copies are absent and the scorecard reflects the intended
-inactive-or-absent state. Provider replacement requires fresh evidence that
-the replacement is authoritative and active without interrupting the
-capability. Missing, skipped, stale, or unconfigured work must never become a
-pass.
+Configuration, a token, or a workflow file does not prove activation. Require
+fresh provider evidence for the declared operation and subject. Catalog
+decommissioning requires proof that its contract and distributed copies are
+absent. Scoped deactivation must preserve shared contracts used elsewhere.
+Provider replacement must keep the capability active. Missing, skipped, stale,
+or unconfigured work must never become a pass.
 
 ## Workflow
 
-1. Read repository `AGENTS.md`. In this standards source, also read
-   `docs/architecture.md`, `docs/producer-contract.md`,
-   `docs/control-status.md`, and `docs/control-setup.md` when relevant. In a
-   consumer, inspect `.guardrails/` and its declared ground-truth inventory,
-   then locate applicable repository documentation with `rg`; do not require
-   fixed lifecycle-document paths.
+1. Read repository `AGENTS.md`. In this source, read the relevant architecture,
+   producer-contract, status, and setup docs. In a consumer, inspect
+   `.guardrails/`, its ground-truth inventory, and docs discovered with `rg`;
+   do not assume fixed paths.
 2. Define the contract before editing: capability ID, catalog stage,
    availability, evidence subject, enforcement policy, authoritative provider,
    supplemental providers, producer/check name, activation requirements, raw
    status mapping, and expected behavior when configuration is absent.
-3. Map every affected surface with `rg`: canonical policy, schemas, runtime,
-   provider configuration, installer mappings, canonical workflows, installed
-   runtime and workflow copies, examples/demo, rulesets, tests, and docs.
+3. Map affected policy, schemas, runtime, provider configuration, installer
+   mappings, workflows and installed copies, examples, rulesets, tests, and docs.
    Separate shared/installer-owned artifacts from consumer-owned configuration,
    including `.guardrails/policy.yaml`, `.guardrails/providers.yaml`, mappings,
    thresholds, and ground-truth paths. Edit consumer-owned choices directly;
@@ -50,23 +44,22 @@ pass.
 7. Change GitHub variables, secrets, platform settings, or provider projects
    only with explicit authorization and under consumer security/contribution
    rules; otherwise mark hosted activation pending. Never expose credentials.
-8. When explicitly authorized, follow the repository contribution process to
-   open a pull request and run the representative hosted operation for the
-   declared subject: change/PR for `git-commit` or `pull-request`, release for
-   `artifact`, and the applicable environment stage for `environment`. For
-   active controls, verify exact-subject evidence, scorecard visibility, and
-   failure/no-result semantics. For control removals, verify
-   canonical/distributed absence, stale-evidence rejection, and the declared
-   inactive-or-absent scorecard outcome. For provider replacement, verify the
-   former provider is no longer authoritative for the affected capability, its
-   evidence cannot satisfy that selection, and the capability remains active
-   through the replacement. Require global provider and workflow absence only
-   when that provider is explicitly decommissioned. Verify only the evidence
-   and outputs promised by the contract.
+8. When explicitly authorized, follow the contribution process, open a PR, and
+   run the hosted operation matching the subject: change/PR for `git-commit` or
+   `pull-request`, release for `artifact`, and the applicable stage for
+   `environment`. Verify contract-promised evidence, outputs, scorecard state,
+   and failure/no-result behavior. For catalog removal, prove contract/copy
+   absence and stale-evidence rejection. For scoped deactivation, prove the
+   operation or profile is inactive while preserving shared contracts and
+   producers. For provider replacement, prove the former provider cannot
+   satisfy the affected selection and the replacement keeps it active. Require
+   global absence only when the provider itself is decommissioned.
 9. Keep the control advisory until representative runs prove reliability,
    ownership, and remediation. Never promote an `advisory-only` control or make
-   AI review the sole merge gate. Add a required check only after its producer
-   is active and stable.
+   AI review the sole merge gate. On promotion, add a required check only after
+   its producer is stable. On demotion, remove or replace that exact required
+   context. Without hosted-change authorization, report enforcement pending and
+   do not claim the control is advisory.
 
 ## Completion report
 
