@@ -52,18 +52,17 @@ skipped, stale, or unconfigured work must never become a pass.
    contracts/producers, and remove its gate only when unused by enforced scopes.
    For provider replacement, prove
    the former provider cannot satisfy the affected selection and the replacement
-   preserves its activation state, including
-   evidence when active. If enforced, atomically swap its gate after the
-   replacement is stable. Require global absence only when the provider
-   is decommissioned.
-9. Start new activations advisory until runs prove reliability.
-   Preserve existing enforcement unless explicitly demoting. Never promote an
-   `advisory-only` control or make AI review the sole gate. For PR-head
-   producers, add a required check only after it is stable; for release or
-   environment controls, use the
-   lifecycle gate and never require a nonexistent PR context. On demotion,
-   remove the applicable gate. Without hosted-change authorization,
-   report enforcement pending and do not claim advisory status.
+   preserves its activation state, including evidence when active. Require
+   global absence only when the provider is decommissioned.
+9. Activate advisory until reliable. Never enforce `advisory-only` controls or
+   AI review alone. Before enforcement changes, map each context's controls;
+   required contexts must isolate enforced from advisory outcomes. Use stable
+   PR-head contexts and release/environment lifecycle gates. On replacement,
+   add the stable new gate before retiring an exclusive old one; split/reconfigure
+   shared gates. For demotion, deactivation, or removal,
+   prove the affected outcome cannot fail a retained shared gate while other
+   enforced outcomes remain protected. Without hosted authority, report
+   enforcement pending, not advisory.
 
 ## Completion report
 
