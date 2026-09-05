@@ -11,8 +11,8 @@ only when its evidence is current and directly supports the claim.
 | Distribution | Pending | Installer mapping and installed self/demo copies match canonical sources. | |
 | Local behavior | Pending | Clean exact-revision scan shows expected pass, fail, blocked, and no-result behavior. | |
 | GitHub activation | Pending | Required variables, secrets, settings, and provider-side configuration are present without exposing values. | |
-| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Removed: the change proves contract/copy absence and the intended inactive-or-absent state. | |
-| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite where applicable, and exact subject/revision. Removed: no stale provider evidence is accepted. | |
+| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Control removed: the change proves contract/copy absence and the intended inactive-or-absent state. Provider replaced: the capability remains active through the replacement provider. | |
+| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite where applicable, and exact subject/revision. Control removed: no stale provider evidence is accepted. Provider replaced: only the replacement provider is authoritative and accepted. | |
 | Scorecard outputs | Pending | Every output promised by the workflow contract shows the provider result and correct readiness/decision; require a PR comment only when implemented. | |
 | Enforcement | Pending | Advisory/enforced mode matches policy; required-check rules reference only active, stable producer contexts. | |
 | Documentation | Pending | Setup, status, troubleshooting, provider extension, and migration guidance use the public vocabulary. | |
@@ -25,8 +25,10 @@ only when its evidence is current and directly supports the claim.
 - Remove a distributed runtime dependency: repository validation must fail.
 - Select an operation-inapplicable or advisory-only enforcement mode: policy
   validation must reject it.
-- Remove a provider or control: installed copies must drop it and the scorecard
-  must show inactivity or omit it according to the declared removal contract.
+- Remove a control: installed copies must drop it and the scorecard must show
+  inactivity or omit it according to the declared removal contract.
+- Replace a provider: installed copies must drop the retired provider, reject
+  its evidence, and keep the capability active through the replacement.
 
 ## Stop conditions
 

@@ -12,10 +12,13 @@ workflows, evidence, scorecards, and documentation.
 
 Do not call a control active because its configuration, token, or workflow file
 exists. Activation and behavior changes require fresh provider evidence for the
-declared operation and exact subject of a representative run. Decommissioning
-requires fresh change evidence that the producer contract and distributed
-copies are absent and the scorecard reflects the intended inactive-or-absent
-state. Missing, skipped, stale, or unconfigured work must never become a pass.
+declared operation and exact subject of a representative run. Control
+decommissioning requires fresh change evidence that the producer contract and
+distributed copies are absent and the scorecard reflects the intended
+inactive-or-absent state. Provider replacement requires fresh evidence that
+the replacement is authoritative and active without interrupting the
+capability. Missing, skipped, stale, or unconfigured work must never become a
+pass.
 
 ## Workflow
 
@@ -52,9 +55,12 @@ state. Missing, skipped, stale, or unconfigured work must never become a pass.
    declared subject: change/PR for `git-commit` or `pull-request`, release for
    `artifact`, and the applicable environment stage for `environment`. For
    active controls, verify exact-subject evidence, scorecard visibility, and
-   failure/no-result semantics. For removals, verify canonical/distributed
-   absence, stale-evidence rejection, and the declared inactive-or-absent
-   scorecard outcome. Verify only the outputs promised by the contract.
+   failure/no-result semantics. For control removals, verify
+   canonical/distributed absence, stale-evidence rejection, and the declared
+   inactive-or-absent scorecard outcome. For provider replacement, verify the
+   retired provider is absent, its evidence is rejected, and the capability
+   remains active through the replacement provider. Verify only the outputs
+   promised by the contract.
 9. Keep the control advisory until representative runs prove reliability,
    ownership, and remediation. Never promote an `advisory-only` control or make
    AI review the sole merge gate. Add a required check only after its producer
