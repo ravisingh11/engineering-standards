@@ -11,8 +11,8 @@ only when its evidence is current and directly supports the claim.
 | Distribution | Pending | Installer mapping and installed self/demo copies match canonical sources. | |
 | Local behavior | Pending | Clean exact-revision scan shows expected pass, fail, blocked, and no-result behavior. | |
 | GitHub activation | Pending | Required variables, secrets, settings, and provider-side configuration are present without exposing values. | |
-| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Control removed: the change proves contract/copy absence and the intended inactive-or-absent state. Provider replaced: the capability remains active through the replacement provider. | |
-| Evidence provenance | Pending | Active: the collector accepts the expected provider, workflow, event, run ID, check suite where applicable, and exact subject/revision. Control removed: no stale provider evidence is accepted. Provider replaced: only the replacement provider is authoritative and accepted. | |
+| Hosted lifecycle proof | Pending | Active: a representative hosted operation executes for the declared subject and reports the expected producer result. Control removed: the change proves contract/copy absence and the intended inactive-or-absent state. Provider replaced: the capability remains active through the replacement selection. | |
+| Evidence provenance | Pending | The collector accepts the provider identity, exact subject/revision, and proof required by its check-run, review, local, artifact, or environment contract. Control removed: no stale evidence satisfies the control. Provider replaced: the former provider cannot satisfy the affected selection; require global rejection only when it is decommissioned. | |
 | Scorecard outputs | Pending | Every output promised by the workflow contract shows the provider result and correct readiness/decision; require a PR comment only when implemented. | |
 | Enforcement | Pending | Advisory/enforced mode matches policy; required-check rules reference only active, stable producer contexts. | |
 | Documentation | Pending | Setup, status, troubleshooting, provider extension, and migration guidance use the public vocabulary. | |
@@ -27,8 +27,10 @@ only when its evidence is current and directly supports the claim.
   validation must reject it.
 - Remove a control: installed copies must drop it and the scorecard must show
   inactivity or omit it according to the declared removal contract.
-- Replace a provider: installed copies must drop the retired provider, reject
-  its evidence, and keep the capability active through the replacement.
+- Replace a provider selection: the former provider must no longer satisfy the
+  affected capability, and the replacement must keep that capability active.
+  Drop global provider copies and reject all its evidence only when the provider
+  itself is decommissioned.
 
 ## Stop conditions
 

@@ -58,9 +58,11 @@ pass.
    failure/no-result semantics. For control removals, verify
    canonical/distributed absence, stale-evidence rejection, and the declared
    inactive-or-absent scorecard outcome. For provider replacement, verify the
-   retired provider is absent, its evidence is rejected, and the capability
-   remains active through the replacement provider. Verify only the outputs
-   promised by the contract.
+   former provider is no longer authoritative for the affected capability, its
+   evidence cannot satisfy that selection, and the capability remains active
+   through the replacement. Require global provider and workflow absence only
+   when that provider is explicitly decommissioned. Verify only the evidence
+   and outputs promised by the contract.
 9. Keep the control advisory until representative runs prove reliability,
    ownership, and remediation. Never promote an `advisory-only` control or make
    AI review the sole merge gate. Add a required check only after its producer
