@@ -181,7 +181,8 @@ command also catches whitespace defects before commit. The coverage command
 uses the exact base commit supplied by the workflow and applies the policy's
 90% target only to changed Python lines. Generated `.guardrails/` copies, test
 files, and security fixtures are excluded; their canonical sources and real
-testable code remain included.
+testable code remain included. Python subprocesses inherit coverage collection,
+and their parallel data files are combined before the changed-line gate runs.
 
 For the embedded Python demo, these are real repository commands:
 

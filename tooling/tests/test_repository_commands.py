@@ -62,7 +62,10 @@ class RepositoryCommandTests(unittest.TestCase):
                 "if [[ \"${1:-}\" == \"xml\" ]]; then\n"
                 "  shift\n"
                 "  while (($#)); do\n"
-                "    if [[ \"$1\" == \"-o\" ]]; then touch \"$2\"; exit 0; fi\n"
+                "    if [[ \"$1\" == \"-o\" ]]; then\n"
+                "      printf '%s\\n' '<class filename=\"full-test-suite/scripts/full_test_suite_runner.py\"/>' '<class filename=\"full-test-suite/scripts/full_test_suite_executor.py\"/>' '<class filename=\"issue-operator/scripts/gh_issue_helper.py\"/>' > \"$2\"\n"
+                "      exit 0\n"
+                "    fi\n"
                 "    shift\n"
                 "  done\n"
                 "fi\n",
@@ -95,7 +98,14 @@ class RepositoryCommandTests(unittest.TestCase):
                 "outer coverage data",
             )
             arguments = argument_log.read_text(encoding="utf-8")
-            self.assertIn("--source=guardrails,tooling,examples/python-demo,skills,security", arguments)
+            coverage_config = (ROOT / "tooling/coverage.ini").read_text(encoding="utf-8")
+            self.assertIn("patch = subprocess", coverage_config)
+            self.assertIn("parallel = true", coverage_config)
+            self.assertIn("*/tooling/coverage-support/*", coverage_config)
+            for source_directory in ("guardrails", "tooling", "examples/python-demo", "skills", "security"):
+                self.assertIn(f"    {source_directory}\n", coverage_config)
+            self.assertIn("combine --quiet", arguments)
+            self.assertIn("tooling/coverage-support", (ROOT / "tooling/changed_code_coverage.sh").read_text())
             for test_directory in (
                 "skills/_shared-project-ops/scripts/tests",
                 "skills/full-test-suite/scripts/tests",

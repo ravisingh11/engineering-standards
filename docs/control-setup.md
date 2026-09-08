@@ -86,9 +86,13 @@ directory and leaves the worktree unchanged. `tooling/changed_code_coverage.sh`
 uses coverage.py plus diff-cover to require at least 90% coverage on Python
 lines changed from `GUARDRAILS_COVERAGE_BASE_REF` across the runtime, tooling,
 demo, skills, and security harness. Generated copies, tests, and fixtures are
-excluded. The migration command encodes this repository's actual ground truth:
-it has no database, so recursively introducing a common migration path fails
-until the command is replaced with validation for the chosen migration
+excluded. `tooling/coverage.ini` enables subprocess collection and parallel
+data files. The script exposes a repository-owned `sitecustomize` bootstrap so
+this also works where coverage.py cannot write into the Python installation's
+site-packages directory, then combines parent and child data before evaluating
+changed lines. The migration command encodes this repository's actual ground
+truth: it has no database, so recursively introducing a common migration path
+fails until the command is replaced with validation for the chosen migration
 framework. Dependency, generated, and worktree directories are excluded from
 that search.
 
