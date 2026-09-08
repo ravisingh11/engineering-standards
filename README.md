@@ -257,7 +257,9 @@ local scan -> fix findings -> open PR -> independent provider checks
 
 Local scans provide feedback from the current machine. Pull-request checks are
 the authoritative merge evidence because they run in the repository's trusted
-workflow environment and bind results to the PR head. The installed
+workflow environment and bind results to the PR head. Check evidence must also
+match the declared GitHub App or Actions workflow contract, as applicable. The
+installed
 `Artifact Provenance` workflow is release-attestation-only and never runs as a
 PR check. It does not emit nested artifact evidence for a Guardrails release
 scorecard, so artifact provenance is not yet a fully runnable Guardrails
