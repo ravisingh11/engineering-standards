@@ -17,6 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RepositoryCommandTests(unittest.TestCase):
+    def run_script(self, path: str, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", path], cwd=ROOT, env=environment, text=True, capture_output=True, check=False
+        )
+
     def run_migration_validator(self, root: Path) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -31,13 +36,7 @@ class RepositoryCommandTests(unittest.TestCase):
     def test_build_compiles_python_without_writing_bytecode_into_repository(self) -> None:
         before = set(ROOT.rglob("*.pyc"))
 
-        completed = subprocess.run(
-            ["bash", "tooling/build.sh"],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        completed = self.run_script("tooling/build.sh")
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(set(ROOT.rglob("*.pyc")), before)
@@ -46,14 +45,7 @@ class RepositoryCommandTests(unittest.TestCase):
         environment = os.environ.copy()
         environment.pop("GUARDRAILS_COVERAGE_BASE_REF", None)
 
-        completed = subprocess.run(
-            ["bash", "tooling/changed_code_coverage.sh"],
-            cwd=ROOT,
-            env=environment,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        completed = self.run_script("tooling/changed_code_coverage.sh", environment)
 
         self.assertEqual(completed.returncode, 2)
         self.assertIn("GUARDRAILS_COVERAGE_BASE_REF", completed.stderr)
@@ -96,14 +88,7 @@ class RepositoryCommandTests(unittest.TestCase):
             argument_log = binary_directory / "coverage-arguments.log"
             environment["COVERAGE_ARGUMENT_LOG"] = str(argument_log)
 
-            completed = subprocess.run(
-                ["bash", "tooling/changed_code_coverage.sh"],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            completed = self.run_script("tooling/changed_code_coverage.sh", environment)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(
                 inherited_coverage_file.read_text(encoding="utf-8"),
@@ -111,10 +96,13 @@ class RepositoryCommandTests(unittest.TestCase):
             )
             arguments = argument_log.read_text(encoding="utf-8")
             self.assertIn("--source=guardrails,tooling,examples/python-demo,skills,security", arguments)
-            self.assertIn("skills/_shared-project-ops/scripts/tests", arguments)
-            self.assertIn("skills/full-test-suite/scripts/tests", arguments)
-            self.assertIn("skills/issue-operator/scripts/tests", arguments)
-            self.assertIn("security/semgrep/tests", arguments)
+            for test_directory in (
+                "skills/_shared-project-ops/scripts/tests",
+                "skills/full-test-suite/scripts/tests",
+                "skills/issue-operator/scripts/tests",
+                "security/semgrep/tests",
+            ):
+                self.assertIn(test_directory, arguments)
 
     def test_migration_validator_accepts_repository_without_migrations(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -123,23 +111,14 @@ class RepositoryCommandTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertIn("No database migration surface", stdout)
 
-    def test_migration_validator_rejects_a_known_migration_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "db" / "migrate").mkdir(parents=True)
-            status, _stdout, stderr = self.run_migration_validator(root)
-
-        self.assertEqual(status, 1)
-        self.assertIn("db/migrate", stderr)
-
-    def test_migration_validator_rejects_a_nested_framework_migration_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "example_app" / "migrations").mkdir(parents=True)
-            status, _stdout, stderr = self.run_migration_validator(root)
-
-        self.assertEqual(status, 1)
-        self.assertIn("example_app/migrations", stderr)
+    def test_migration_validator_rejects_root_and_nested_framework_paths(self) -> None:
+        for migration_path in ("db/migrate", "example_app/migrations"):
+            with self.subTest(migration_path=migration_path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / migration_path).mkdir(parents=True)
+                status, _stdout, stderr = self.run_migration_validator(root)
+                self.assertEqual(status, 1)
+                self.assertIn(migration_path, stderr)
 
     def test_migration_validator_ignores_dependency_and_generated_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
