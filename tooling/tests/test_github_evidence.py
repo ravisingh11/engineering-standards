@@ -1267,10 +1267,9 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         self.assertEqual(result["status"], "not_run")
         self.assertIn("trusted path", result["reason"].lower())
 
-    def test_non_pr_workflow_event_or_missing_exact_pr_head_is_not_trusted(self) -> None:
+    def test_non_pr_event_or_missing_pull_request_target_head_is_not_trusted(self) -> None:
         fixtures = (
             ("push", [{"number": 17, "head": {"sha": "abc123"}}]),
-            ("pull_request", []),
             ("pull_request_target", [{"number": 17, "head": {"sha": "other"}}]),
         )
         for event, pull_requests in fixtures:
@@ -1298,6 +1297,39 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
 
             self.assertEqual(result["status"], "not_run")
             self.assertIn("pull request", result["reason"].lower())
+
+    def test_native_pull_request_run_accepts_empty_github_pull_requests_array(self) -> None:
+        def request(url: str, token: str) -> dict:
+            if "/actions/runs/908" in url:
+                return {
+                    "id": 908,
+                    "name": "Probe",
+                    "path": ".github/workflows/probe.yml",
+                    "check_suite_id": 10908,
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "pull_requests": [],
+                }
+            if "/contents/" in url:
+                return {"sha": "trusted-blob"}
+            raise AssertionError(f"unexpected request: {url}")
+
+        with patch.object(MODULE, "_request", side_effect=request):
+            result = MODULE.proven_check_evidence(
+                "owner/repo",
+                "abc123",
+                "token",
+                {
+                    "check_name": "Probe",
+                    "workflow": "Probe",
+                    "workflow_path": ".github/workflows/probe.yml",
+                },
+                check_run("Probe", 908),
+                "Probe",
+                trusted_base_revision="base456",
+            )
+
+        self.assertEqual(result["status"], "passed")
 
     def prove_artifact(
         self,
@@ -1339,6 +1371,13 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
                 trusted_base_revision="base456",
                 trusted_workflow_ref="refs/heads/main",
             )
+
+    def test_artifact_check_uses_run_id_from_external_id_when_github_rewrites_details_url(self) -> None:
+        result = self.prove_artifact(
+            details_url="https://github.com/owner/repo/runs/123456",
+        )
+
+        self.assertEqual(result["status"], "passed")
 
     def test_artifact_backed_check_rejects_wrong_explicit_workflow_ref(self) -> None:
         with patch.object(

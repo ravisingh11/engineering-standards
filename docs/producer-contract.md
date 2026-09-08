@@ -86,12 +86,14 @@ provider contracts. For each check it verifies:
 
 - exact `head_sha`;
 - the `github-actions` app;
-- a details URL containing the workflow run ID;
+- a workflow run ID from the Actions details URL for native checks, or from the
+  contract-bound external ID for custom checks (GitHub may rewrite a custom
+  check's details URL to its check page);
 - the declared workflow name;
 - the declared workflow path when present, allowing GitHub's exact `@ref`
   suffix;
-- a `pull_request` or `pull_request_target` workflow event with an exact
-  pull-request head association;
+- a `pull_request` workflow event with an exact workflow-run head SHA, or a
+  `pull_request_target` proof with an exact artifact-bound head association;
 - matching workflow-run revision and check-suite identity for native Actions
   checks; and
 - the declared external-ID prefix when the provider requires one.
@@ -100,6 +102,11 @@ For a custom PR-head check published by a trusted `pull_request_target` probe,
 the external ID and details URL bind the custom check to the exact workflow run.
 The collector does not equate that custom check suite with the probe workflow's
 separate base-SHA suite.
+
+GitHub can return an empty `pull_requests` array for a valid `pull_request`
+workflow run. Native checks therefore bind through the event type, exact
+workflow-run head SHA, matching check-suite identity, and unchanged trusted
+paths. A non-empty association that names a different head is rejected.
 
 | GitHub conclusion | Raw evidence status |
 | --- | --- |
