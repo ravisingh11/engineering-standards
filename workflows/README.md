@@ -87,7 +87,9 @@ pull-request event, and exact PR-head association. Native Actions checks retain
 workflow-suite binding. Custom setting checks instead require their configured
 external-ID prefix and details run ID; their PR-head check suite is not equated
 with the `pull_request_target` workflow's base-SHA suite. Missing, skipped,
-stale, ambiguous, or unverifiable checks become `NO RESULT`.
+stale, ambiguous, or unverifiable checks become `NO RESULT`. Same-name checks
+from a different GitHub App are ignored; multiple matches from the declared app
+remain ambiguous and do not satisfy the control.
 
 ## Local versus PR operation
 

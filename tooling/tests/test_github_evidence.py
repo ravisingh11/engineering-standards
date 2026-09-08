@@ -328,6 +328,18 @@ class GitHubEvidenceV2Tests(unittest.TestCase):
         self.assertEqual(result["status"], "not_run")
         self.assertIn("duplicate", result["reason"].lower())
 
+    def test_same_name_check_from_different_app_does_not_make_workflow_ambiguous(self) -> None:
+        payload = {"check_runs": [
+            check_run("Build", 303, app_slug="github-advanced-security", conclusion="neutral"),
+            check_run("Build", 304, app_slug="github-actions", conclusion="success"),
+        ]}
+
+        evidence = self.collect(payload, {304: "Build"})
+
+        result = evidence["results"]["build"]["github-build"]
+        self.assertEqual(result["status"], "passed")
+        self.assertIn("/runs/304", result["evidence"][0])
+
     def test_collects_all_pages_for_url_encoded_check_name_before_trusting_exact_path(self) -> None:
         policy, profiles, catalog, providers = contracts()
         providers["providers"]["github-build"]["checks"]["build"]["check_name"] = "Build / Linux"
