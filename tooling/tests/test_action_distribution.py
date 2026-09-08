@@ -35,7 +35,6 @@ GITHUB_WORKFLOWS = {
 class ActionDistributionTests(unittest.TestCase):
     def test_installed_runtime_and_configuration_match_canonical_sources(self) -> None:
         copies = {
-            ".guardrails/policy.yaml": "guardrails/baseline.yaml",
             ".guardrails/profiles.yaml": "policies/profiles.yaml",
             ".guardrails/control-catalog.yaml": "policies/control-catalog.yaml",
             ".guardrails/providers.yaml": "policies/provider-config.yaml",
@@ -61,12 +60,15 @@ class ActionDistributionTests(unittest.TestCase):
             with self.subTest(installed=installed):
                 self.assertEqual((ROOT / installed).read_bytes(), (ROOT / source).read_bytes())
 
-    def test_self_repository_is_core_v2_without_a_manifest(self) -> None:
+    def test_self_repository_uses_core_and_github_profiles_without_a_manifest(self) -> None:
         policy = json.loads((ROOT / ".guardrails/policy.yaml").read_text())
+        baseline = json.loads((ROOT / "guardrails/baseline.yaml").read_text())
         catalog = json.loads((ROOT / ".guardrails/control-catalog.yaml").read_text())
         providers = json.loads((ROOT / ".guardrails/providers.yaml").read_text())
         self.assertEqual(policy["version"], 2)
-        self.assertEqual(policy["profiles"], ["core"])
+        self.assertEqual(policy["profiles"], ["core", "github"])
+        self.assertEqual(policy["overrides"]["change"]["dependency-remediation"], "not_activated")
+        self.assertEqual(baseline["profiles"], ["core"])
         self.assertEqual(catalog["version"], 2)
         self.assertEqual(providers["version"], 2)
         self.assertFalse((ROOT / ".guardrails/producer-manifest.json").exists())

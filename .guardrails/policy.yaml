@@ -2,9 +2,14 @@
   "$schema": "./policy.schema.json",
   "version": 2,
   "name": "baseline",
-  "profiles": ["core"],
+  "profiles": [
+    "core",
+    "github"
+  ],
   "overrides": {
-    "change": {},
+    "change": {
+      "dependency-remediation": "not_activated"
+    },
     "release": {}
   }
 }

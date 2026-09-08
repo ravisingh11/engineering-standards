@@ -49,15 +49,24 @@ This repository uses a deliberately narrow, debt-aware baseline:
 
 ```sh
 python3 -m pip install --disable-pip-version-check \
-  -r tooling/requirements-lint.txt
+  -r tooling/requirements-ci.txt
+tooling/build.sh
+tooling/test.sh
+GUARDRAILS_COVERAGE_BASE_REF=origin/main tooling/changed_code_coverage.sh
 tooling/lint.sh
+python3 tooling/validators/validate_no_migrations.py
 ```
 
 Its GitHub repository variables are:
 
 ```text
-GUARDRAILS_SETUP_COMMAND=python3 -m pip install --disable-pip-version-check -r tooling/requirements-lint.txt
+GUARDRAILS_SETUP_COMMAND=python3 -m pip install --disable-pip-version-check -r tooling/requirements-ci.txt
+GUARDRAILS_BUILD_COMMAND=tooling/build.sh
+GUARDRAILS_CHANGED_COVERAGE_COMMAND=tooling/changed_code_coverage.sh
+GUARDRAILS_CODEQL_LANGUAGES=python,actions
+GUARDRAILS_DEPENDENCY_REVIEW_ENABLED=true
 GUARDRAILS_FORMAT_LINT_COMMAND=tooling/lint.sh
+GUARDRAILS_MIGRATION_VALIDATION_COMMAND=python3 tooling/validators/validate_no_migrations.py
 GUARDRAILS_UNIT_TEST_COMMAND=tooling/test.sh
 ```
 
@@ -71,6 +80,21 @@ small, separately reviewed changes.
 `tooling/test.sh` is this repository's canonical unit-test entry point. It runs
 the Guardrails runtime, tooling, validator, and embedded consumer-demo suites;
 the `Unit Tests` GitHub workflow invokes the same command.
+
+`tooling/build.sh` byte-compiles the shipped Python source into a temporary
+directory and leaves the worktree unchanged. `tooling/changed_code_coverage.sh`
+uses coverage.py plus diff-cover to require at least 90% coverage on Python
+lines changed from `GUARDRAILS_COVERAGE_BASE_REF` across the runtime, tooling,
+demo, skills, and security harness. Generated copies, tests, and fixtures are
+excluded. `tooling/coverage.ini` enables subprocess collection and parallel
+data files. The script exposes a repository-owned `sitecustomize` bootstrap so
+this also works where coverage.py cannot write into the Python installation's
+site-packages directory, then combines parent and child data before evaluating
+changed lines. The migration command encodes this repository's actual ground
+truth: it has no database, so recursively introducing a common migration path
+fails until the command is replaced with validation for the chosen migration
+framework. Dependency, generated, and worktree directories are excluded from
+that search.
 
 ### Pull-request metadata
 

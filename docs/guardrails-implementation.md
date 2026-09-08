@@ -21,6 +21,10 @@ contracts and evaluator.
 
 ## Installed configuration
 
+`guardrails/baseline.yaml` is the consumer starter policy. After installation,
+`.guardrails/policy.yaml` is repository-owned configuration and may select
+additional profiles or overrides without changing the consumer baseline.
+
 The installer also adds repository-owned documentation mappings, change-scope
 thresholds, ground-truth inventory, validators, Semgrep rules, rule fixtures,
 and selected workflow templates. Refresh preserves repository-owned policy,

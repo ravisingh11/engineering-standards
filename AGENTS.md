@@ -19,6 +19,10 @@ private repository details here. A consuming repository owns its own
 `AGENTS.md`, architecture, testing, security, deployment, and contribution
 ground truth.
 
+This repository has no application database or migration framework. Adding a
+database migration surface requires replacing the no-migrations validator with
+the chosen framework's real migration validation command in the same change.
+
 ## Change contract
 
 - Use a pull request for every normal change to the default branch.
@@ -37,11 +41,14 @@ Run the smallest relevant checks while working. Before opening or updating a
 pull request, run the complete repository validation:
 
 ```sh
+tooling/build.sh
 tooling/test.sh
+GUARDRAILS_COVERAGE_BASE_REF=origin/main tooling/changed_code_coverage.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 python3 tooling/validate-skills.py
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
+python3 tooling/validators/validate_no_migrations.py
 tooling/lint.sh
 git diff --check
 ```

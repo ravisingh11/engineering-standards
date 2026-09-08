@@ -55,12 +55,16 @@ third-party integrations or copied material.
 ## Validation
 
 ```sh
+python3 -m pip install --disable-pip-version-check -r tooling/requirements-ci.txt
+tooling/build.sh
+GUARDRAILS_COVERAGE_BASE_REF=origin/main tooling/changed_code_coverage.sh
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
 python3 tooling/validate-skills.py
 tooling/test.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 tooling/lint.sh
+python3 tooling/validators/validate_no_migrations.py
 git diff --check
 ```
 
