@@ -4,21 +4,47 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 
-MIGRATION_PATHS = (
-    Path("migrations"),
-    Path("db/migrate"),
-    Path("alembic/versions"),
-    Path("prisma/migrations"),
-    Path("src/main/resources/db/migration"),
+MIGRATION_SUFFIXES = (
+    ("migrations",),
+    ("db", "migrate"),
+    ("alembic", "versions"),
+    ("prisma", "migrations"),
+    ("src", "main", "resources", "db", "migration"),
 )
+EXCLUDED_DIRECTORIES = {
+    ".artifacts",
+    ".git",
+    ".venv",
+    ".worktrees",
+    "__pycache__",
+    "node_modules",
+    "vendor",
+    "venv",
+}
 
 
 def migration_paths(root: Path) -> list[Path]:
-    return [relative for relative in MIGRATION_PATHS if (root / relative).exists()]
+    found: list[Path] = []
+    for current, directories, _files in os.walk(root, followlinks=False):
+        directories[:] = sorted(
+            directory for directory in directories if directory not in EXCLUDED_DIRECTORIES
+        )
+        current_path = Path(current)
+        for directory in list(directories):
+            relative = (current_path / directory).relative_to(root)
+            parts = relative.parts
+            if any(
+                len(parts) >= len(suffix) and parts[-len(suffix) :] == suffix
+                for suffix in MIGRATION_SUFFIXES
+            ):
+                found.append(relative)
+                directories.remove(directory)
+    return sorted(found)
 
 
 def main() -> int:

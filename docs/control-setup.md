@@ -84,10 +84,13 @@ the `Unit Tests` GitHub workflow invokes the same command.
 `tooling/build.sh` byte-compiles the shipped Python source into a temporary
 directory and leaves the worktree unchanged. `tooling/changed_code_coverage.sh`
 uses coverage.py plus diff-cover to require at least 90% coverage on Python
-lines changed from `GUARDRAILS_COVERAGE_BASE_REF`. The migration command encodes
-this repository's actual ground truth: it has no database, so introducing a
-common migration path fails until the command is replaced with validation for
-the chosen migration framework.
+lines changed from `GUARDRAILS_COVERAGE_BASE_REF` across the runtime, tooling,
+demo, skills, and security harness. Generated copies, tests, and fixtures are
+excluded. The migration command encodes this repository's actual ground truth:
+it has no database, so recursively introducing a common migration path fails
+until the command is replaced with validation for the chosen migration
+framework. Dependency, generated, and worktree directories are excluded from
+that search.
 
 ### Pull-request metadata
 

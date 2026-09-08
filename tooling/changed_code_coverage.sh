@@ -25,12 +25,28 @@ cd "${repo_root}"
 mkdir -p "$(dirname "${coverage_file}")"
 coverage erase
 
-coverage run --branch --source=guardrails,tooling \
+coverage_options=(
+  --branch
+  --source=guardrails,tooling,examples/python-demo,skills,security
+  --omit='*/.guardrails/*,*/tests/*,*/test_*.py,*/semgrep/tests/fixtures/*'
+)
+
+coverage run "${coverage_options[@]}" \
   -m unittest discover -s guardrails/tests -p 'test_*.py'
-coverage run --append --branch --source=guardrails,tooling \
+coverage run --append "${coverage_options[@]}" \
   -m unittest discover -s tooling/tests -p 'test_*.py'
-coverage run --append --branch --source=guardrails,tooling \
+coverage run --append "${coverage_options[@]}" \
   -m unittest discover -s tooling/validators/tests -p 'test_*.py'
+coverage run --append "${coverage_options[@]}" \
+  -m unittest discover -s examples/python-demo -p 'test_*.py'
+coverage run --append "${coverage_options[@]}" \
+  -m unittest discover -s skills/_shared-project-ops/scripts/tests -p 'test_*.py'
+coverage run --append "${coverage_options[@]}" \
+  -m unittest discover -s skills/full-test-suite/scripts/tests -p 'test_*.py'
+coverage run --append "${coverage_options[@]}" \
+  -m unittest discover -s skills/issue-operator/scripts/tests -p 'test_*.py'
+coverage run --append "${coverage_options[@]}" \
+  -m unittest discover -s security/semgrep/tests -p 'test_*.py'
 coverage xml -o "${coverage_file}"
 
 diff-cover "${coverage_file}" \

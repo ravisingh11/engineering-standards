@@ -110,8 +110,8 @@ This repository uses itself as a working example:
 | Unit tests | Active through `tooling/test.sh`; all four Python test suites below run in the `Unit Tests` workflow. |
 | Semgrep CE and Gitleaks | Active on every PR with repository-owned configuration. An exact-head pass renders 🟢 **GREEN**. |
 | Build | Active through `tooling/build.sh`, which compiles the shipped Python sources into an isolated temporary bytecode tree. |
-| Changed-code coverage | Active through `tooling/changed_code_coverage.sh`; coverage.py and diff-cover enforce at least 90% coverage on changed Python lines. |
-| Migration validation | Active through `tooling/validators/validate_no_migrations.py`. This repository has no database, so the check rejects the introduction of common migration paths until a real framework-specific validator replaces it. |
+| Changed-code coverage | Active through `tooling/changed_code_coverage.sh`; coverage.py and diff-cover enforce at least 90% coverage on changed Python lines across the runtime, tooling, demo, skills, and security harness. |
+| Migration validation | Active through `tooling/validators/validate_no_migrations.py`. This repository has no database, so the check recursively rejects common migration paths until a real framework-specific validator replaces it. |
 | GitHub CodeQL, Dependency Review, and Secret Protection | GitHub profile enabled. These run on PRs after their repository variables and platform settings are verified. |
 | Dependabot remediation | Deliberately not activated in this repository's change policy; Dependabot update PRs are managed separately. |
 | Artifact provenance | Selected for release operations, not PR change scorecards. |
@@ -179,7 +179,9 @@ python3 tooling/validators/validate_no_migrations.py
 `tooling/lint.sh` checks committed, staged, and unstaged changes, so the local
 command also catches whitespace defects before commit. The coverage command
 uses the exact base commit supplied by the workflow and applies the policy's
-90% target only to changed Python lines.
+90% target only to changed Python lines. Generated `.guardrails/` copies, test
+files, and security fixtures are excluded; their canonical sources and real
+testable code remain included.
 
 For the embedded Python demo, these are real repository commands:
 
