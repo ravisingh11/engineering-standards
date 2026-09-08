@@ -304,6 +304,9 @@ The repository test and validation surfaces are deliberately visible:
 | `tooling/tests` | Installer, configurator, scanner, scorecard, workflow, and integration behavior | `Unit Tests` |
 | `tooling/validators/tests` | Catalog, documentation, repository, scope, and metadata validation behavior | `Unit Tests` |
 | `examples/python-demo` | A real consumer can install and execute Guardrails | `Unit Tests` |
+| `tooling/build.sh` | Every distributed Python source compiles without polluting the worktree | `Build` |
+| `tooling/changed_code_coverage.sh` | Changed Python lines meet the 90% target, including tested subprocesses | `Changed Code Coverage` |
+| `tooling/validators/validate_no_migrations.py` | The repository's declared no-database ground truth remains true | `Migration Validation` |
 | `tooling/validate-skills.py` | Shared skills and their focused tests are valid | `Validate / standards source` |
 | Repository and documentation validators | Distributed contracts, internal links, and declared documentation targets are valid | `Validate / repository`, `Validate / standards source`, `Validate / docs` |
 | `tooling/lint.sh` | Python correctness baseline, YAML structure, and whitespace rules | `Format and Lint` |
@@ -317,11 +320,15 @@ tooling/test.sh
 Run the complete local validation before opening or updating a PR:
 
 ```sh
+python3 -m pip install --disable-pip-version-check -r tooling/requirements-ci.txt
+tooling/build.sh
 tooling/test.sh
+GUARDRAILS_COVERAGE_BASE_REF=origin/main tooling/changed_code_coverage.sh
 python3 examples/python-demo/tools/validate_demo.py --documentation
 python3 tooling/validate-skills.py
 python3 tooling/validators/validate_repository.py
 python3 tooling/validators/validate_documentation.py
+python3 tooling/validators/validate_no_migrations.py
 tooling/lint.sh
 git diff --check
 ```
