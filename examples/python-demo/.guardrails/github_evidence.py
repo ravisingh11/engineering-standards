@@ -512,16 +512,21 @@ def proven_check_evidence(
         return not_run(check_name, "The GitHub Actions provider contract requires an exact workflow path.")
     if not isinstance(app, dict) or app.get("slug") != "github-actions":
         return not_run(check_name, "The check provenance is not the github-actions application.")
-    details_url = check.get("details_url")
-    match = re.search(r"/actions/runs/([0-9]+)(?:/|$)", details_url or "")
-    if not match:
-        return not_run(check_name, "The check details URL does not identify a GitHub Actions workflow run.")
-    run_id = int(match.group(1))
     external_id_prefix = contract.get("external_id_prefix")
     if external_id_prefix is not None:
-        expected_external_id = f"{external_id_prefix}{run_id}:{revision}"
-        if check.get("external_id") != expected_external_id:
+        external_id_match = re.fullmatch(
+            rf"{re.escape(external_id_prefix)}([0-9]+):{re.escape(revision)}",
+            check.get("external_id") or "",
+        )
+        if not external_id_match:
             return not_run(check_name, "The check external id does not bind the workflow run and exact revision.")
+        run_id = int(external_id_match.group(1))
+    else:
+        details_url = check.get("details_url")
+        match = re.search(r"/actions/runs/([0-9]+)(?:/|$)", details_url or "")
+        if not match:
+            return not_run(check_name, "The check details URL does not identify a GitHub Actions workflow run.")
+        run_id = int(match.group(1))
     try:
         workflow_run = _request(
             f"https://api.github.com/repos/{repo}/actions/runs/{run_id}", token
@@ -551,14 +556,18 @@ def proven_check_evidence(
         return not_run(check_name, "The GitHub Actions workflow run is not associated with a pull request event.")
     if not platform_proof_required:
         pull_requests = workflow_run.get("pull_requests")
-        associated_revision = isinstance(pull_requests, list) and any(
+        if not isinstance(pull_requests, list):
+            return not_run(check_name, "The GitHub Actions workflow run pull-request association is malformed.")
+        associated_revision = any(
             isinstance(pull_request, dict)
             and isinstance(pull_request.get("head"), dict)
             and pull_request["head"].get("sha") == revision
             for pull_request in pull_requests
         )
-        if not associated_revision:
+        if pull_requests and not associated_revision:
             return not_run(check_name, "The GitHub Actions workflow run is not associated with a pull request at the exact head revision.")
+        if event == "pull_request_target" and not associated_revision:
+            return not_run(check_name, "The GitHub Actions pull request target workflow lacks an exact head association.")
         if event == "pull_request" and workflow_run.get("head_sha") != revision:
             return not_run(check_name, "The GitHub Actions pull request workflow did not run at the exact head revision.")
         check_suite = check.get("check_suite")
