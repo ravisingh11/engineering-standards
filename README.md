@@ -109,9 +109,12 @@ This repository uses itself as a working example:
 | Format and lint | Active through `tooling/lint.sh`. Ruff, yamllint, and committed/staged/unstaged whitespace checks run on every PR. |
 | Unit tests | Active through `tooling/test.sh`; all four Python test suites below run in the `Unit Tests` workflow. |
 | Semgrep CE and Gitleaks | Active on every PR with repository-owned configuration. An exact-head pass renders 🟢 **GREEN**. |
-| Build and changed-code coverage | Selected, but repository commands are not configured. Their skipped producers render 🟠 **ORANGE** / `NO RESULT`, not a false pass. |
-| Migration validation | Selected, but no repository command is configured. Its producer fails visibly and renders 🟠 **ORANGE** / `failed` while advisory. |
-| GitHub profile: CodeQL, Dependency Review, Secret Protection, Dependabot, and release provenance | Profile not selected. A complete catalog report renders these ⚪ **GRAY** for the current operation. |
+| Build | Active through `tooling/build.sh`, which compiles the shipped Python sources into an isolated temporary bytecode tree. |
+| Changed-code coverage | Active through `tooling/changed_code_coverage.sh`; coverage.py and diff-cover enforce at least 90% coverage on changed Python lines. |
+| Migration validation | Active through `tooling/validators/validate_no_migrations.py`. This repository has no database, so the check rejects the introduction of common migration paths until a real framework-specific validator replaces it. |
+| GitHub CodeQL, Dependency Review, and Secret Protection | GitHub profile enabled. These run on PRs after their repository variables and platform settings are verified. |
+| Dependabot remediation | Deliberately not activated in this repository's change policy; Dependabot update PRs are managed separately. |
+| Artifact provenance | Selected for release operations, not PR change scorecards. |
 | SonarQube, Snyk, FOSSA, and AI review providers | Not selected as authoritative providers. A complete catalog report renders their capabilities ⚪ **GRAY**. |
 | Future artifact, deployment, and runtime capabilities | Evidence contracts only; they remain ⚪ **GRAY** until implemented and activated. |
 
@@ -159,16 +162,24 @@ The scanner writes nested JSON evidence and a timestamped Markdown scorecard to
 Unavailable local tools and unconfigured local commands report `not_run` /
 `NO RESULT`.
 
-This repository's own format/lint producer is configured in `ruff.toml`,
-`.yamllint.yml`, and `tooling/lint.sh`. It checks committed, staged, and unstaged
-changes, so the local command also catches whitespace defects before commit.
-Install its pinned tools and run the same command used by CI:
+This repository's own command producers are in `tooling/`. Install the pinned CI
+tools, then run the same build, test, coverage, lint, and migration commands used
+by GitHub Actions:
 
 ```sh
 python3 -m pip install --disable-pip-version-check \
-  -r tooling/requirements-lint.txt
+  -r tooling/requirements-ci.txt
+tooling/build.sh
+tooling/test.sh
+GUARDRAILS_COVERAGE_BASE_REF=origin/main tooling/changed_code_coverage.sh
 tooling/lint.sh
+python3 tooling/validators/validate_no_migrations.py
 ```
+
+`tooling/lint.sh` checks committed, staged, and unstaged changes, so the local
+command also catches whitespace defects before commit. The coverage command
+uses the exact base commit supplied by the workflow and applies the policy's
+90% target only to changed Python lines.
 
 For the embedded Python demo, these are real repository commands:
 
