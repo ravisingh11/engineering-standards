@@ -32,12 +32,14 @@ def migration_paths(root: Path) -> list[Path]:
     found: list[Path] = []
     for current, directories, _files in os.walk(root, followlinks=False):
         directories[:] = sorted(
-            directory for directory in directories if directory not in EXCLUDED_DIRECTORIES
+            directory
+            for directory in directories
+            if directory.casefold() not in EXCLUDED_DIRECTORIES
         )
         current_path = Path(current)
         for directory in list(directories):
             relative = (current_path / directory).relative_to(root)
-            parts = relative.parts
+            parts = tuple(part.casefold() for part in relative.parts)
             if any(
                 len(parts) >= len(suffix) and parts[-len(suffix) :] == suffix
                 for suffix in MIGRATION_SUFFIXES
