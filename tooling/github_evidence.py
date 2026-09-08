@@ -222,6 +222,18 @@ def not_run(check_name: str, reason: str) -> dict[str, Any]:
     })
 
 
+def check_matches_declared_app(check: dict[str, Any], contract: dict[str, Any]) -> bool:
+    """Return whether a same-name check came from the contract's declared app class."""
+    app = check.get("app")
+    actual_slug = app.get("slug") if isinstance(app, dict) else None
+    app_slug = contract.get("app_slug")
+    if isinstance(app_slug, str) and app_slug:
+        return actual_slug == app_slug
+    if contract.get("workflow_path"):
+        return actual_slug == "github-actions"
+    return True
+
+
 def enumerate_check_runs(
     repo: str, revision: str, token: str, check_name: str,
 ) -> list[dict[str, Any]]:
@@ -633,6 +645,7 @@ def collect_checks(
     deadline = time.monotonic() + max(0, wait_seconds)
     maximum_attempts = 1 + (max(0, wait_seconds) + 9) // 10
     matching: dict[str, list[dict[str, Any]]] = {name: [] for name in check_names}
+    wrong_app_only: dict[str, bool] = {name: False for name in check_names}
     enumeration_failures: set[str] = set()
     attempts = 0
     while True:
@@ -644,7 +657,14 @@ def collect_checks(
                 enumeration_failures.add(name)
                 matching[name] = []
             else:
-                matching[name] = [check for check in check_runs if check.get("name") == name]
+                contract = expected[name]
+                same_name = [check for check in check_runs if check.get("name") == name]
+                matching[name] = [
+                    check
+                    for check in same_name
+                    if check_matches_declared_app(check, contract)
+                ]
+                wrong_app_only[name] = bool(same_name and not matching[name])
         complete = all(
             name in enumeration_failures
             or (
@@ -667,7 +687,15 @@ def collect_checks(
                 "Complete GitHub check-run enumeration could not be proven.",
             )
         elif not matches:
-            result = not_run(check_name, "The selected provider check did not report this revision.")
+            if wrong_app_only[check_name]:
+                declared_app = contract.get("app_slug") or "github-actions"
+                result = not_run(
+                    check_name,
+                    "The selected provider check was reported only by applications "
+                    f"that do not match the declared app {declared_app!r}.",
+                )
+            else:
+                result = not_run(check_name, "The selected provider check did not report this revision.")
         elif len(matches) > 1:
             result = not_run(check_name, "Duplicate matching GitHub check names make provider provenance ambiguous.")
         else:
