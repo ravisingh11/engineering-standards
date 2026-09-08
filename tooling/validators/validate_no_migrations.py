@@ -15,6 +15,7 @@ MIGRATION_SUFFIXES = (
     ("alembic", "versions"),
     ("prisma", "migrations"),
     ("src", "main", "resources", "db", "migration"),
+    ("src", "main", "resources", "db", "changelog"),
 )
 EXCLUDED_DIRECTORIES = {
     ".artifacts",

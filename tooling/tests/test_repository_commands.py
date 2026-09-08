@@ -122,7 +122,12 @@ class RepositoryCommandTests(unittest.TestCase):
         self.assertIn("No database migration surface", stdout)
 
     def test_migration_validator_rejects_root_and_nested_framework_paths(self) -> None:
-        for migration_path in ("db/migrate", "example_app/migrations", "Example/Migrations"):
+        for migration_path in (
+            "db/migrate",
+            "example_app/migrations",
+            "Example/Migrations",
+            "src/main/resources/db/changelog",
+        ):
             with self.subTest(migration_path=migration_path), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / migration_path).mkdir(parents=True)
