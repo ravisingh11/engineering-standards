@@ -15,10 +15,12 @@
 - The existing scorecard workflow remains read-only.
 - Badge publishing is optional and requires no PAT, Gist, repository secret, or `contents: write` permission.
 - The publisher executes only default-branch code and never executes downloaded artifact content.
-- A source run is eligible only when it is associated with exactly one pull request targeting the repository default branch. The publisher validates the source base SHA separately and derives the expected scorecard revision from the associated pull request head SHA.
+- A source run is eligible only when its validated subject commit resolves through GitHub's commit-to-pull-request API to exactly one pull request targeting the repository default branch. Do not depend on `workflow_run.pull_requests`, which may be empty for `pull_request_target`.
+- The publisher proves the source run base SHA is an ancestor of the current default branch, then uses the validated artifact subject as the expected revision and verifies it equals the associated pull request head SHA.
+- Publishing is monotonic by source run creation time with run ID as a tie-breaker. Older or replayed runs are validation-only and cannot replace newer published metadata; failure to read non-404 current metadata fails closed.
 - A valid `RED / block` artifact is publishable even when the source workflow conclusion is `failure`; canceled, skipped, or artifact-less failures are not.
 - The standalone publisher requires `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` and must not replace an existing repository Pages site.
-- Exactly one bounded, non-symlink scorecard JSON and its paired Markdown report are accepted.
+- Exactly one bounded, non-symlink scorecard JSON and its paired Markdown report are accepted. Published metadata includes the source run creation time for monotonic deployment checks.
 - The score badge is labeled as the latest PR scorecard, not default-branch state.
 - Every external action is pinned to a full commit SHA.
 - Current approved action pins are:
@@ -38,9 +40,10 @@
 - Create after tests pass: `.guardrails/render_scorecard_badge.py`
 
 **Interfaces:**
-- Consumes: `render_badge(source_dir: Path, output_dir: Path, repository: str, run_id: int, run_url: str, expected_revision: str) -> dict[str, object]`
+- Consumes: `inspect_scorecard(source_dir: Path) -> dict[str, object]` and `render_badge(source_dir: Path, output_dir: Path, repository: str, run_id: int, run_url: str, source_run_created_at: str, expected_revision: str) -> dict[str, object]`
 - Produces: `guardrails-badge.svg`, `scorecard.json`, `scorecard.md`, and `index.html` under `output_dir`
-- CLI: `python3 .guardrails/render_scorecard_badge.py --source-dir PATH --output-dir PATH --repository OWNER/REPO --run-id INTEGER --run-url HTTPS_URL --expected-revision 40_HEX_SHA`
+- CLI inspection: `python3 .guardrails/render_scorecard_badge.py --source-dir PATH --inspect-output PATH`
+- CLI rendering: `python3 .guardrails/render_scorecard_badge.py --source-dir PATH --output-dir PATH --repository OWNER/REPO --run-id INTEGER --run-url HTTPS_URL --source-run-created-at RFC3339 --expected-revision 40_HEX_SHA`
 
 - [ ] **Step 1: Write failing happy-path renderer tests**
 
@@ -53,16 +56,18 @@ metadata = MODULE.render_badge(
     "owner/repo",
     12345,
     "https://github.com/owner/repo/actions/runs/12345",
+    "2026-09-08T12:00:00Z",
     "a" * 40,
 )
 self.assertEqual(metadata["message"], "GREEN 14/14")
 self.assertIn("GREEN 14/14", (output / "guardrails-badge.svg").read_text())
 self.assertEqual(json.loads((output / "scorecard.json").read_text())["source_run_id"], 12345)
+self.assertEqual(json.loads((output / "scorecard.json").read_text())["source_run_created_at"], "2026-09-08T12:00:00Z")
 ```
 
 - [ ] **Step 2: Write failing color and validation tests**
 
-Cover ORANGE and RED rendering, invalid status/decision, booleans masquerading as integers, passed counts greater than totals, zero active controls, mismatched revision, non-HTTPS or cross-repository run URL, missing/duplicate JSON, missing paired Markdown, files over 64 KiB, aggregate input over 1 MiB, nested files, and symlinks. Assert every invalid case raises `ValueError` and leaves no published output.
+Cover ORANGE and RED rendering, invalid status/decision, booleans masquerading as integers, passed counts greater than totals, zero active controls, mismatched revision, invalid RFC 3339 source timestamps, non-HTTPS or cross-repository run URL, missing/duplicate JSON, missing paired Markdown, files over 64 KiB, aggregate input over 1 MiB, nested files, and symlinks. Assert every invalid case raises `ValueError` and leaves no published output. Assert inspection validates the same bounded source and writes only trusted normalized metadata to its requested output path.
 
 - [ ] **Step 3: Run the focused tests and verify failure**
 
@@ -89,7 +94,7 @@ Validate `subject.type == "git-commit"`, `subject.revision == expected_revision`
 
 - [ ] **Step 5: Add the CLI and prove invalid invocations fail closed**
 
-Use `argparse`; validate `run_id > 0`, repository format `owner/name`, and an exact GitHub Actions run URL for that repository and run ID. Print a one-line `Published badge input: STATUS passed/total` message on success and `ERROR ...` to stderr with exit code `2` on validation failure.
+Use `argparse`; validate `run_id > 0`, repository format `owner/name`, an RFC 3339 source run creation time, and an exact GitHub Actions run URL for that repository and run ID. Inspection and rendering are mutually exclusive modes. Inspection writes normalized status, decision, counts, and subject revision as JSON to `--inspect-output`; rendering prints a one-line `Published badge input: STATUS passed/total` message on success. Print `ERROR ...` to stderr with exit code `2` on validation failure.
 
 - [ ] **Step 6: Run focused tests and synchronize the installed source**
 
@@ -210,6 +215,11 @@ Require both feature variables before deployment. Document and test that this
 standalone workflow owns the repository's complete Pages deployment and is not
 safe to enable alongside an existing Pages site.
 
+Require the commit-to-pull-request lookup, default-branch ancestry check,
+normalized inspection output, and monotonic comparison with the currently
+published `scorecard.json`. Assert stale candidates cannot reach any Pages
+configuration, upload, or deployment step.
+
 - [ ] **Step 2: Write failing source-run validation assertions**
 
 Require the workflow to reject source runs unless all are true:
@@ -220,10 +230,10 @@ name == Guardrail Scorecard
 path == .github/workflows/guardrails-scorecard.yml
 conclusion in {success, failure}
 event in {pull_request_target, pull_request_review}
-exactly one pull_requests entry is present
-pull_requests[0].base.ref == repository.default_branch
-head_sha == pull_requests[0].base.sha
-pull_requests[0].head.sha is exactly 40 hexadecimal characters
+head_sha is exactly 40 hexadecimal characters and is an ancestor of the current default branch
+the validated scorecard subject commit resolves to exactly one PR
+the associated PR base repository and branch are this repository and its default branch
+the associated PR head SHA equals the validated scorecard subject revision
 ```
 
 Manual dispatch must fetch the requested run through the GitHub API and apply the same checks before artifact download.
@@ -240,7 +250,9 @@ Expected: failure because the publisher workflow does not exist.
 
 - [ ] **Step 4: Implement the workflow**
 
-Use the verified run ID to download `guardrail-scorecard-<run-id>` into a fresh directory. Invoke the renderer with the source run's exact repository, run ID, URL, and associated pull request head SHA. Configure Pages, upload only the generated output directory, and deploy it. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Append a job summary containing the resulting Pages URL and source run URL.
+Use the verified run ID to download `guardrail-scorecard-<run-id>` into a fresh directory. First invoke the renderer's inspection mode to obtain a normalized subject revision, then query GitHub's commit-to-pull-request API and validate the exact PR association. Verify the source run base SHA is an ancestor of the checked-out default branch. Invoke rendering with the source run's exact repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard.
+
+Before configuring or uploading Pages, fetch the current published `scorecard.json`. HTTP 404 means no prior publication; every other fetch or validation failure is non-passing. Compare `(source_run_created_at, source_run_id)` tuples. When the candidate is older, report validation success but skip every Pages action. Equal tuples may idempotently republish; newer tuples may deploy. Append a job summary containing the resulting Pages URL, source run URL, and whether the candidate was deployed or stale.
 
 Do not use source-controlled shell from the artifact, `pull_request` checkout values, `contents: write`, or any secret other than the automatic `GITHUB_TOKEN` consumed by official actions.
 

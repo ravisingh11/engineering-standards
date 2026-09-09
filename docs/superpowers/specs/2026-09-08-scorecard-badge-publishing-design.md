@@ -54,13 +54,17 @@ downloads the exact triggering run's artifact, validates the scorecard schema
 and subject, renders static files with repository-owned code, and deploys only
 those generated files to GitHub Pages.
 
-Only scorecard runs associated with exactly one pull request whose base is the
-repository default branch are eligible. The publisher derives the expected
-subject revision from that pull request's head SHA. It validates the source
-run's base SHA separately because `pull_request_target` attributes the workflow
-run to the trusted base commit rather than the proposed head commit. Manual
+Only scorecard runs bound to exactly one eligible pull request whose base is the
+repository default branch are eligible. GitHub may leave a
+`workflow_run.pull_requests` collection empty for `pull_request_target`, so the
+publisher does not depend on it. After validating the artifact, it resolves the
+scorecard subject through GitHub's commit-to-pull-request API and requires one
+associated PR whose head SHA is the subject revision and whose base is the default
+branch. It validates separately that the source run's base SHA is an ancestor
+of the current default branch because `pull_request_target` attributes the run
+to the trusted base commit rather than the proposed head commit. Manual
 publisher runs may select an existing run ID, but that selected run must satisfy
-the same PR association and default-branch checks.
+the same event, PR association, and trusted-base checks.
 
 ## Security boundaries
 
@@ -69,9 +73,11 @@ the same PR association and default-branch checks.
 - The downloaded archive and selected scorecard member have strict size and
   path limits.
 - Exactly one scorecard JSON document for the triggering run is accepted.
-- Exactly one source pull request is accepted; its base branch must be the
-  repository default branch, its base SHA must match the source workflow run,
-  and its head SHA must match the scorecard subject revision.
+- Exactly one pull request associated with the scorecard subject commit is
+  accepted; its base must be the repository default branch and its head SHA
+  must match the scorecard subject revision.
+- The source workflow run's base SHA must be reachable from the current default
+  branch, proving that its producer came from trusted repository history.
 - Status, decision, counts, and subject values are schema-validated before
   rendering.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
@@ -82,6 +88,10 @@ the same PR association and default-branch checks.
   evidence are not published.
 - Publishing is serialized so two completed source runs cannot deploy
   concurrently.
+- Publication is monotonic. Before deployment, the publisher compares the
+  source run creation time and run ID with the currently published metadata.
+  An older source run is validated and reported as stale but cannot replace a
+  newer badge. A transient failure reading existing metadata fails closed.
 
 ## Published result
 
@@ -137,7 +147,9 @@ permission is required.
 - Missing or invalid evidence fails the publisher without deploying.
 - A Pages configuration error fails only the optional publisher. It does not
   alter the original scorecard decision.
-- Re-running a valid scorecard run may republish the same immutable subject.
+- Re-running the currently published scorecard may republish the same immutable
+  subject. Re-running or manually selecting an older scorecard validates it
+  without deployment when a newer source run has already been published.
 
 ## Documentation changes
 
