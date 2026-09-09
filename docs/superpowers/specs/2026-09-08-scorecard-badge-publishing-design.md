@@ -82,6 +82,9 @@ privileged workflow definition can execute only from the default branch through
   whether the bound base SHA is an ancestor.
 - The downloaded archive and selected scorecard member have strict size and
   path limits.
+- Artifact download redirects are handled explicitly: the authenticated GitHub
+  API request does not auto-follow, and the signed HTTPS archive URL is fetched
+  in a second request without `Authorization` or other credentials.
 - Exactly one scorecard JSON document for the triggering run is accepted.
 - Exactly one trusted source binding is accepted. Its repository, run ID,
   event, PR number, head SHA, base branch, and base SHA must agree with the
@@ -99,6 +102,8 @@ privileged workflow definition can execute only from the default branch through
 - A valid `RED / block` scorecard is published even though the source scorecard
   workflow reports failure. Canceled runs and failures without valid scorecard
   evidence are not published.
+- The scorecard workflow writes `source.json` before rendering, so a renderer
+  exit used to signal `RED / block` cannot skip the trusted binding.
 - Publishing is serialized. GitHub may replace a pending run in a shared
   concurrency group, so every surviving publisher run paginates newest-first
   back to the currently published source tuple instead of assuming its trigger

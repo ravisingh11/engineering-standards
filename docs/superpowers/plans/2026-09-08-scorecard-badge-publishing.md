@@ -15,6 +15,7 @@
 - The existing scorecard workflow remains read-only.
 - Badge publishing is optional and requires no PAT, Gist, repository secret, or `contents: write` permission.
 - The publisher executes only default-branch code and never executes downloaded artifact content.
+- Authenticated GitHub API requests never auto-follow artifact redirects. The signed archive URL is fetched separately over HTTPS without credentials.
 - The publisher has no manual-dispatch entry point; `workflow_run` is the only trigger so privileged workflow YAML always comes from the default branch.
 - The read-only scorecard workflow adds a trusted `source.json` artifact binding containing the source run ID, event, repository, PR number, head SHA, base branch, and base SHA from the event payload.
 - A source run is eligible only when that binding matches the run, scorecard subject, current pull-request API record, and repository default branch. Do not depend on `workflow_run.pull_requests` or apply one event type's `head_sha` semantics to another.
@@ -229,6 +230,8 @@ step. Assert a surviving run selects the second-newest valid candidate when the
 newest completed run is missing, expired, malformed, or otherwise invalid.
 Assert reconciliation crosses more than 20 rejected runs and stops only after
 selecting a newer valid candidate or reaching the published tuple.
+Assert the authenticated artifact request cannot auto-follow redirects and the
+second HTTPS archive request contains no authorization header.
 
 - [ ] **Step 2: Write failing source-run validation assertions**
 
@@ -262,9 +265,9 @@ Expected: failure because the publisher workflow does not exist.
 
 - [ ] **Step 4: Implement the workflow**
 
-First update the canonical and self-installed scorecard workflows to write `source.json` from `GITHUB_EVENT_PATH` before artifact upload. Use repository-owned Python, not shell interpolation, to require a PR payload and record only normalized run ID, event, repository, PR number, head SHA, base repository, base branch, and base SHA. The scorecard workflow permissions remain unchanged and read-only.
+First update the canonical and self-installed scorecard workflows to write `source.json` from `GITHUB_EVENT_PATH` before the scorecard rendering step. Use repository-owned Python, not shell interpolation, to require a PR payload and record only normalized run ID, event, repository, PR number, head SHA, base repository, base branch, and base SHA. The scorecard workflow permissions remain unchanged and read-only. Contract-test ordering and the `RED / block` path so a nonzero renderer exit cannot skip the binding.
 
-Implement the reconciliation helper with the Python standard library. Fetch the current published `scorecard.json` first, then paginate completed runs for `.github/workflows/guardrails-scorecard.yml` newest-first. Filter repository, workflow name/path, event, and conclusion and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact. Continue across pages and rejected candidates until selecting the first fully valid candidate newer than the published tuple or reaching that tuple. With no prior publication, stop at the first valid candidate. Fail closed on API, pagination, or authentication errors. Stream artifact downloads with a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair and `source.json` into a fresh directory.
+Implement the reconciliation helper with the Python standard library. Fetch the current published `scorecard.json` first, then paginate completed runs for `.github/workflows/guardrails-scorecard.yml` newest-first. Filter repository, workflow name/path, event, and conclusion and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact. Continue across pages and rejected candidates until selecting the first fully valid candidate newer than the published tuple or reaching that tuple. With no prior publication, stop at the first valid candidate. Fail closed on API, pagination, or authentication errors. For artifact archives, disable automatic redirects on the authenticated GitHub API request, require an HTTPS redirect target, and stream a second request with no credentials, matching the established `tooling/github_evidence.py` pattern. Enforce a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair and `source.json` into a fresh directory. Add a regression test that records both requests and proves only the GitHub API request carries authorization.
 
 Invoke the renderer's inspection mode to obtain a normalized subject revision, validate `source.json` against the source run, then query the exact pull request with `pull-requests: read`. Check out the default branch with `fetch-depth: 0`, prove the bound base SHA is an ancestor of its complete history, and validate the binding against the current PR record. Cover the case where the default branch advanced after the scorecard event. Invoke rendering with the selected run's repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Reject an invalid candidate and continue to the next candidate; fail closed if API state cannot be authenticated or no valid candidate exists.
 
