@@ -16,7 +16,7 @@
 - Badge publishing is optional and requires no PAT, Gist, repository secret, or `contents: write` permission.
 - The publisher executes only default-branch code and never executes downloaded artifact content.
 - Authenticated GitHub API requests never auto-follow artifact redirects. The signed archive URL is fetched separately over HTTPS without credentials.
-- The publisher has no manual-dispatch entry point; `workflow_run` is the only trigger so privileged workflow YAML always comes from the default branch.
+- The publisher has no manual-dispatch entry point. `workflow_run` and a low-frequency `schedule` are the only triggers, so privileged workflow YAML always comes from the default branch and transient failures are retried.
 - The read-only scorecard workflow adds a trusted `source.json` artifact binding containing the source run ID, run attempt, event, repository, PR number, head SHA, base branch, and base SHA from the event payload. Its artifact name includes both run ID and attempt.
 - A source run is eligible only when that binding matches the run, scorecard subject, current pull-request API record, and repository default branch. Do not depend on `workflow_run.pull_requests` or apply one event type's `head_sha` semantics to another.
 - The publisher proves the bound base SHA is an ancestor of the current default branch and verifies the bound head SHA equals the scorecard subject and current PR head SHA.
@@ -72,7 +72,7 @@ self.assertEqual(json.loads((output / "scorecard.json").read_text())["source_run
 
 - [ ] **Step 2: Write failing color and validation tests**
 
-Cover ORANGE and RED rendering, invalid status/decision, booleans masquerading as integers, passed counts greater than totals, zero active controls, invalid run attempts, mismatched revision, invalid RFC 3339 source timestamps, non-HTTPS or cross-repository run-attempt URL, missing/duplicate JSON, missing paired Markdown, files over 64 KiB, aggregate input over 1 MiB, nested files, and symlinks. Assert every invalid case raises `ValueError` and leaves no published output. Assert inspection validates the same bounded source and writes only trusted normalized metadata to its requested output path. Test Pages URL derivation for both `owner/repo` and the root-site repository `owner/owner.github.io`.
+Cover ORANGE and RED rendering, invalid or inconsistent version/operation/status/decision/count combinations, booleans masquerading as integers, passed counts greater than totals, zero active controls, invalid run attempts, mismatched revision, invalid RFC 3339 source timestamps, non-HTTPS or cross-repository run-attempt URL, missing/duplicate JSON, missing paired Markdown, files over 64 KiB, aggregate input over 1 MiB, nested files, and symlinks. Reject examples such as GREEN with a miss, ORANGE with all controls passing, RED with no enforced miss, RED/allow, and GREEN/block. Assert every invalid case raises `ValueError` and leaves no published output. Assert inspection validates the same bounded source and writes only trusted normalized metadata to its requested output path. Test Pages URL derivation for both `owner/repo` and the root-site repository `owner/owner.github.io`.
 
 - [ ] **Step 3: Run the focused tests and verify failure**
 
@@ -95,7 +95,7 @@ MAX_MEMBER_BYTES = 64_000
 MAX_SOURCE_BYTES = 1_000_000
 ```
 
-Validate `subject.type == "git-commit"`, `subject.revision == expected_revision`, exact 40-character lowercase hexadecimal revisions, integer nonnegative `passed`/`total` values with `passed <= total`, and `enforced.total + advisory.total > 0`. Derive the badge count from both modes. Escape all SVG and HTML text with `html.escape`. Write into a temporary sibling directory and replace `output_dir` only after every file has been rendered successfully.
+Validate `version == 2`, `operation == "change"`, `subject.type == "git-commit"`, `subject.revision == expected_revision`, exact 40-character lowercase hexadecimal revisions, integer nonnegative `passed`/`total` values with `passed <= total`, and `enforced.total + advisory.total > 0`. Require GREEN exactly when every active control passed, ORANGE exactly when every enforced control passed and at least one advisory control missed, and RED exactly when at least one enforced control missed. Require `decision == "allow"` for GREEN/ORANGE and `decision == "block"` for RED. Derive the badge count from both modes. Escape all SVG and HTML text with `html.escape`. Write into a temporary sibling directory and replace `output_dir` only after every file has been rendered successfully.
 
 - [ ] **Step 5: Add the CLI and prove invalid invocations fail closed**
 
@@ -132,7 +132,7 @@ git commit -m "feat(badge): render validated scorecard status"
 
 - [ ] **Step 1: Write failing default and opt-in installation tests**
 
-Assert a default install contains none of the three badge-publishing files. Assert `scorecard_badge=True` installs both exact canonical runtime files and the workflow while preserving the existing Core/GitHub workflow sets.
+Assert a default install contains none of the three badge-publishing files. Assert `scorecard_badge=True` installs both exact canonical runtime files and the workflow while preserving the existing Core/GitHub workflow sets. For a repository with Guardrails already installed, require refresh mode to add the optional set; prove `refresh_existing=True, scorecard_badge=True` adds only the three badge-owned files and rejects symlinks or collisions with unowned destinations.
 
 - [ ] **Step 2: Write failing refresh and removal tests**
 
@@ -165,7 +165,7 @@ BADGE_RUNTIME = InstallItem(
 Add a matching runtime item for `tooling/reconcile_scorecard_badge.py` at
 `.guardrails/reconcile_scorecard_badge.py`.
 
-Include both only for explicit opt-in or refresh detection. Keep `--no-actions --scorecard-badge` invalid because the feature requires an Actions publisher.
+Include both only for explicit opt-in or refresh detection. A clean installation accepts `--scorecard-badge`; an existing installation requires `--refresh-existing --scorecard-badge`. Keep `--no-actions --scorecard-badge` invalid because the feature requires an Actions publisher.
 
 - [ ] **Step 5: Implement fail-safe removal**
 
@@ -202,7 +202,7 @@ git commit -m "feat(installer): manage scorecard badge publishing"
 - Modify: `tooling/tests/test_repository_commands.py`
 
 **Interfaces:**
-- Trigger: `workflow_run` for `Guardrail Scorecard` completion only
+- Trigger: `workflow_run` for `Guardrail Scorecard` completion plus scheduled default-branch reconciliation; no manual dispatch
 - Feature flag: repository variable `GUARDRAILS_SCORECARD_BADGE_ENABLED == 'true'`
 - Pages ownership acknowledgement: repository variable `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE == 'dedicated'`
 - Deploys: renderer output through the `github-pages` environment
@@ -216,9 +216,11 @@ on:
   workflow_run:
     workflows: [Guardrail Scorecard]
     types: [completed]
+  schedule:
+    - cron: "17 */6 * * *"
 ```
 
-Assert only `actions: read`, `contents: read`, `pull-requests: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; no `workflow_dispatch`; no checkout of a PR repository/ref; `fetch-depth: 0` on the default-branch checkout; and invocation of `.guardrails/reconcile_scorecard_badge.py` from that checkout.
+Assert only `actions: read`, `contents: read`, `pull-requests: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; no `workflow_dispatch`; a low-frequency schedule; no checkout of a PR repository/ref; `fetch-depth: 0` on the default-branch checkout; and invocation of `.guardrails/reconcile_scorecard_badge.py` from that checkout. Prove scheduled runs use the same feature gates and reconciliation path and can recover after a transient prior failure.
 
 Require both feature variables before deployment. Document and test that this
 standalone workflow owns the repository's complete Pages deployment and is not
@@ -243,6 +245,8 @@ Require the workflow to reject source runs unless all are true:
 repository.full_name == github.repository
 name == Guardrail Scorecard
 path == .github/workflows/guardrails-scorecard.yml
+or path == .github/workflows/guardrails-scorecard.yml@<default-branch>
+or path == .github/workflows/guardrails-scorecard.yml@refs/heads/<default-branch>
 conclusion in {success, failure}
 event in {pull_request_target, pull_request_review}
 source.json run ID, run attempt, repository, and event equal the source run
@@ -253,6 +257,7 @@ source.json base SHA is exactly 40 hexadecimal characters and is an ancestor of 
 source.json head SHA equals both the current PR head SHA and validated scorecard subject revision
 ```
 
+Reject every other workflow-path suffix, including attacker-controlled refs.
 The workflow must not expose manual dispatch because GitHub permits dispatching
 a workflow definition from a non-default ref.
 
@@ -328,8 +333,10 @@ Document:
 ```sh
 python3 tooling/install.py --target /path/to/repo --scorecard-badge --dry-run
 python3 tooling/install.py --target /path/to/repo --scorecard-badge
-python3 tooling/install.py --target /path/to/repo --remove-scorecard-badge --dry-run
-python3 tooling/install.py --target /path/to/repo --remove-scorecard-badge
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --scorecard-badge --dry-run
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --scorecard-badge
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --remove-scorecard-badge --dry-run
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --remove-scorecard-badge
 ```
 
 State that GitHub Pages must use GitHub Actions as its source and that both

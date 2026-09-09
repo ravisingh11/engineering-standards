@@ -71,14 +71,17 @@ run and current pull-request API record. It also proves that the bound base SHA
 is an ancestor of the current default branch after fetching complete
 default-branch history. The publisher has no manual-dispatch trigger, so its
 privileged workflow definition can execute only from the default branch through
-`workflow_run`.
+`workflow_run`. A low-frequency scheduled reconciliation also runs from the
+latest default-branch workflow definition so transient API or Pages failures
+recover even when no later PR event occurs.
 
 ## Security boundaries
 
 - The publisher never checks out or executes pull-request code.
 - The publisher implementation always comes from the default branch.
 - The publisher has no `workflow_dispatch` entry point; only completion of the
-  named scorecard workflow can trigger its privileged Pages deployment.
+  named scorecard workflow or its default-branch schedule can trigger its
+  privileged Pages deployment.
 - The trusted default-branch checkout fetches complete history before testing
   whether the bound base SHA is an ancestor.
 - The downloaded archive and selected scorecard member have strict size and
@@ -96,6 +99,10 @@ privileged workflow definition can execute only from the default branch through
   PR event type.
 - Status, decision, counts, and subject values are schema-validated before
   rendering.
+- Scorecard version, change operation, status, decision, and enforced/advisory
+  counts must be semantically consistent: GREEN means every active control
+  passed, ORANGE means enforced controls passed with advisory misses, and RED
+  means at least one enforced miss. Only RED blocks.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
 - The publisher receives `actions: read`, `contents: read`,
   `pull-requests: read`, `pages: write`, and `id-token: write`; the scorecard
@@ -145,6 +152,10 @@ installs the publisher workflow and renderer alongside the normal runtime.
 Refresh updates those files; cleanup removes files previously owned by that
 option when it is disabled.
 
+A clean install may select badge publishing directly. An existing Guardrails
+installation adds or removes the optional files through explicit refresh mode,
+which preserves the installer's existing collision and ownership checks.
+
 Activation requires:
 
 1. GitHub Pages configured with **GitHub Actions** as the build source.
@@ -173,6 +184,8 @@ permission is required.
   previously published badge intact and makes the publisher non-passing.
 - Canceled or skipped source runs are rejected without deploying.
 - Missing or invalid evidence fails the publisher without deploying.
+- A scheduled default-branch reconciliation retries transient API, artifact,
+  or Pages failures without allowing arbitrary-ref manual dispatch.
 - A Pages configuration error fails only the optional publisher. It does not
   alter the original scorecard decision.
 - Re-running the currently published scorecard may republish the same immutable
