@@ -60,6 +60,16 @@ class ActionDistributionTests(unittest.TestCase):
             with self.subTest(installed=installed):
                 self.assertEqual((ROOT / installed).read_bytes(), (ROOT / source).read_bytes())
 
+    def test_scorecard_badge_runtime_and_self_workflow_match_canonical_sources(self) -> None:
+        copies = {
+            ".guardrails/render_scorecard_badge.py": "tooling/render_scorecard_badge.py",
+            ".guardrails/reconcile_scorecard_badge.py": "tooling/reconcile_scorecard_badge.py",
+            ".github/workflows/guardrails-scorecard-badge.yml": "workflows/guardrails-scorecard-badge.yml",
+        }
+        for installed, source in copies.items():
+            with self.subTest(installed=installed):
+                self.assertEqual((ROOT / installed).read_bytes(), (ROOT / source).read_bytes())
+
     def test_self_repository_uses_core_and_github_profiles_without_a_manifest(self) -> None:
         policy = json.loads((ROOT / ".guardrails/policy.yaml").read_text())
         baseline = json.loads((ROOT / "guardrails/baseline.yaml").read_text())

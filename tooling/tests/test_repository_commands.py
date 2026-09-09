@@ -144,6 +144,34 @@ class RepositoryCommandTests(unittest.TestCase):
 
         self.assertEqual(status, 0, stderr)
 
+    def test_scorecard_badge_reconciler_fails_closed_without_a_token(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = os.environ.copy()
+            environment.pop("GH_TOKEN", None)
+            environment.pop("GITHUB_TOKEN", None)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "tooling/reconcile_scorecard_badge.py",
+                    "--repository", "owner/repo",
+                    "--output-dir", str(root / "site"),
+                    "--github-output", str(root / "output"),
+                    "--job-summary", str(root / "summary"),
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("GitHub token is required", completed.stderr)
+            self.assertFalse((root / "site").exists())
+            self.assertFalse((root / "output").exists())
+            self.assertFalse((root / "summary").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
