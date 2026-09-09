@@ -217,6 +217,33 @@ that actually exist:
 The consuming repository chooses the names and locations. Guardrails does not
 copy application ground truth into this standards repository.
 
+## Optional badge publishing
+
+The native **Scorecard Workflow** badge reports the GitHub workflow conclusion.
+The optional **Latest PR Scorecard** badge reports the newest accepted PR
+readiness and passed/active count. Workflow success may still contain an
+advisory `ORANGE` result, and the latest PR badge does not attest current
+`main`.
+
+Install the publisher with `--scorecard-badge`; add `--refresh-existing` for an
+existing installation. Configure GitHub Pages to build with GitHub Actions and
+set both repository variables:
+
+```text
+GUARDRAILS_SCORECARD_BADGE_ENABLED=true
+GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated
+```
+
+No secret is required. `dedicated` mode owns the complete Pages deployment, so
+repositories with an existing Pages site must integrate the generated output
+into that site's workflow instead. Public output is limited to aggregate
+status/counts, source-run metadata, and a revision digest. Detailed controls,
+findings, evidence, reasons, provider data, check URLs, raw revisions, and source
+Markdown are excluded from Pages and remain in the source Actions artifact
+under normal repository access. The publisher is reporting only; do
+not add it to required checks. See the complete commands and badge URLs in the
+[quick start](quickstart.md#publish-the-optional-scorecard-badge).
+
 ## Provider selection
 
 List current modes and provider selections:

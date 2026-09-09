@@ -27,6 +27,8 @@ flowchart LR
     E --> V[Schema and subject validation]
     V --> R[GREEN / ORANGE / RED / GRAY]
     R --> D[ALLOW or BLOCK]
+    R -. optional reporting .-> B[Latest PR Scorecard publisher]
+    B --> GP[Bounded GitHub Pages projection]
 ```
 
 Exactly one authoritative provider can satisfy or block a selected capability.
@@ -147,6 +149,20 @@ ground-truth paths, command variables, credentials, and ruleset activation.
 Ground-truth documents stay in the consumer and may use any existing relative
 paths. Guardrails validates the declared inventory; it does not require a fixed
 set of root-level filenames.
+
+The optional badge publisher is a post-scorecard reporting component, not a
+provider or control. It executes trusted default-branch code after a completed
+scorecard run, validates the exact run artifact and current PR binding, and
+publishes aggregate status/counts, source-run metadata, and a revision digest.
+It never publishes controls, findings, evidence, reasons, provider data, check
+URLs, raw revisions, or source Markdown to Pages, and it never changes `allow`,
+`block`, or branch protection. Those details remain in the source Actions
+artifact under the repository's normal artifact access.
+
+GitHub's native **Scorecard Workflow** badge reports workflow execution. The
+optional **Latest PR Scorecard** badge reports the newest accepted PR
+evaluation; a successful workflow can therefore coexist with an `ORANGE`
+score. Neither badge claims that current `main` has the latest PR's readiness.
 
 ## Evidence-only lifecycle capabilities
 
