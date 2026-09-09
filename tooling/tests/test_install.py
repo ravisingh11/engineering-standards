@@ -34,6 +34,11 @@ GITHUB_WORKFLOWS = {
     "dependabot-verification.yml",
     "artifact-provenance.yml",
 }
+BADGE_FILES = {
+    ".guardrails/render_scorecard_badge.py": "tooling/render_scorecard_badge.py",
+    ".guardrails/reconcile_scorecard_badge.py": "tooling/reconcile_scorecard_badge.py",
+    ".github/workflows/guardrails-scorecard-badge.yml": "workflows/guardrails-scorecard-badge.yml",
+}
 CANONICAL_DISTRIBUTION = {
     ".guardrails/policy.yaml": "guardrails/baseline.yaml",
     ".guardrails/profiles.yaml": "policies/profiles.yaml",
@@ -86,6 +91,8 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(policy["version"], 2)
             self.assertEqual(policy["profiles"], ["core"])
             self.assertEqual(self.workflows(target), CORE_WORKFLOWS)
+            for installed in BADGE_FILES:
+                self.assertFalse((target / installed).exists())
             self.assertFalse((target / ".guardrails/producer-manifest.json").exists())
             for installed, source in CANONICAL_DISTRIBUTION.items():
                 with self.subTest(installed=installed):
@@ -93,6 +100,197 @@ class InstallerTests(unittest.TestCase):
                         (target / installed).read_bytes(),
                         (MODULE.ROOT / source).read_bytes(),
                     )
+
+    def test_scorecard_badge_opt_in_installs_exact_optional_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+
+            self.assertEqual(
+                self.workflows(target),
+                CORE_WORKFLOWS | {"guardrails-scorecard-badge.yml"},
+            )
+            for installed, source in BADGE_FILES.items():
+                with self.subTest(installed=installed):
+                    self.assertEqual(
+                        (target / installed).read_bytes(),
+                        (MODULE.ROOT / source).read_bytes(),
+                    )
+
+    def test_existing_install_requires_refresh_to_add_scorecard_badge(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False)
+
+            with self.assertRaisesRegex(ValueError, "refresh-existing"):
+                MODULE.install(target, dry_run=False, scorecard_badge=True)
+
+            for installed in BADGE_FILES:
+                self.assertFalse((target / installed).exists())
+
+    def test_refresh_detects_and_repairs_installer_owned_scorecard_badge(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+            for installed in BADGE_FILES:
+                (target / installed).write_text(
+                    (
+                        MODULE.INSTALLER_MARKER
+                        if installed.endswith(".yml")
+                        else "#!/usr/bin/env python3\n" + MODULE.RUNTIME_MARKER
+                    )
+                    + "\nmutated\n",
+                    encoding="utf-8",
+                )
+
+            MODULE.install(target, dry_run=False, refresh_existing=True)
+
+            for installed, source in BADGE_FILES.items():
+                with self.subTest(installed=installed):
+                    self.assertEqual(
+                        (target / installed).read_bytes(),
+                        (MODULE.ROOT / source).read_bytes(),
+                    )
+
+    def test_scorecard_badge_refuses_unowned_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False)
+            workflow = target / ".github/workflows/guardrails-scorecard-badge.yml"
+            workflow.write_text("name: Consumer workflow\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "not installer-owned"):
+                MODULE.install(
+                    target,
+                    dry_run=False,
+                    refresh_existing=True,
+                    scorecard_badge=True,
+                )
+
+            self.assertEqual(workflow.read_text(), "name: Consumer workflow\n")
+
+    def test_scorecard_badge_removal_is_explicit_and_owned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+            unrelated = target / ".github/workflows/consumer.yml"
+            unrelated.write_text("name: Consumer\n", encoding="utf-8")
+            core_workflow = target / ".github/workflows/build.yml"
+            core_workflow.write_text("name: Consumer build\n", encoding="utf-8")
+
+            dry_run = MODULE.install(
+                target,
+                dry_run=True,
+                refresh_existing=True,
+                remove_scorecard_badge=True,
+            )
+            resolved_target = target.resolve()
+            self.assertEqual(
+                {
+                    item.destination.relative_to(resolved_target).as_posix()
+                    for item in dry_run
+                    if item.kind == "remove"
+                },
+                set(BADGE_FILES),
+            )
+            MODULE.install(
+                target,
+                dry_run=False,
+                refresh_existing=True,
+                remove_scorecard_badge=True,
+            )
+
+            for installed in BADGE_FILES:
+                self.assertFalse((target / installed).exists())
+            self.assertEqual(unrelated.read_text(), "name: Consumer\n")
+            self.assertEqual(core_workflow.read_text(), "name: Consumer build\n")
+            self.assertEqual(self.workflows(target), CORE_WORKFLOWS | {"consumer.yml"})
+
+    def test_scorecard_badge_removal_refuses_unowned_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+            runtime = target / ".guardrails/render_scorecard_badge.py"
+            runtime.write_text("consumer owned\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "not installer-owned"):
+                MODULE.install(
+                    target,
+                    dry_run=False,
+                    refresh_existing=True,
+                    remove_scorecard_badge=True,
+                )
+
+            self.assertEqual(runtime.read_text(), "consumer owned\n")
+            self.assertTrue(
+                (target / ".github/workflows/guardrails-scorecard-badge.yml").exists()
+            )
+
+    def test_scorecard_badge_removal_refuses_dangling_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+            runtime = target / ".guardrails/render_scorecard_badge.py"
+            runtime.unlink()
+            runtime.symlink_to(target / "missing-renderer.py")
+
+            with self.assertRaisesRegex(ValueError, "not installer-owned|symlink"):
+                MODULE.install(
+                    target,
+                    dry_run=False,
+                    refresh_existing=True,
+                    remove_scorecard_badge=True,
+                )
+
+            self.assertTrue(runtime.is_symlink())
+
+    def test_scorecard_badge_options_reject_invalid_combinations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            with self.assertRaisesRegex(ValueError, "cannot be combined"):
+                MODULE.install(
+                    target,
+                    dry_run=True,
+                    scorecard_badge=True,
+                    remove_scorecard_badge=True,
+                )
+            with self.assertRaisesRegex(ValueError, "requires GitHub Actions"):
+                MODULE.install(
+                    target,
+                    dry_run=True,
+                    no_actions=True,
+                    scorecard_badge=True,
+                )
+            with self.assertRaisesRegex(ValueError, "requires --refresh-existing"):
+                MODULE.install(
+                    target,
+                    dry_run=True,
+                    remove_scorecard_badge=True,
+                )
+
+    def test_scorecard_badge_removal_dry_run_prints_remove_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            MODULE.install(target, dry_run=False, scorecard_badge=True)
+
+            completed = subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--target",
+                    str(target),
+                    "--refresh-existing",
+                    "--remove-scorecard-badge",
+                    "--dry-run",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout.count("- remove:"), 3)
 
     def test_fresh_core_collector_and_scorecard_ignore_default_disabled_vendors(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
