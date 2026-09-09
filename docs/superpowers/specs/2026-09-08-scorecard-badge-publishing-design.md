@@ -48,7 +48,10 @@ Static Pages artifact
         +-- index.html
 ```
 
-The existing scorecard workflow remains read-only. A separate publisher runs
+The existing scorecard workflow keeps read-only permissions and adds a trusted
+`source.json` binding to its artifact. The binding records the source run ID,
+event, repository, pull-request number, head SHA, base branch, and base SHA from
+the trusted event payload. A separate publisher runs
 from the default branch after a completed `Guardrail Scorecard` workflow. Each
 trigger is a reconciliation signal, not an instruction to publish that run.
 After acquiring its concurrency group, the publisher examines a bounded set of
@@ -56,15 +59,14 @@ the newest completed scorecard runs, validates candidates newest-first, and
 publishes the newest valid candidate. It renders static files with
 repository-owned code and deploys only those generated files to GitHub Pages.
 
-Only scorecard runs bound to exactly one eligible pull request whose base is the
+Only scorecard runs bound to one eligible pull request whose base is the
 repository default branch are eligible. GitHub may leave a
-`workflow_run.pull_requests` collection empty for `pull_request_target`, so the
-publisher does not depend on it. After validating the artifact, it resolves the
-scorecard subject through GitHub's commit-to-pull-request API and requires one
-associated PR whose head SHA is the subject revision and whose base is the default
-branch. It validates separately that the source run's base SHA is an ancestor
-of the current default branch because `pull_request_target` attributes the run
-to the trusted base commit rather than the proposed head commit. Manual
+`workflow_run.pull_requests` collection empty for `pull_request_target`, and a
+`pull_request_review` run may identify the candidate rather than the trusted
+base in `head_sha`, so the publisher does not infer PR identity from either
+field. It validates the artifact's trusted source binding against the source
+run and current pull-request API record. It also proves that the bound base SHA
+is an ancestor of the current default branch. Manual
 publisher runs request the same latest-valid reconciliation and cannot select a
 historical run for deployment.
 
@@ -75,11 +77,13 @@ historical run for deployment.
 - The downloaded archive and selected scorecard member have strict size and
   path limits.
 - Exactly one scorecard JSON document for the triggering run is accepted.
-- Exactly one pull request associated with the scorecard subject commit is
-  accepted; its base must be the repository default branch and its head SHA
-  must match the scorecard subject revision.
-- The source workflow run's base SHA must be reachable from the current default
-  branch, proving that its producer came from trusted repository history.
+- Exactly one trusted source binding is accepted. Its repository, run ID,
+  event, PR number, head SHA, base branch, and base SHA must agree with the
+  source run, scorecard subject, current PR record, and repository default
+  branch.
+- The bound base SHA must be reachable from the current default branch, proving
+  that the producer came from trusted repository history for either supported
+  PR event type.
 - Status, decision, counts, and subject values are schema-validated before
   rendering.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
@@ -130,7 +134,8 @@ Activation requires:
 2. The installed publisher workflow present on the default branch.
 3. Repository Actions allowed to create Pages deployments.
 4. The documented badge URLs added to the consumer README.
-5. The repository variable
+5. The repository variable `GUARDRAILS_SCORECARD_BADGE_ENABLED=true`.
+6. The repository variable
    `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated`, acknowledging that this
    publisher owns the complete Pages deployment for the repository.
 
