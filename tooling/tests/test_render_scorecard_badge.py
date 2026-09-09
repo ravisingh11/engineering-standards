@@ -463,6 +463,41 @@ class RendererTests(unittest.TestCase):
             self.assertIn("ERROR runtime", completed.stderr)
             self.assertNotIn("Traceback", completed.stderr)
 
+    def test_existing_output_file_is_a_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.write_source(root)
+            output = root / "published"
+            output.write_text("consumer file", encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--output-dir",
+                    str(output),
+                    "--repository",
+                    "owner/repo",
+                    "--run-id",
+                    "12345",
+                    "--run-attempt",
+                    "2",
+                    "--run-url",
+                    RUN_URL,
+                    "--source-run-created-at",
+                    CREATED_AT,
+                    "--expected-revision",
+                    REVISION,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 3)
+            self.assertIn("ERROR runtime", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Guardrails v2 installer-owned runtime.
 """Validate a Guardrails scorecard and render a bounded public status site."""
 
 from __future__ import annotations
@@ -305,9 +306,9 @@ def _html(metadata: dict[str, Any]) -> str:
 
 def _replace_directory(temporary: Path, output_dir: Path) -> None:
     if output_dir.is_symlink():
-        raise ValueError("output directory cannot be a symlink")
+        raise OSError("output directory cannot be a symlink")
     if output_dir.exists() and not output_dir.is_dir():
-        raise ValueError("output path must be a directory")
+        raise OSError("output path must be a directory")
     backup: Path | None = None
     if output_dir.exists():
         backup = (

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Guardrails v2 installer-owned runtime.
 """Reconcile and render the newest trustworthy PR scorecard for GitHub Pages."""
 
 from __future__ import annotations
