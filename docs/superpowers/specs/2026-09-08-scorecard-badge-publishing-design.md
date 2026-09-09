@@ -38,7 +38,7 @@ Guardrail Scorecard workflow
         v
 Scorecard Badge Publisher (workflow_run)
         |
-        | validate bounded artifact; execute no artifact content
+        | reconcile newest valid bounded artifact; execute no artifact content
         v
 Static Pages artifact
         |
@@ -49,10 +49,12 @@ Static Pages artifact
 ```
 
 The existing scorecard workflow remains read-only. A separate publisher runs
-from the default branch after a completed `Guardrail Scorecard` workflow. It
-downloads the exact triggering run's artifact, validates the scorecard schema
-and subject, renders static files with repository-owned code, and deploys only
-those generated files to GitHub Pages.
+from the default branch after a completed `Guardrail Scorecard` workflow. Each
+trigger is a reconciliation signal, not an instruction to publish that run.
+After acquiring its concurrency group, the publisher examines a bounded set of
+the newest completed scorecard runs, validates candidates newest-first, and
+publishes the newest valid candidate. It renders static files with
+repository-owned code and deploys only those generated files to GitHub Pages.
 
 Only scorecard runs bound to exactly one eligible pull request whose base is the
 repository default branch are eligible. GitHub may leave a
@@ -63,8 +65,8 @@ associated PR whose head SHA is the subject revision and whose base is the defau
 branch. It validates separately that the source run's base SHA is an ancestor
 of the current default branch because `pull_request_target` attributes the run
 to the trusted base commit rather than the proposed head commit. Manual
-publisher runs may select an existing run ID, but that selected run must satisfy
-the same event, PR association, and trusted-base checks.
+publisher runs request the same latest-valid reconciliation and cannot select a
+historical run for deployment.
 
 ## Security boundaries
 
@@ -81,13 +83,17 @@ the same event, PR association, and trusted-base checks.
 - Status, decision, counts, and subject values are schema-validated before
   rendering.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
-- The publisher receives `actions: read`, `contents: read`, `pages: write`, and
-  `id-token: write`; the scorecard workflow keeps its current read permissions.
+- The publisher receives `actions: read`, `contents: read`,
+  `pull-requests: read`, `pages: write`, and `id-token: write`; the scorecard
+  workflow keeps its current read permissions.
 - A valid `RED / block` scorecard is published even though the source scorecard
   workflow reports failure. Canceled runs and failures without valid scorecard
   evidence are not published.
-- Publishing is serialized so two completed source runs cannot deploy
-  concurrently.
+- Publishing is serialized. GitHub may replace a pending run in a shared
+  concurrency group, so every surviving publisher run reconciles the newest 20
+  completed scorecard runs instead of assuming its trigger is the candidate.
+  A newer invalid or artifact-less run is rejected and the next newest valid
+  candidate remains eligible.
 - Publication is monotonic. Before deployment, the publisher compares the
   source run creation time and run ID with the currently published metadata.
   An older source run is validated and reported as stale but cannot replace a

@@ -18,6 +18,7 @@
 - A source run is eligible only when its validated subject commit resolves through GitHub's commit-to-pull-request API to exactly one pull request targeting the repository default branch. Do not depend on `workflow_run.pull_requests`, which may be empty for `pull_request_target`.
 - The publisher proves the source run base SHA is an ancestor of the current default branch, then uses the validated artifact subject as the expected revision and verifies it equals the associated pull request head SHA.
 - Publishing is monotonic by source run creation time with run ID as a tie-breaker. Older or replayed runs are validation-only and cannot replace newer published metadata; failure to read non-404 current metadata fails closed.
+- Each publisher run reconciles the newest 20 completed scorecard runs and selects the newest fully valid candidate. The shared concurrency group may coalesce pending triggers, but a surviving run must recover the newest valid result rather than trust only its trigger.
 - A valid `RED / block` artifact is publishable even when the source workflow conclusion is `failure`; canceled, skipped, or artifact-less failures are not.
 - The standalone publisher requires `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` and must not replace an existing repository Pages site.
 - Exactly one bounded, non-symlink scorecard JSON and its paired Markdown report are accepted. Published metadata includes the source run creation time for monotonic deployment checks.
@@ -25,7 +26,6 @@
 - Every external action is pinned to a full commit SHA.
 - Current approved action pins are:
   - `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
-  - `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` (`v8.0.1`)
   - `actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d` (`v6.0.0`)
   - `actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9` (`v5.0.0`)
   - `actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346` (`v5.0.1`)
@@ -123,15 +123,15 @@ git commit -m "feat(badge): render validated scorecard status"
 **Interfaces:**
 - Extends: `install(..., scorecard_badge: bool = False, remove_scorecard_badge: bool = False) -> list[InstallItem]`
 - Adds CLI: `--scorecard-badge` and `--remove-scorecard-badge`
-- Installs: `.guardrails/render_scorecard_badge.py` and `.github/workflows/guardrails-scorecard-badge.yml`
+- Installs: `.guardrails/render_scorecard_badge.py`, `.guardrails/reconcile_scorecard_badge.py`, and `.github/workflows/guardrails-scorecard-badge.yml`
 
 - [ ] **Step 1: Write failing default and opt-in installation tests**
 
-Assert a default install contains neither badge file. Assert `scorecard_badge=True` installs both exact canonical files while preserving the existing Core/GitHub workflow sets.
+Assert a default install contains none of the three badge-publishing files. Assert `scorecard_badge=True` installs both exact canonical runtime files and the workflow while preserving the existing Core/GitHub workflow sets.
 
 - [ ] **Step 2: Write failing refresh and removal tests**
 
-Assert refresh detects an existing installer-owned badge workflow and refreshes both files without requiring the option again. Assert `remove_scorecard_badge=True` removes only the two installer-owned files, appears as `kind == "remove"` in dry-run output, rejects simultaneous `scorecard_badge=True`, and refuses to remove an unmarked consumer workflow or symlink.
+Assert refresh detects an existing installer-owned badge workflow and refreshes all three files without requiring the option again. Assert `remove_scorecard_badge=True` removes only the three installer-owned files, appears as `kind == "remove"` in dry-run output, rejects simultaneous `scorecard_badge=True`, and refuses to remove an unmarked consumer workflow or symlink.
 
 - [ ] **Step 3: Run installer tests and verify failure**
 
@@ -157,11 +157,14 @@ BADGE_RUNTIME = InstallItem(
 )
 ```
 
+Add a matching runtime item for `tooling/reconcile_scorecard_badge.py` at
+`.guardrails/reconcile_scorecard_badge.py`.
+
 Include both only for explicit opt-in or refresh detection. Keep `--no-actions --scorecard-badge` invalid because the feature requires an Actions publisher.
 
 - [ ] **Step 5: Implement fail-safe removal**
 
-Represent removals as exact `InstallItem` destinations with `kind="remove"`. Before changing state, reject symlinks and require the workflow to begin with `INSTALLER_MARKER`; require the renderer bytes or a repository-owned marker header. Apply removal with `Path.unlink()` only to those exact files and prune no directories. Print `- remove:` for removal plan entries.
+Represent removals as exact `InstallItem` destinations with `kind="remove"`. Before changing state, reject symlinks and require the workflow to begin with `INSTALLER_MARKER`; require each runtime's exact bytes or a repository-owned marker header. Apply removal with `Path.unlink()` only to those exact files and prune no directories. Print `- remove:` for removal plan entries.
 
 - [ ] **Step 6: Run installer and distribution tests**
 
@@ -185,11 +188,14 @@ git commit -m "feat(installer): manage scorecard badge publishing"
 **Files:**
 - Create: `workflows/guardrails-scorecard-badge.yml`
 - Create after contract tests pass: `.github/workflows/guardrails-scorecard-badge.yml`
+- Create: `tooling/reconcile_scorecard_badge.py`
+- Create after tests pass: `.guardrails/reconcile_scorecard_badge.py`
 - Create: `tooling/tests/test_scorecard_badge_workflow.py`
+- Create: `tooling/tests/test_reconcile_scorecard_badge.py`
 - Modify: `tooling/tests/test_repository_commands.py`
 
 **Interfaces:**
-- Trigger: `workflow_run` for `Guardrail Scorecard` completion and manual `workflow_dispatch` with required `run_id`
+- Trigger: `workflow_run` for `Guardrail Scorecard` completion and input-free manual `workflow_dispatch` reconciliation
 - Feature flag: repository variable `GUARDRAILS_SCORECARD_BADGE_ENABLED == 'true'`
 - Pages ownership acknowledgement: repository variable `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE == 'dedicated'`
 - Deploys: renderer output through the `github-pages` environment
@@ -204,21 +210,20 @@ on:
     workflows: [Guardrail Scorecard]
     types: [completed]
   workflow_dispatch:
-    inputs:
-      run_id:
-        required: true
 ```
 
-Assert only `actions: read`, `contents: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; exact source run ID binding; no checkout of a PR repository/ref; and invocation of `.guardrails/render_scorecard_badge.py` from a default-branch checkout.
+Assert only `actions: read`, `contents: read`, `pull-requests: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; no checkout of a PR repository/ref; and invocation of `.guardrails/reconcile_scorecard_badge.py` from a default-branch checkout.
 
 Require both feature variables before deployment. Document and test that this
 standalone workflow owns the repository's complete Pages deployment and is not
 safe to enable alongside an existing Pages site.
 
 Require the commit-to-pull-request lookup, default-branch ancestry check,
-normalized inspection output, and monotonic comparison with the currently
-published `scorecard.json`. Assert stale candidates cannot reach any Pages
-configuration, upload, or deployment step.
+normalized inspection output, bounded newest-first candidate reconciliation,
+and monotonic comparison with the currently published `scorecard.json`. Assert
+stale candidates cannot reach any Pages configuration, upload, or deployment
+step. Assert a surviving run selects the second-newest valid candidate when the
+newest completed run is missing, expired, malformed, or otherwise invalid.
 
 - [ ] **Step 2: Write failing source-run validation assertions**
 
@@ -236,23 +241,26 @@ the associated PR base repository and branch are this repository and its default
 the associated PR head SHA equals the validated scorecard subject revision
 ```
 
-Manual dispatch must fetch the requested run through the GitHub API and apply the same checks before artifact download.
+Manual dispatch must run the same bounded latest-valid reconciliation and must
+not accept a historical run ID.
 
 - [ ] **Step 3: Run focused tests and verify failure**
 
 Run:
 
 ```sh
-python3 -m unittest tooling.tests.test_scorecard_badge_workflow
+python3 -m unittest tooling.tests.test_scorecard_badge_workflow tooling.tests.test_reconcile_scorecard_badge
 ```
 
 Expected: failure because the publisher workflow does not exist.
 
 - [ ] **Step 4: Implement the workflow**
 
-Use the verified run ID to download `guardrail-scorecard-<run-id>` into a fresh directory. First invoke the renderer's inspection mode to obtain a normalized subject revision, then query GitHub's commit-to-pull-request API and validate the exact PR association. Verify the source run base SHA is an ancestor of the checked-out default branch. Invoke rendering with the source run's exact repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard.
+Implement the reconciliation helper with the Python standard library. Query at most the newest 20 completed runs for `.github/workflows/guardrails-scorecard.yml`, filter their repository, workflow name/path, event, conclusion, and trusted base ancestry, and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact newest-first. Stream artifact downloads with a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair into a fresh directory.
 
-Before configuring or uploading Pages, fetch the current published `scorecard.json`. HTTP 404 means no prior publication; every other fetch or validation failure is non-passing. Compare `(source_run_created_at, source_run_id)` tuples. When the candidate is older, report validation success but skip every Pages action. Equal tuples may idempotently republish; newer tuples may deploy. Append a job summary containing the resulting Pages URL, source run URL, and whether the candidate was deployed or stale.
+Invoke the renderer's inspection mode to obtain a normalized subject revision, then query GitHub's commit-to-pull-request API with `pull-requests: read` and validate the exact PR association. Invoke rendering with the selected run's repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Reject an invalid candidate and continue to the next candidate; fail closed if API state cannot be authenticated or no valid candidate exists.
+
+Before configuring or uploading Pages, fetch the current published `scorecard.json`. HTTP 404 means no prior publication; every other fetch or validation failure is non-passing. Compare `(source_run_created_at, source_run_id)` tuples. When the candidate is older, report validation success but skip every Pages action. Equal tuples may idempotently republish; newer tuples may deploy. Write normalized `publish`, source-run, and output-directory values to `GITHUB_OUTPUT`; the workflow gates every Pages action on `publish == 'true'`. Append a job summary containing the resulting Pages URL, source run URL, rejected newer candidates, and whether the selected candidate was deployed or stale.
 
 Do not use source-controlled shell from the artifact, `pull_request` checkout values, `contents: write`, or any secret other than the automatic `GITHUB_TOKEN` consumed by official actions.
 
@@ -265,7 +273,7 @@ Copy the exact canonical workflow bytes to `.github/workflows/guardrails-scoreca
 Run:
 
 ```sh
-python3 -m unittest tooling.tests.test_scorecard_badge_workflow tooling.tests.test_action_distribution tooling.tests.test_repository_commands
+python3 -m unittest tooling.tests.test_scorecard_badge_workflow tooling.tests.test_reconcile_scorecard_badge tooling.tests.test_action_distribution tooling.tests.test_repository_commands
 ```
 
 Expected: all tests pass and YAML validation accepts both copies.
@@ -273,7 +281,7 @@ Expected: all tests pass and YAML validation accepts both copies.
 - [ ] **Step 7: Commit the publisher**
 
 ```sh
-git add workflows/guardrails-scorecard-badge.yml .github/workflows/guardrails-scorecard-badge.yml tooling/tests/test_scorecard_badge_workflow.py tooling/tests/test_repository_commands.py
+git add workflows/guardrails-scorecard-badge.yml .github/workflows/guardrails-scorecard-badge.yml tooling/reconcile_scorecard_badge.py .guardrails/reconcile_scorecard_badge.py tooling/tests/test_scorecard_badge_workflow.py tooling/tests/test_reconcile_scorecard_badge.py tooling/tests/test_repository_commands.py
 git commit -m "feat(actions): publish latest guardrail score badge"
 ```
 
