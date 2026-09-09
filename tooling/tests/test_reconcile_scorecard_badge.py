@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import warnings
@@ -291,6 +293,14 @@ class ReconcilerTests(unittest.TestCase):
             MODULE.select_candidate(
                 [older_attempt], published, lambda candidate: {"run": candidate}
             )
+        with self.assertRaisesRegex(ValueError, "not ordered newest-first"):
+            MODULE.select_candidate(
+                [older_attempt, run(created_at="2026-09-09T12:00:00Z")],
+                None,
+                lambda _: (_ for _ in ()).throw(MODULE.CandidateRejected("bad")),
+            )
+        with self.assertRaisesRegex(ValueError, "no valid completed"):
+            MODULE.select_candidate([], None, lambda candidate: {"run": candidate})
 
     def test_published_scorecard_metadata_is_validated_before_use(self) -> None:
         document = {
@@ -322,6 +332,15 @@ class ReconcilerTests(unittest.TestCase):
         ):
             invalid = {**document, field: value}
             with self.subTest(field=field), self.assertRaises(ValueError):
+                MODULE.validate_published_scorecard(invalid, REPOSITORY)
+
+        for invalid in (
+            {**document, "passed": 4},
+            {**document, "enforced": []},
+            {**document, "enforced": {"passed": 3, "total": 2}},
+            {**document, "status": "ORANGE"},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 MODULE.validate_published_scorecard(invalid, REPOSITORY)
 
     def test_completed_run_pagination_is_lazy_and_crosses_a_full_page(self) -> None:
@@ -540,6 +559,195 @@ class ReconcilerTests(unittest.TestCase):
         ):
             MODULE._run_renderer(["python", "renderer.py"])
 
+    def test_validation_rejects_malformed_run_published_and_source_records(self) -> None:
+        normalized = MODULE.validate_run(run(), REPOSITORY, DEFAULT_BRANCH)
+        invalid_sources = (
+            {},
+            source_binding(version=2),
+            source_binding(run_id=999),
+            source_binding(event="pull_request"),
+            source_binding(pull_request_number=8),
+            source_binding(head_sha="short"),
+            source_binding(base_sha="c" * 40),
+        )
+        for source in invalid_sources:
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                MODULE.validate_source_binding(
+                    source,
+                    normalized,
+                    pull_request(),
+                    REPOSITORY,
+                    DEFAULT_BRANCH,
+                    HEAD_SHA,
+                    lambda revision: revision == BASE_SHA,
+                )
+        with self.assertRaises(ValueError):
+            MODULE.validate_source_binding(
+                source_binding(),
+                normalized,
+                {"number": 7, "base": None, "head": None},
+                REPOSITORY,
+                DEFAULT_BRANCH,
+                HEAD_SHA,
+                lambda _: True,
+            )
+        with self.assertRaises(ValueError):
+            MODULE.validate_run([], REPOSITORY, DEFAULT_BRANCH)
+        with self.assertRaises(ValueError):
+            MODULE.published_tuple([])
+        with self.assertRaises(ValueError):
+            MODULE.validate_published_scorecard([], REPOSITORY)
+        with self.assertRaises(MODULE.APIResponseError):
+            MODULE.validate_pull_request_response([])
+        with self.assertRaises(MODULE.APIResponseError):
+            MODULE.validate_pull_request_response({"number": 7})
+        self.assertEqual(
+            MODULE.pages_base_url("owner/owner.github.io"),
+            "https://owner.github.io/",
+        )
+        with self.assertRaises(ValueError):
+            MODULE.pages_base_url("not-a-repository")
+
+    def test_artifact_download_rejects_protocol_and_size_failures(self) -> None:
+        with self.assertRaises(MODULE.APIResponseError):
+            MODULE.download_artifact("https://example.com/archive", "token")
+
+        class ErrorOpener:
+            def __init__(self, status: int, location: str | None = None) -> None:
+                self.status = status
+                self.location = location
+
+            def open(self, request: Any, timeout: int) -> None:
+                headers = {"Location": self.location} if self.location else {}
+                raise HTTPError(request.full_url, self.status, "error", headers, None)
+
+        with self.assertRaises(HTTPError):
+            MODULE.download_artifact(
+                "https://api.github.com/repos/owner/repo/actions/artifacts/9/zip",
+                "token",
+                opener=ErrorOpener(500),
+            )
+        for location in (None, "http://signed.example/archive.zip", "https://u:p@signed.example/archive.zip"):
+            with self.subTest(location=location), self.assertRaises(
+                MODULE.APIResponseError
+            ):
+                MODULE.download_artifact(
+                    "https://api.github.com/repos/owner/repo/actions/artifacts/9/zip",
+                    "token",
+                    opener=ErrorOpener(302, location),
+                )
+
+        class OversizedResponse:
+            def __enter__(self) -> "OversizedResponse":
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                return None
+
+            def read(self, amount: int) -> bytes:
+                return b"x" * amount
+
+        with self.assertRaises(MODULE.ArtifactRejected):
+            MODULE.download_artifact(
+                "https://api.github.com/repos/owner/repo/actions/artifacts/9/zip",
+                "token",
+                opener=ErrorOpener(302, "https://signed.example/archive.zip"),
+                unsigned_open=lambda request, timeout: OversizedResponse(),
+            )
+
+    def test_helpers_reject_malformed_pages_files_and_output_values(self) -> None:
+        class Client:
+            def __init__(self, payload: Any) -> None:
+                self.payload = payload
+
+            def json(self, url: str) -> Any:
+                return self.payload
+
+        for payload in ({}, {"workflow_runs": [None]}):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                list(MODULE.completed_runs(Client(payload), REPOSITORY))
+        with self.assertRaises(MODULE.APIResponseError):
+            MODULE.exact_artifact([], run())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            malformed = root / "malformed.json"
+            malformed.write_text("{", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                MODULE._load_object(malformed, "fixture")
+            scalar = root / "scalar.json"
+            scalar.write_text("[]", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                MODULE._load_object(scalar, "fixture")
+            with self.assertRaises(ValueError):
+                MODULE._write_output(root / "github-output", {"bad": "line\nbreak"})
+
+    def test_cli_writes_selected_and_stale_reconciliation_summaries(self) -> None:
+        selected = {
+            "run": run(),
+            "run_url": "https://github.com/owner/repo/actions/runs/123/attempts/2",
+            "pages_url": "https://owner.github.io/repo/",
+            "output_dir": "/tmp/site",
+        }
+        cases = (
+            ((selected, ["older candidate rejected"], True), "publish=true", "Result: deploy"),
+            ((None, ["already published"], False), "publish=false", "Result: stale"),
+        )
+        for index, (result, expected_output, expected_summary) in enumerate(cases):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                github_output = root / "github-output"
+                summary = root / "summary.md"
+                argv = [
+                    str(SCRIPT),
+                    "--repository",
+                    REPOSITORY,
+                    "--token",
+                    "token",
+                    "--output-dir",
+                    str(root / "site"),
+                    "--github-output",
+                    str(github_output),
+                    "--job-summary",
+                    str(summary),
+                ]
+                with (
+                    mock.patch.object(sys, "argv", argv),
+                    mock.patch.object(MODULE, "reconcile", return_value=result),
+                ):
+                    self.assertEqual(MODULE.main(), 0)
+                self.assertIn(expected_output, github_output.read_text())
+                self.assertIn(expected_summary, summary.read_text())
+                self.assertIn(result[1][0], summary.read_text())
+                if result[0] is not None:
+                    self.assertIn(selected["run_url"], github_output.read_text())
+                    self.assertIn(selected["pages_url"], summary.read_text())
+                    self.assertIn(selected["run_url"], summary.read_text())
+
+    def test_cli_normalizes_missing_token_to_exit_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            argv = [
+                str(SCRIPT),
+                "--repository",
+                REPOSITORY,
+                "--output-dir",
+                str(root / "site"),
+                "--github-output",
+                str(root / "github-output"),
+                "--job-summary",
+                str(root / "summary.md"),
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch("builtins.print") as output,
+            ):
+                self.assertEqual(MODULE.main(), 2)
+            output.assert_called_once_with(
+                "ERROR: GitHub token is required", file=sys.stderr
+            )
+
     def test_artifact_name_is_exact_for_run_attempt(self) -> None:
         listing = {
             "total_count": 3,
@@ -559,6 +767,10 @@ class ReconcilerTests(unittest.TestCase):
         }
         with self.assertRaises(ValueError):
             MODULE.exact_artifact(duplicate, run())
+        with self.assertRaises(MODULE.CandidateRejected):
+            MODULE.exact_artifact({"total_count": 0, "artifacts": []}, run())
+        with self.assertRaises(ValueError):
+            MODULE.GitHubClient("")
 
 
 if __name__ == "__main__":
