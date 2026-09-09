@@ -3,6 +3,7 @@
 **Engineering standards for an AI world.**
 
 [![Scorecard Workflow](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml/badge.svg?event=pull_request_target)](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml)
+[![Latest PR Scorecard](https://ravisingh11.github.io/engineering-standards/guardrails-badge.svg)](https://ravisingh11.github.io/engineering-standards/)
 
 AI changed the economics of software.
 
