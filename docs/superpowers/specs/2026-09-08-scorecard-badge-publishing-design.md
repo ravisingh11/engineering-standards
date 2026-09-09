@@ -21,9 +21,10 @@ Scorecard workflow: passing
 Latest PR scorecard: GREEN 14/14
 ```
 
-The workflow badge must not filter on `branch=main`, because PR scorecard runs
-are associated with PR head branches. The score badge must be labeled as the
-latest PR scorecard rather than the state of the default branch.
+The workflow badge uses `event=pull_request_target` so it selects the core PR
+scorecard executions explicitly instead of relying on GitHub's default-branch
+fallback. The score badge must be labeled as the latest PR scorecard rather
+than the state of the default branch.
 
 Consumers enable score publishing explicitly during installation or refresh.
 Documentation provides the GitHub Pages setting, repository variable, badge
@@ -54,9 +55,9 @@ event, repository, pull-request number, head SHA, base branch, and base SHA from
 the trusted event payload. A separate publisher runs
 from the default branch after a completed `Guardrail Scorecard` workflow. Each
 trigger is a reconciliation signal, not an instruction to publish that run.
-After acquiring its concurrency group, the publisher examines a bounded set of
-the newest completed scorecard runs, validates candidates newest-first, and
-publishes the newest valid candidate. It renders static files with
+After acquiring its concurrency group, the publisher pages through completed
+scorecard runs newest-first until it finds a valid candidate newer than the
+currently published tuple or reaches that tuple. It renders static files with
 repository-owned code and deploys only those generated files to GitHub Pages.
 
 Only scorecard runs bound to one eligible pull request whose base is the
@@ -99,10 +100,11 @@ privileged workflow definition can execute only from the default branch through
   workflow reports failure. Canceled runs and failures without valid scorecard
   evidence are not published.
 - Publishing is serialized. GitHub may replace a pending run in a shared
-  concurrency group, so every surviving publisher run reconciles the newest 20
-  completed scorecard runs instead of assuming its trigger is the candidate.
-  A newer invalid or artifact-less run is rejected and the next newest valid
-  candidate remains eligible.
+  concurrency group, so every surviving publisher run paginates newest-first
+  back to the currently published source tuple instead of assuming its trigger
+  is the candidate. A newer invalid or artifact-less run is rejected and the
+  next newest valid candidate remains eligible. With no prior publication, the
+  first valid candidate is selected. API or pagination failure fails closed.
 - Publication is monotonic. Before deployment, the publisher compares the
   source run creation time and run ID with the currently published metadata.
   An older source run is validated and reported as stale but cannot replace a
@@ -173,7 +175,7 @@ Update the README, quickstart, Guardrails guide, implementation guide, workflow
 catalog, control setup guide, and example documentation to explain:
 
 - the difference between the workflow and score badges;
-- why the native badge has no `branch=main` filter;
+- why the native badge uses `event=pull_request_target`;
 - what the latest PR score means;
 - how to install, enable, verify, and remove badge publishing;
 - the Pages permissions and trust boundary;

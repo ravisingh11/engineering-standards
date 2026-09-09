@@ -20,7 +20,7 @@
 - A source run is eligible only when that binding matches the run, scorecard subject, current pull-request API record, and repository default branch. Do not depend on `workflow_run.pull_requests` or apply one event type's `head_sha` semantics to another.
 - The publisher proves the bound base SHA is an ancestor of the current default branch and verifies the bound head SHA equals the scorecard subject and current PR head SHA.
 - Publishing is monotonic by source run creation time with run ID as a tie-breaker. Older or replayed runs are validation-only and cannot replace newer published metadata; failure to read non-404 current metadata fails closed.
-- Each publisher run reconciles the newest 20 completed scorecard runs and selects the newest fully valid candidate. The shared concurrency group may coalesce pending triggers, but a surviving run must recover the newest valid result rather than trust only its trigger.
+- Each publisher run paginates completed scorecard runs newest-first until it finds a fully valid candidate newer than the currently published tuple or reaches that tuple. With no prior publication, the first valid candidate wins. Shared concurrency may coalesce pending triggers, but a surviving run must recover the newest valid result rather than trust only its trigger; API or pagination failure fails closed.
 - A valid `RED / block` artifact is publishable even when the source workflow conclusion is `failure`; canceled, skipped, or artifact-less failures are not.
 - The standalone publisher requires `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` and must not replace an existing repository Pages site.
 - Exactly one bounded, non-symlink scorecard JSON, its paired Markdown report, and one trusted `source.json` binding are accepted. Published metadata includes the source run creation time for monotonic deployment checks.
@@ -222,11 +222,13 @@ standalone workflow owns the repository's complete Pages deployment and is not
 safe to enable alongside an existing Pages site.
 
 Require the trusted source binding, pull-request API lookup, default-branch
-ancestry check, normalized inspection output, bounded newest-first reconciliation,
+ancestry check, normalized inspection output, newest-first paginated reconciliation,
 and monotonic comparison with the currently published `scorecard.json`. Assert
 stale candidates cannot reach any Pages configuration, upload, or deployment
 step. Assert a surviving run selects the second-newest valid candidate when the
 newest completed run is missing, expired, malformed, or otherwise invalid.
+Assert reconciliation crosses more than 20 rejected runs and stops only after
+selecting a newer valid candidate or reaching the published tuple.
 
 - [ ] **Step 2: Write failing source-run validation assertions**
 
@@ -262,7 +264,7 @@ Expected: failure because the publisher workflow does not exist.
 
 First update the canonical and self-installed scorecard workflows to write `source.json` from `GITHUB_EVENT_PATH` before artifact upload. Use repository-owned Python, not shell interpolation, to require a PR payload and record only normalized run ID, event, repository, PR number, head SHA, base repository, base branch, and base SHA. The scorecard workflow permissions remain unchanged and read-only.
 
-Implement the reconciliation helper with the Python standard library. Query at most the newest 20 completed runs for `.github/workflows/guardrails-scorecard.yml`, filter their repository, workflow name/path, event, and conclusion, and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact newest-first. Stream artifact downloads with a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair and `source.json` into a fresh directory.
+Implement the reconciliation helper with the Python standard library. Fetch the current published `scorecard.json` first, then paginate completed runs for `.github/workflows/guardrails-scorecard.yml` newest-first. Filter repository, workflow name/path, event, and conclusion and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact. Continue across pages and rejected candidates until selecting the first fully valid candidate newer than the published tuple or reaching that tuple. With no prior publication, stop at the first valid candidate. Fail closed on API, pagination, or authentication errors. Stream artifact downloads with a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair and `source.json` into a fresh directory.
 
 Invoke the renderer's inspection mode to obtain a normalized subject revision, validate `source.json` against the source run, then query the exact pull request with `pull-requests: read`. Check out the default branch with `fetch-depth: 0`, prove the bound base SHA is an ancestor of its complete history, and validate the binding against the current PR record. Cover the case where the default branch advanced after the scorecard event. Invoke rendering with the selected run's repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Reject an invalid candidate and continue to the next candidate; fail closed if API state cannot be authenticated or no valid candidate exists.
 
@@ -304,13 +306,13 @@ git commit -m "feat(actions): publish latest guardrail score badge"
 - Modify: `examples/python-demo/README.md`
 
 **Interfaces:**
-- Native badge URL: `https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml/badge.svg`
+- Native badge URL: `https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml/badge.svg?event=pull_request_target`
 - Score badge URL: `https://OWNER.github.io/REPOSITORY/guardrails-badge.svg`
 - Report URL: `https://OWNER.github.io/REPOSITORY/`
 
 - [ ] **Step 1: Fix the native workflow badge**
 
-Remove `?branch=main` from the README badge source and call it `Scorecard Workflow`. Explain that PR scorecard runs are associated with PR head branches, so a `main` branch filter has no qualifying run.
+Replace `?branch=main` in the README badge source with `?event=pull_request_target` and call it `Scorecard Workflow`. Explain that the event filter selects the core PR scorecard execution explicitly and avoids default-branch badge fallback behavior. Test the exact endpoint and require an SVG response that does not contain `no status`.
 
 - [ ] **Step 2: Add concise installation and removal commands**
 
