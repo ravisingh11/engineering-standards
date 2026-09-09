@@ -284,6 +284,72 @@ class RendererTests(unittest.TestCase):
             self.assertEqual((output / "new.txt").read_text(encoding="utf-8"), "new")
             self.assertFalse((output / "old.txt").exists())
 
+    def test_deep_json_is_normalized_to_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.write_source(root)
+            json_path = next(source.glob("*.json"))
+            json_path.write_text('{"nested":' * 1_500 + "null" + "}" * 1_500, encoding="utf-8")
+            output = root / "published"
+            output.mkdir()
+            sentinel = output / "sentinel.txt"
+            sentinel.write_text("unchanged", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                self.render(source, output)
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--inspect-output", str(root / "inspection.json")],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("ERROR", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
+
+    def test_timestamp_overflow_is_normalized_to_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.write_source(root)
+            output = root / "published"
+            output.mkdir()
+            sentinel = output / "sentinel.txt"
+            sentinel.write_text("unchanged", encoding="utf-8")
+            invalid_timestamp = "0001-01-01T00:00:00+23:59"
+
+            with self.assertRaises(ValueError):
+                self.render(source, output, source_run_created_at=invalid_timestamp)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--output-dir",
+                    str(output),
+                    "--repository",
+                    "owner/repo",
+                    "--run-id",
+                    "12345",
+                    "--run-attempt",
+                    "2",
+                    "--run-url",
+                    RUN_URL,
+                    "--source-run-created-at",
+                    invalid_timestamp,
+                    "--expected-revision",
+                    REVISION,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("ERROR", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
+
 
 if __name__ == "__main__":
     unittest.main()

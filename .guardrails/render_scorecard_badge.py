@@ -43,11 +43,11 @@ def _timestamp(value: str, field: str) -> str:
         raise ValueError(f"{field} must be an RFC 3339 timestamp")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
+        if parsed.tzinfo is None:
+            raise ValueError(f"{field} must include a timezone")
+        normalized = parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as error:
         raise ValueError(f"{field} must be an RFC 3339 timestamp") from error
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field} must include a timezone")
-    normalized = parsed.astimezone(timezone.utc)
     rendered = normalized.isoformat(timespec="microseconds" if normalized.microsecond else "seconds")
     return rendered.replace("+00:00", "Z")
 
@@ -130,7 +130,7 @@ def _validated_scorecard(source_dir: Path) -> dict[str, Any]:
     json_path, _ = _bounded_source(source_dir)
     try:
         document = json.loads(json_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError(f"invalid scorecard JSON: {error}") from error
     if not isinstance(document, dict):
         raise ValueError("scorecard JSON must contain an object")
