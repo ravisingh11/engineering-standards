@@ -55,6 +55,10 @@ class CandidateRejected(ValueError):
     """Raised for invalid candidate-specific evidence while reconciliation continues."""
 
 
+class ArtifactRejected(ValueError):
+    """Raised when one artifact cannot be accepted as candidate evidence."""
+
+
 class APIResponseError(ValueError):
     """Raised when authenticated GitHub API state cannot be validated."""
 
@@ -390,7 +394,7 @@ def download_artifact(
 ) -> bytes:
     parsed_api = urlparse(url)
     if parsed_api.scheme != "https" or parsed_api.netloc != "api.github.com":
-        raise ValueError("artifact API URL must use https://api.github.com")
+        raise APIResponseError("artifact API URL must use https://api.github.com")
     request = Request(
         url,
         headers={
@@ -407,7 +411,7 @@ def download_artifact(
             raise
         location = error.headers.get("Location")
     else:
-        raise ValueError("artifact endpoint did not return the expected redirect")
+        raise APIResponseError("artifact endpoint did not return the expected redirect")
     parsed = urlparse(location or "")
     if (
         parsed.scheme != "https"
@@ -415,14 +419,14 @@ def download_artifact(
         or parsed.username
         or parsed.password
     ):
-        raise ValueError(
+        raise APIResponseError(
             "artifact redirect must be an absolute credential-free HTTPS URL"
         )
     unsigned_request = Request(location, headers={"Accept": "application/octet-stream"})
     with unsigned_open(unsigned_request, timeout=20) as response:
         content = response.read(MAX_ARCHIVE_BYTES + 1)
     if len(content) > MAX_ARCHIVE_BYTES:
-        raise ValueError("artifact archive exceeds the compressed size limit")
+        raise ArtifactRejected("artifact archive exceeds the compressed size limit")
     return content
 
 
@@ -626,7 +630,7 @@ def reconcile(
             if error.code == 404:
                 raise CandidateRejected("source run artifact is unavailable") from error
             raise
-        except ValueError as error:
+        except ArtifactRejected as error:
             raise CandidateRejected(str(error)) from error
         with tempfile.TemporaryDirectory(prefix="guardrails-scorecard-") as directory:
             root = Path(directory)

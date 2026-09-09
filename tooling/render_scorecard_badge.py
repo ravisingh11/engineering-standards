@@ -48,7 +48,9 @@ def _timestamp(value: str, field: str) -> str:
         normalized = parsed.astimezone(timezone.utc)
     except (ValueError, OverflowError) as error:
         raise ValueError(f"{field} must be an RFC 3339 timestamp") from error
-    rendered = normalized.isoformat(timespec="microseconds" if normalized.microsecond else "seconds")
+    rendered = normalized.isoformat(
+        timespec="microseconds" if normalized.microsecond else "seconds"
+    )
     return rendered.replace("+00:00", "Z")
 
 
@@ -69,7 +71,9 @@ def pages_base_url(repository: str) -> str:
     return f"https://{owner_domain}.github.io/{name}/"
 
 
-def _validate_run_url(repository: str, run_id: int, run_attempt: int, run_url: str) -> str:
+def _validate_run_url(
+    repository: str, run_id: int, run_attempt: int, run_url: str
+) -> str:
     _repository(repository)
     if not isinstance(run_url, str):
         raise ValueError("run_url must be an HTTPS GitHub Actions run-attempt URL")
@@ -96,10 +100,14 @@ def _bounded_source(source_dir: Path) -> tuple[Path, Path]:
     total_bytes = 0
     for entry in entries:
         if entry.is_symlink() or not entry.is_file():
-            raise ValueError(f"source contains a nested, special, or symlinked entry: {entry.name}")
+            raise ValueError(
+                f"source contains a nested, special, or symlinked entry: {entry.name}"
+            )
         size = entry.stat().st_size
         if size > MAX_MEMBER_BYTES:
-            raise ValueError(f"source member exceeds {MAX_MEMBER_BYTES} bytes: {entry.name}")
+            raise ValueError(
+                f"source member exceeds {MAX_MEMBER_BYTES} bytes: {entry.name}"
+            )
         total_bytes += size
         if total_bytes > MAX_SOURCE_BYTES:
             raise ValueError(f"source exceeds {MAX_SOURCE_BYTES} aggregate bytes")
@@ -111,7 +119,9 @@ def _bounded_source(source_dir: Path) -> tuple[Path, Path]:
     if not markdown_path.is_file() or markdown_path.is_symlink():
         raise ValueError("scorecard JSON must have one paired Markdown report")
     if {entry.name for entry in entries} != {json_path.name, markdown_path.name}:
-        raise ValueError("source must contain only the paired scorecard JSON and Markdown files")
+        raise ValueError(
+            "source must contain only the paired scorecard JSON and Markdown files"
+        )
     return json_path, markdown_path
 
 
@@ -149,7 +159,9 @@ def _validated_scorecard(source_dir: Path) -> dict[str, Any]:
         raise ValueError("scorecard subject must be a git commit")
     revision = subject.get("revision")
     if not isinstance(revision, str) or not REVISION_PATTERN.fullmatch(revision):
-        raise ValueError("scorecard revision must be an exact lowercase 40-character SHA")
+        raise ValueError(
+            "scorecard revision must be an exact lowercase 40-character SHA"
+        )
     enforced = _counts(document, "enforced")
     advisory = _counts(document, "advisory")
     passed = enforced["passed"] + advisory["passed"]
@@ -161,7 +173,9 @@ def _validated_scorecard(source_dir: Path) -> dict[str, Any]:
     expected_status = "RED" if enforced_miss else "ORANGE" if advisory_miss else "GREEN"
     expected_decision = "block" if expected_status == "RED" else "allow"
     if status != expected_status or decision != expected_decision:
-        raise ValueError("scorecard status and decision are inconsistent with aggregate counts")
+        raise ValueError(
+            "scorecard status and decision are inconsistent with aggregate counts"
+        )
     return {
         "status": status,
         "decision": decision,
@@ -180,7 +194,9 @@ def inspect_scorecard(source_dir: Path) -> dict[str, object]:
 
 def _write_atomic_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -200,7 +216,9 @@ def _public_metadata(
     source_run_created_at: str,
     expected_revision: str,
 ) -> dict[str, Any]:
-    published_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    published_at = (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
     passed = inspected["passed"]
     total = inspected["total"]
     return {
@@ -231,7 +249,9 @@ def _svg(metadata: dict[str, Any]) -> str:
     label_width = 128
     message_width = max(88, len(message) * 8 + 20)
     total_width = label_width + message_width
-    description = html.escape(json.dumps(metadata, sort_keys=True, separators=(",", ":")), quote=True)
+    description = html.escape(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")), quote=True
+    )
     safe_label = html.escape(label)
     safe_message = html.escape(message)
     color = VALID_STATUSES[str(metadata["status"])]
@@ -249,20 +269,20 @@ def _svg(metadata: dict[str, Any]) -> str:
 def _markdown(metadata: dict[str, Any]) -> str:
     return f"""# Latest PR Scorecard
 
-![{metadata['message']}](guardrails-badge.svg)
+![{metadata["message"]}](guardrails-badge.svg)
 
 | Field | Value |
 | --- | --- |
-| Repository | {metadata['repository']} |
-| Operation | {metadata['operation']} |
-| Status | {metadata['status']} |
-| Active controls | {metadata['passed']}/{metadata['total']} passed |
-| Enforced | {metadata['enforced']['passed']}/{metadata['enforced']['total']} passed |
-| Advisory | {metadata['advisory']['passed']}/{metadata['advisory']['total']} passed |
-| Source run | [{metadata['source_run_id']} attempt {metadata['source_run_attempt']}]({metadata['source_run_url']}) |
-| Source created | {metadata['source_run_created_at']} |
-| Published | {metadata['published_at']} |
-| Subject digest | {metadata['subject_digest']} |
+| Repository | {metadata["repository"]} |
+| Operation | {metadata["operation"]} |
+| Status | {metadata["status"]} |
+| Active controls | {metadata["passed"]}/{metadata["total"]} passed |
+| Enforced | {metadata["enforced"]["passed"]}/{metadata["enforced"]["total"]} passed |
+| Advisory | {metadata["advisory"]["passed"]}/{metadata["advisory"]["total"]} passed |
+| Source run | [{metadata["source_run_id"]} attempt {metadata["source_run_attempt"]}]({metadata["source_run_url"]}) |
+| Source created | {metadata["source_run_created_at"]} |
+| Published | {metadata["published_at"]} |
+| Subject digest | {metadata["subject_digest"]} |
 """
 
 
@@ -272,14 +292,14 @@ def _html(metadata: dict[str, Any]) -> str:
     advisory = metadata["advisory"]
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Latest PR Scorecard</title></head>
-<body><main><h1>Latest PR Scorecard</h1><img src="guardrails-badge.svg" alt="{safe['message']}"><dl>
-<dt>Repository</dt><dd>{safe['repository']}</dd><dt>Operation</dt><dd>{safe['operation']}</dd><dt>Status</dt><dd>{safe['status']}</dd>
-<dt>Active controls</dt><dd>{safe['passed']}/{safe['total']} passed</dd>
-<dt>Enforced</dt><dd>{enforced['passed']}/{enforced['total']} passed</dd>
-<dt>Advisory</dt><dd>{advisory['passed']}/{advisory['total']} passed</dd>
-<dt>Source run</dt><dd><a href="{safe['source_run_url']}">{safe['source_run_id']} attempt {safe['source_run_attempt']}</a></dd>
-<dt>Source created</dt><dd>{safe['source_run_created_at']}</dd><dt>Published</dt><dd>{safe['published_at']}</dd>
-<dt>Subject digest</dt><dd>{safe['subject_digest']}</dd></dl></main></body></html>
+<body><main><h1>Latest PR Scorecard</h1><img src="guardrails-badge.svg" alt="{safe["message"]}"><dl>
+<dt>Repository</dt><dd>{safe["repository"]}</dd><dt>Operation</dt><dd>{safe["operation"]}</dd><dt>Status</dt><dd>{safe["status"]}</dd>
+<dt>Active controls</dt><dd>{safe["passed"]}/{safe["total"]} passed</dd>
+<dt>Enforced</dt><dd>{enforced["passed"]}/{enforced["total"]} passed</dd>
+<dt>Advisory</dt><dd>{advisory["passed"]}/{advisory["total"]} passed</dd>
+<dt>Source run</dt><dd><a href="{safe["source_run_url"]}">{safe["source_run_id"]} attempt {safe["source_run_attempt"]}</a></dd>
+<dt>Source created</dt><dd>{safe["source_run_created_at"]}</dd><dt>Published</dt><dd>{safe["published_at"]}</dd>
+<dt>Subject digest</dt><dd>{safe["subject_digest"]}</dd></dl></main></body></html>
 """
 
 
@@ -290,7 +310,10 @@ def _replace_directory(temporary: Path, output_dir: Path) -> None:
         raise ValueError("output path must be a directory")
     backup: Path | None = None
     if output_dir.exists():
-        backup = output_dir.parent / f".{output_dir.name}.backup-{next(tempfile._get_candidate_names())}"
+        backup = (
+            output_dir.parent
+            / f".{output_dir.name}.backup-{next(tempfile._get_candidate_names())}"
+        )
         os.replace(output_dir, backup)
     try:
         os.replace(temporary, output_dir)
@@ -324,20 +347,33 @@ def render_badge(
     run_attempt = _integer(run_attempt, "run_attempt", positive=True)
     run_url = _validate_run_url(repository, run_id, run_attempt, run_url)
     source_run_created_at = _timestamp(source_run_created_at, "source_run_created_at")
-    if not isinstance(expected_revision, str) or not REVISION_PATTERN.fullmatch(expected_revision):
-        raise ValueError("expected_revision must be an exact lowercase 40-character SHA")
+    if not isinstance(expected_revision, str) or not REVISION_PATTERN.fullmatch(
+        expected_revision
+    ):
+        raise ValueError(
+            "expected_revision must be an exact lowercase 40-character SHA"
+        )
     if inspected["subject_revision"] != expected_revision:
         raise ValueError("scorecard revision does not match expected revision")
 
     output_dir = Path(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.tmp-", dir=output_dir.parent))
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{output_dir.name}.tmp-", dir=output_dir.parent)
+    )
     try:
         metadata = _public_metadata(
-            inspected, repository, run_id, run_attempt, run_url,
-            source_run_created_at, expected_revision,
+            inspected,
+            repository,
+            run_id,
+            run_attempt,
+            run_url,
+            source_run_created_at,
+            expected_revision,
         )
-        (temporary / "guardrails-badge.svg").write_text(_svg(metadata), encoding="utf-8")
+        (temporary / "guardrails-badge.svg").write_text(
+            _svg(metadata), encoding="utf-8"
+        )
         (temporary / "scorecard.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -352,7 +388,9 @@ def render_badge(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Render a bounded public Guardrails scorecard badge")
+    parser = argparse.ArgumentParser(
+        description="Render a bounded public Guardrails scorecard badge"
+    )
     parser.add_argument("--source-dir", required=True, type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--inspect-output", type=Path)
@@ -371,7 +409,10 @@ def main() -> int:
     try:
         if args.inspect_output is not None:
             inspected = inspect_scorecard(args.source_dir)
-            _write_atomic_text(args.inspect_output, json.dumps(inspected, indent=2, sort_keys=True) + "\n")
+            _write_atomic_text(
+                args.inspect_output,
+                json.dumps(inspected, indent=2, sort_keys=True) + "\n",
+            )
             return 0
         required = {
             "repository": args.repository,
@@ -385,11 +426,16 @@ def main() -> int:
         if missing:
             raise ValueError(f"rendering requires: {', '.join(missing)}")
         metadata = render_badge(args.source_dir, args.output_dir, **required)
-        print(f"Published badge input: {metadata['status']} {metadata['passed']}/{metadata['total']}")
+        print(
+            f"Published badge input: {metadata['status']} {metadata['passed']}/{metadata['total']}"
+        )
         return 0
-    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+    except (UnicodeError, ValueError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
+    except OSError as error:
+        print(f"ERROR runtime: {error}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

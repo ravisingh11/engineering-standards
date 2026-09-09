@@ -252,6 +252,18 @@ class ReconcilerTests(unittest.TestCase):
         self.assertNotIn("Authorization", requests[1].headers)
         self.assertEqual(requests[1].full_url, "https://signed.example/archive.zip")
 
+    def test_artifact_download_treats_missing_redirect_as_api_failure(self) -> None:
+        class NonRedirectingOpener:
+            def open(self, request: Any, timeout: int) -> None:
+                return None
+
+        with self.assertRaises(MODULE.APIResponseError):
+            MODULE.download_artifact(
+                "https://api.github.com/repos/owner/repo/actions/artifacts/9/zip",
+                "secret-token",
+                opener=NonRedirectingOpener(),
+            )
+
     def test_candidate_selection_crosses_more_than_twenty_rejections(self) -> None:
         runs = [run(run_id=200 - index, attempt=1) for index in range(25)]
         runs.append(run(run_id=175, attempt=3, created_at="2026-09-07T12:00:00Z"))
@@ -426,7 +438,7 @@ class ReconcilerTests(unittest.TestCase):
                     if repository != REPOSITORY:
                         raise AssertionError(repository)
                     if artifact_id == 20:
-                        raise ValueError(
+                        raise MODULE.ArtifactRejected(
                             "artifact archive exceeds the compressed size limit"
                         )
                     return valid_archive(binding=binding, revision=revision)
@@ -476,6 +488,57 @@ class ReconcilerTests(unittest.TestCase):
                     published_loader=lambda _: None,
                 )
             self.assertFalse(output.exists())
+
+    def test_reconcile_propagates_artifact_api_failure_without_output(self) -> None:
+        class Client:
+            def json(self, url: str) -> Any:
+                if url == "https://api.github.com/repos/owner/repo":
+                    return {"default_branch": DEFAULT_BRANCH}
+                if "/actions/workflows/" in url:
+                    return {"workflow_runs": [run()]}
+                if "/artifacts" in url:
+                    return {
+                        "total_count": 1,
+                        "artifacts": [
+                            {
+                                "id": 9,
+                                "name": "guardrail-scorecard-123-2",
+                                "expired": False,
+                            }
+                        ],
+                    }
+                raise AssertionError(url)
+
+            def artifact(self, repository: str, artifact_id: int) -> bytes:
+                raise MODULE.APIResponseError("artifact redirect is missing")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "site"
+            with self.assertRaises(MODULE.APIResponseError):
+                MODULE.reconcile(
+                    REPOSITORY,
+                    "token",
+                    root,
+                    ROOT / "tooling" / "render_scorecard_badge.py",
+                    output,
+                    client=Client(),
+                    published_loader=lambda _: None,
+                )
+            self.assertFalse(output.exists())
+
+    def test_renderer_runtime_failure_is_not_a_candidate_rejection(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["python", "renderer.py"],
+            returncode=3,
+            stdout="",
+            stderr="ERROR runtime: disk unavailable\n",
+        )
+        with (
+            mock.patch.object(MODULE.subprocess, "run", return_value=completed),
+            self.assertRaises(MODULE.TrustedRuntimeError),
+        ):
+            MODULE._run_renderer(["python", "renderer.py"])
 
     def test_artifact_name_is_exact_for_run_attempt(self) -> None:
         listing = {

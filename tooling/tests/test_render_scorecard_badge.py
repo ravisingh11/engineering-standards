@@ -90,7 +90,15 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(metadata["source_run_created_at"], CREATED_AT)
             self.assertEqual(metadata["subject_digest"], f"sha256:{digest}")
             names = {path.name for path in output.iterdir()}
-            self.assertEqual(names, {"guardrails-badge.svg", "scorecard.json", "scorecard.md", "index.html"})
+            self.assertEqual(
+                names,
+                {
+                    "guardrails-badge.svg",
+                    "scorecard.json",
+                    "scorecard.md",
+                    "index.html",
+                },
+            )
             for path in output.iterdir():
                 text = path.read_text(encoding="utf-8")
                 for expected in (
@@ -119,19 +127,33 @@ class RendererTests(unittest.TestCase):
     def test_orange_and_red_semantics_render(self) -> None:
         cases = (
             (scorecard(status="ORANGE", advisory=(3, 4)), "ORANGE", "13/14"),
-            (scorecard(status="RED", decision="block", enforced=(9, 10)), "RED", "13/14"),
+            (
+                scorecard(status="RED", decision="block", enforced=(9, 10)),
+                "RED",
+                "13/14",
+            ),
         )
         for index, (card, status, count) in enumerate(cases):
-            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(status=status),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 root = Path(directory)
                 output = root / f"published-{index}"
                 metadata = self.render(self.write_source(root, card), output)
                 self.assertEqual(metadata["status"], status)
-                self.assertIn(f"{status} {count}", (output / "guardrails-badge.svg").read_text())
+                self.assertIn(
+                    f"{status} {count}", (output / "guardrails-badge.svg").read_text()
+                )
 
     def test_invalid_scorecard_semantics_fail_without_output(self) -> None:
         invalid_cards = []
-        for field, value in (("version", 1), ("operation", "release"), ("status", "GRAY"), ("decision", "maybe")):
+        for field, value in (
+            ("version", 1),
+            ("operation", "release"),
+            ("status", "GRAY"),
+            ("decision", "maybe"),
+        ):
             card = scorecard()
             card[field] = value
             invalid_cards.append(card)
@@ -180,7 +202,10 @@ class RendererTests(unittest.TestCase):
             {"expected_revision": "b" * 40},
         )
         for overrides in invalid:
-            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(overrides=overrides),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 root = Path(directory)
                 output = root / "published"
                 with self.assertRaises(ValueError):
@@ -188,9 +213,19 @@ class RendererTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
     def test_invalid_source_layout_is_rejected(self) -> None:
-        mutations = ("missing_json", "duplicate_json", "missing_markdown", "nested", "symlink", "large")
+        mutations = (
+            "missing_json",
+            "duplicate_json",
+            "missing_markdown",
+            "nested",
+            "symlink",
+            "large",
+        )
         for mutation in mutations:
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 root = Path(directory)
                 source = self.write_source(root)
                 json_path = next(source.glob("*.json"))
@@ -198,7 +233,9 @@ class RendererTests(unittest.TestCase):
                 if mutation == "missing_json":
                     json_path.unlink()
                 elif mutation == "duplicate_json":
-                    (source / "scorecard-20260908-120001Z.json").write_text(json_path.read_text())
+                    (source / "scorecard-20260908-120001Z.json").write_text(
+                        json_path.read_text()
+                    )
                 elif mutation == "missing_markdown":
                     markdown_path.unlink()
                 elif mutation == "nested":
@@ -216,7 +253,9 @@ class RendererTests(unittest.TestCase):
             root = Path(directory)
             source = self.write_source(root)
             for index in range(17):
-                (source / f"extra-{index}.txt").write_bytes(b"x" * MODULE.MAX_MEMBER_BYTES)
+                (source / f"extra-{index}.txt").write_bytes(
+                    b"x" * MODULE.MAX_MEMBER_BYTES
+                )
             with self.assertRaises(ValueError):
                 self.render(source, root / "published")
 
@@ -228,8 +267,13 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(inspected["subject_revision"], REVISION)
             self.assertEqual(inspected["status"], "GREEN")
             self.assertNotIn("controls", inspected)
-            self.assertEqual(MODULE.pages_base_url("owner/repo"), "https://owner.github.io/repo/")
-            self.assertEqual(MODULE.pages_base_url("owner/owner.github.io"), "https://owner.github.io/")
+            self.assertEqual(
+                MODULE.pages_base_url("owner/repo"), "https://owner.github.io/repo/"
+            )
+            self.assertEqual(
+                MODULE.pages_base_url("owner/owner.github.io"),
+                "https://owner.github.io/",
+            )
 
     def test_cli_inspection_and_fail_closed_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -237,16 +281,32 @@ class RendererTests(unittest.TestCase):
             source = self.write_source(root)
             inspection = root / "inspection.json"
             completed = subprocess.run(
-                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--inspect-output", str(inspection)],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--inspect-output",
+                    str(inspection),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(json.loads(inspection.read_text())["subject_revision"], REVISION)
+            self.assertEqual(
+                json.loads(inspection.read_text())["subject_revision"], REVISION
+            )
 
             failed = subprocess.run(
-                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--output-dir", str(root / "out")],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--output-dir",
+                    str(root / "out"),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -259,7 +319,14 @@ class RendererTests(unittest.TestCase):
             root = Path(directory)
             source = self.write_source(root, {**scorecard(), "status": []})
             completed = subprocess.run(
-                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--inspect-output", str(root / "inspection.json")],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--inspect-output",
+                    str(root / "inspection.json"),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -278,7 +345,9 @@ class RendererTests(unittest.TestCase):
             temporary.mkdir()
             (temporary / "new.txt").write_text("new", encoding="utf-8")
 
-            with mock.patch.object(MODULE.shutil, "rmtree", side_effect=OSError("cleanup failed")):
+            with mock.patch.object(
+                MODULE.shutil, "rmtree", side_effect=OSError("cleanup failed")
+            ):
                 MODULE._replace_directory(temporary, output)
 
             self.assertEqual((output / "new.txt").read_text(encoding="utf-8"), "new")
@@ -289,7 +358,9 @@ class RendererTests(unittest.TestCase):
             root = Path(directory)
             source = self.write_source(root)
             json_path = next(source.glob("*.json"))
-            json_path.write_text('{"nested":' * 1_500 + "null" + "}" * 1_500, encoding="utf-8")
+            json_path.write_text(
+                '{"nested":' * 1_500 + "null" + "}" * 1_500, encoding="utf-8"
+            )
             output = root / "published"
             output.mkdir()
             sentinel = output / "sentinel.txt"
@@ -298,7 +369,14 @@ class RendererTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.render(source, output)
             completed = subprocess.run(
-                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--inspect-output", str(root / "inspection.json")],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--inspect-output",
+                    str(root / "inspection.json"),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -349,6 +427,41 @@ class RendererTests(unittest.TestCase):
             self.assertIn("ERROR", completed.stderr)
             self.assertNotIn("Traceback", completed.stderr)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
+
+    def test_output_filesystem_failure_is_a_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.write_source(root)
+            parent_file = root / "not-a-directory"
+            parent_file.write_text("file", encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--source-dir",
+                    str(source),
+                    "--output-dir",
+                    str(parent_file / "published"),
+                    "--repository",
+                    "owner/repo",
+                    "--run-id",
+                    "12345",
+                    "--run-attempt",
+                    "2",
+                    "--run-url",
+                    RUN_URL,
+                    "--source-run-created-at",
+                    CREATED_AT,
+                    "--expected-revision",
+                    REVISION,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 3)
+            self.assertIn("ERROR runtime", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
 
 
 if __name__ == "__main__":
