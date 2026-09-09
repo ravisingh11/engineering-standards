@@ -66,14 +66,19 @@ repository default branch are eligible. GitHub may leave a
 base in `head_sha`, so the publisher does not infer PR identity from either
 field. It validates the artifact's trusted source binding against the source
 run and current pull-request API record. It also proves that the bound base SHA
-is an ancestor of the current default branch. Manual
-publisher runs request the same latest-valid reconciliation and cannot select a
-historical run for deployment.
+is an ancestor of the current default branch after fetching complete
+default-branch history. The publisher has no manual-dispatch trigger, so its
+privileged workflow definition can execute only from the default branch through
+`workflow_run`.
 
 ## Security boundaries
 
 - The publisher never checks out or executes pull-request code.
 - The publisher implementation always comes from the default branch.
+- The publisher has no `workflow_dispatch` entry point; only completion of the
+  named scorecard workflow can trigger its privileged Pages deployment.
+- The trusted default-branch checkout fetches complete history before testing
+  whether the bound base SHA is an ancestor.
 - The downloaded archive and selected scorecard member have strict size and
   path limits.
 - Exactly one scorecard JSON document for the triggering run is accepted.
@@ -159,7 +164,7 @@ permission is required.
 - A Pages configuration error fails only the optional publisher. It does not
   alter the original scorecard decision.
 - Re-running the currently published scorecard may republish the same immutable
-  subject. Re-running or manually selecting an older scorecard validates it
+  subject. A reconciliation that encounters an older scorecard validates it
   without deployment when a newer source run has already been published.
 
 ## Documentation changes

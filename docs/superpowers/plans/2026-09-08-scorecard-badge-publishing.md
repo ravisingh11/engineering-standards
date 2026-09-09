@@ -15,6 +15,7 @@
 - The existing scorecard workflow remains read-only.
 - Badge publishing is optional and requires no PAT, Gist, repository secret, or `contents: write` permission.
 - The publisher executes only default-branch code and never executes downloaded artifact content.
+- The publisher has no manual-dispatch entry point; `workflow_run` is the only trigger so privileged workflow YAML always comes from the default branch.
 - The read-only scorecard workflow adds a trusted `source.json` artifact binding containing the source run ID, event, repository, PR number, head SHA, base branch, and base SHA from the event payload.
 - A source run is eligible only when that binding matches the run, scorecard subject, current pull-request API record, and repository default branch. Do not depend on `workflow_run.pull_requests` or apply one event type's `head_sha` semantics to another.
 - The publisher proves the bound base SHA is an ancestor of the current default branch and verifies the bound head SHA equals the scorecard subject and current PR head SHA.
@@ -198,7 +199,7 @@ git commit -m "feat(installer): manage scorecard badge publishing"
 - Modify: `tooling/tests/test_repository_commands.py`
 
 **Interfaces:**
-- Trigger: `workflow_run` for `Guardrail Scorecard` completion and input-free manual `workflow_dispatch` reconciliation
+- Trigger: `workflow_run` for `Guardrail Scorecard` completion only
 - Feature flag: repository variable `GUARDRAILS_SCORECARD_BADGE_ENABLED == 'true'`
 - Pages ownership acknowledgement: repository variable `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE == 'dedicated'`
 - Deploys: renderer output through the `github-pages` environment
@@ -212,10 +213,9 @@ on:
   workflow_run:
     workflows: [Guardrail Scorecard]
     types: [completed]
-  workflow_dispatch:
 ```
 
-Assert only `actions: read`, `contents: read`, `pull-requests: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; no checkout of a PR repository/ref; and invocation of `.guardrails/reconcile_scorecard_badge.py` from a default-branch checkout.
+Assert only `actions: read`, `contents: read`, `pull-requests: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; no `workflow_dispatch`; no checkout of a PR repository/ref; `fetch-depth: 0` on the default-branch checkout; and invocation of `.guardrails/reconcile_scorecard_badge.py` from that checkout.
 
 Require both feature variables before deployment. Document and test that this
 standalone workflow owns the repository's complete Pages deployment and is not
@@ -245,8 +245,8 @@ source.json base SHA is exactly 40 hexadecimal characters and is an ancestor of 
 source.json head SHA equals both the current PR head SHA and validated scorecard subject revision
 ```
 
-Manual dispatch must run the same bounded latest-valid reconciliation and must
-not accept a historical run ID.
+The workflow must not expose manual dispatch because GitHub permits dispatching
+a workflow definition from a non-default ref.
 
 - [ ] **Step 3: Run focused tests and verify failure**
 
@@ -264,7 +264,7 @@ First update the canonical and self-installed scorecard workflows to write `sour
 
 Implement the reconciliation helper with the Python standard library. Query at most the newest 20 completed runs for `.github/workflows/guardrails-scorecard.yml`, filter their repository, workflow name/path, event, and conclusion, and inspect each run's exact non-expired `guardrail-scorecard-<run-id>` artifact newest-first. Stream artifact downloads with a 2 MiB compressed limit, reject unsafe ZIP paths, links, duplicate members, oversized members, or aggregate expansion over 1 MiB, and extract only the expected scorecard pair and `source.json` into a fresh directory.
 
-Invoke the renderer's inspection mode to obtain a normalized subject revision, validate `source.json` against the source run, then query the exact pull request with `pull-requests: read`. Prove the bound base SHA is an ancestor of the checked-out default branch and validate the binding against the current PR record. Invoke rendering with the selected run's repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Reject an invalid candidate and continue to the next candidate; fail closed if API state cannot be authenticated or no valid candidate exists.
+Invoke the renderer's inspection mode to obtain a normalized subject revision, validate `source.json` against the source run, then query the exact pull request with `pull-requests: read`. Check out the default branch with `fetch-depth: 0`, prove the bound base SHA is an ancestor of its complete history, and validate the binding against the current PR record. Cover the case where the default branch advanced after the scorecard event. Invoke rendering with the selected run's repository, run ID, URL, creation time, and validated PR head SHA. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Reject an invalid candidate and continue to the next candidate; fail closed if API state cannot be authenticated or no valid candidate exists.
 
 Before configuring or uploading Pages, fetch the current published `scorecard.json`. HTTP 404 means no prior publication; every other fetch or validation failure is non-passing. Compare `(source_run_created_at, source_run_id)` tuples. When the candidate is older, report validation success but skip every Pages action. Equal tuples may idempotently republish; newer tuples may deploy. Write normalized `publish`, source-run, and output-directory values to `GITHUB_OUTPUT`; the workflow gates every Pages action on `publish == 'true'`. Append a job summary containing the resulting Pages URL, source run URL, rejected newer candidates, and whether the selected candidate was deployed or stale.
 
