@@ -140,9 +140,9 @@ def _validated_scorecard(source_dir: Path) -> dict[str, Any]:
         raise ValueError("scorecard operation must be change")
     status = document.get("status")
     decision = document.get("decision")
-    if status not in VALID_STATUSES:
+    if not isinstance(status, str) or status not in VALID_STATUSES:
         raise ValueError("scorecard status must be GREEN, ORANGE, or RED")
-    if decision not in VALID_DECISIONS:
+    if not isinstance(decision, str) or decision not in VALID_DECISIONS:
         raise ValueError("scorecard decision must be allow or block")
     subject = document.get("subject")
     if not isinstance(subject, dict) or subject.get("type") != "git-commit":
@@ -205,6 +205,8 @@ def _public_metadata(
     total = inspected["total"]
     return {
         "version": 1,
+        "operation": "change",
+        "label": "Latest PR Scorecard",
         "status": inspected["status"],
         "decision": inspected["decision"],
         "message": f"{inspected['status']} {passed}/{total}",
@@ -224,7 +226,7 @@ def _public_metadata(
 
 
 def _svg(metadata: dict[str, Any]) -> str:
-    label = "Guardrail Scorecard"
+    label = str(metadata["label"])
     message = str(metadata["message"])
     label_width = 128
     message_width = max(88, len(message) * 8 + 20)
@@ -245,13 +247,14 @@ def _svg(metadata: dict[str, Any]) -> str:
 
 
 def _markdown(metadata: dict[str, Any]) -> str:
-    return f"""# Latest PR Guardrail Scorecard
+    return f"""# Latest PR Scorecard
 
 ![{metadata['message']}](guardrails-badge.svg)
 
 | Field | Value |
 | --- | --- |
 | Repository | {metadata['repository']} |
+| Operation | {metadata['operation']} |
 | Status | {metadata['status']} |
 | Active controls | {metadata['passed']}/{metadata['total']} passed |
 | Enforced | {metadata['enforced']['passed']}/{metadata['enforced']['total']} passed |
@@ -268,9 +271,9 @@ def _html(metadata: dict[str, Any]) -> str:
     enforced = metadata["enforced"]
     advisory = metadata["advisory"]
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Latest PR Guardrail Scorecard</title></head>
-<body><main><h1>Latest PR Guardrail Scorecard</h1><img src="guardrails-badge.svg" alt="{safe['message']}"><dl>
-<dt>Repository</dt><dd>{safe['repository']}</dd><dt>Status</dt><dd>{safe['status']}</dd>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Latest PR Scorecard</title></head>
+<body><main><h1>Latest PR Scorecard</h1><img src="guardrails-badge.svg" alt="{safe['message']}"><dl>
+<dt>Repository</dt><dd>{safe['repository']}</dd><dt>Operation</dt><dd>{safe['operation']}</dd><dt>Status</dt><dd>{safe['status']}</dd>
 <dt>Active controls</dt><dd>{safe['passed']}/{safe['total']} passed</dd>
 <dt>Enforced</dt><dd>{enforced['passed']}/{enforced['total']} passed</dd>
 <dt>Advisory</dt><dd>{advisory['passed']}/{advisory['total']} passed</dd>
@@ -296,7 +299,12 @@ def _replace_directory(temporary: Path, output_dir: Path) -> None:
             os.replace(backup, output_dir)
         raise
     if backup is not None:
-        shutil.rmtree(backup)
+        try:
+            shutil.rmtree(backup)
+        except OSError:
+            # The second rename is the publication commit point. Cleanup must
+            # never turn a successfully installed output into a failed run.
+            pass
 
 
 def render_badge(

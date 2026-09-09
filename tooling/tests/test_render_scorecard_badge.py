@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,7 +93,17 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(names, {"guardrails-badge.svg", "scorecard.json", "scorecard.md", "index.html"})
             for path in output.iterdir():
                 text = path.read_text(encoding="utf-8")
-                for expected in ("GREEN", "14/14", "owner/repo", "12345", "2", CREATED_AT, digest):
+                for expected in (
+                    "Latest PR Scorecard",
+                    "GREEN",
+                    "14/14",
+                    "change",
+                    "owner/repo",
+                    "12345",
+                    "2",
+                    CREATED_AT,
+                    digest,
+                ):
                     self.assertIn(expected, text, path.name)
                 for private in (
                     REVISION,
@@ -142,6 +153,11 @@ class RendererTests(unittest.TestCase):
         invalid_cards.append(card)
         card = scorecard(revision="A" * 40)
         invalid_cards.append(card)
+        for field in ("status", "decision"):
+            for value in ([], {}, 1, None):
+                card = scorecard()
+                card[field] = value
+                invalid_cards.append(card)
 
         for index, card in enumerate(invalid_cards):
             with self.subTest(index=index), tempfile.TemporaryDirectory() as directory:
@@ -237,6 +253,36 @@ class RendererTests(unittest.TestCase):
             )
             self.assertEqual(failed.returncode, 2)
             self.assertIn("ERROR", failed.stderr)
+
+    def test_cli_normalizes_unhashable_enum_types_to_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.write_source(root, {**scorecard(), "status": []})
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "--source-dir", str(source), "--inspect-output", str(root / "inspection.json")],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("ERROR", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+
+    def test_backup_cleanup_failure_does_not_undo_committed_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "published"
+            output.mkdir()
+            (output / "old.txt").write_text("old", encoding="utf-8")
+            temporary = root / "temporary"
+            temporary.mkdir()
+            (temporary / "new.txt").write_text("new", encoding="utf-8")
+
+            with mock.patch.object(MODULE.shutil, "rmtree", side_effect=OSError("cleanup failed")):
+                MODULE._replace_directory(temporary, output)
+
+            self.assertEqual((output / "new.txt").read_text(encoding="utf-8"), "new")
+            self.assertFalse((output / "old.txt").exists())
 
 
 if __name__ == "__main__":
