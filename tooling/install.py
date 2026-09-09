@@ -20,6 +20,7 @@ SEMGREP_IMAGE = "semgrep/semgrep@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c214
 GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
 VERSION = "2.0.0"
 INSTALLER_MARKER = "# Guardrails v2 installer-owned workflow."
+RUNTIME_MARKER = "# Guardrails v2 installer-owned runtime."
 
 CORE_WORKFLOWS = {
     "guardrails-scorecard.yml": ROOT / "workflows" / "guardrails-scorecard.yml",
@@ -40,6 +41,9 @@ GITHUB_WORKFLOWS = {
     "github-secret-protection.yml": ROOT / "workflows" / "github-secret-protection.yml",
     "dependabot-verification.yml": ROOT / "workflows" / "dependabot-verification.yml",
     "artifact-provenance.yml": ROOT / "workflows" / "artifact-provenance.yml",
+}
+BADGE_WORKFLOWS = {
+    "guardrails-scorecard-badge.yml": ROOT / "workflows" / "guardrails-scorecard-badge.yml",
 }
 PRESERVED_CONFIGURATION = {
     Path(".guardrails/policy.yaml"),
@@ -119,6 +123,24 @@ def runtime_sources(target: Path) -> list[InstallItem]:
             for source in sorted(source_root.rglob("*"))
             if source.is_file()
         )
+    return items
+
+
+def badge_sources(target: Path) -> list[InstallItem]:
+    items = [
+        InstallItem(
+            ROOT / "tooling" / "render_scorecard_badge.py",
+            target / ".guardrails/render_scorecard_badge.py",
+        ),
+        InstallItem(
+            ROOT / "tooling" / "reconcile_scorecard_badge.py",
+            target / ".guardrails/reconcile_scorecard_badge.py",
+        ),
+    ]
+    items.extend(
+        InstallItem(source, target / ".github/workflows" / name)
+        for name, source in BADGE_WORKFLOWS.items()
+    )
     return items
 
 
@@ -232,7 +254,7 @@ def refreshed_provider_bytes(existing: Path) -> bytes:
     return (json.dumps(canonical, indent=2) + "\n").encode()
 
 
-def build_plan(target: Path, *, profiles: list[str], no_actions: bool) -> list[InstallItem]:
+def build_plan(target: Path, *, profiles: list[str], no_actions: bool, scorecard_badge: bool = False) -> list[InstallItem]:
     plan = runtime_sources(target)
     if no_actions:
         return plan
@@ -243,6 +265,8 @@ def build_plan(target: Path, *, profiles: list[str], no_actions: bool) -> list[I
         InstallItem(source, target / ".github/workflows" / name)
         for name, source in workflows.items()
     )
+    if scorecard_badge:
+        plan.extend(badge_sources(target))
     return plan
 
 
@@ -297,6 +321,22 @@ def installer_owned_workflow(path: Path) -> bool:
         return False
 
 
+def installer_owned_runtime(path: Path, source: Path) -> bool:
+    try:
+        content = path.read_bytes()
+        if content == source.read_bytes():
+            return True
+        return RUNTIME_MARKER.encode() in content.splitlines()[:3]
+    except OSError:
+        return False
+
+
+def installer_owned_badge(item: InstallItem) -> bool:
+    if item.destination.parent.name == "workflows":
+        return installer_owned_workflow(item.destination)
+    return installer_owned_runtime(item.destination, item.source)
+
+
 def install(
     target: Path,
     *,
@@ -306,13 +346,21 @@ def install(
     local_hooks: bool = False,
     merge_existing: bool = False,
     refresh_existing: bool = False,
+    scorecard_badge: bool = False,
+    remove_scorecard_badge: bool = False,
 ) -> list[InstallItem]:
     target = target.resolve()
+    if scorecard_badge and remove_scorecard_badge:
+        raise ValueError("--scorecard-badge and --remove-scorecard-badge cannot be combined")
+    if scorecard_badge and no_actions:
+        raise ValueError("--scorecard-badge requires GitHub Actions")
+    if remove_scorecard_badge and not refresh_existing:
+        raise ValueError("--remove-scorecard-badge requires --refresh-existing")
     explicit_profiles = list(profiles or [])
     selected_profiles: list[str] = []
     policy_destination = target / ".guardrails/policy.yaml"
     providers_destination = target / ".guardrails/providers.yaml"
-    if refresh_existing and policy_destination.is_file():
+    if refresh_existing and not remove_scorecard_badge and policy_destination.is_file():
         installed_profiles = load_object(policy_destination).get("profiles")
         if not isinstance(installed_profiles, list) or not all(
             isinstance(profile, str) and profile in {"core", "github"}
@@ -325,9 +373,25 @@ def install(
             raise ValueError(f"unknown runnable profile: {profile}")
         if profile not in selected_profiles:
             selected_profiles.append(profile)
-    complete_plan = build_plan(
-        target, profiles=selected_profiles, no_actions=no_actions
+    badge_items = badge_sources(target)
+    installed_badge = any(item.destination.exists() and installer_owned_badge(item) for item in badge_items)
+    include_badge = scorecard_badge or (refresh_existing and installed_badge and not remove_scorecard_badge)
+    if scorecard_badge and policy_destination.exists() and not refresh_existing:
+        raise ValueError("adding the scorecard badge to an existing installation requires --refresh-existing")
+    complete_plan = [] if remove_scorecard_badge else build_plan(
+        target, profiles=selected_profiles, no_actions=no_actions, scorecard_badge=include_badge
     )
+    if include_badge:
+        for item in badge_items:
+            if item.destination.exists() and not installer_owned_badge(item):
+                raise ValueError(f"scorecard badge destination is not installer-owned: {item.destination}")
+    if remove_scorecard_badge:
+        for item in badge_items:
+            if not item.destination.exists() and not item.destination.is_symlink():
+                continue
+            if not installer_owned_badge(item):
+                raise ValueError(f"scorecard badge destination is not installer-owned: {item.destination}")
+            complete_plan.append(InstallItem(item.source, item.destination, "remove"))
     destinations = [item.destination for item in complete_plan]
     if local_hooks:
         destinations.append(target / ".pre-commit-config.yaml")
@@ -368,6 +432,9 @@ def install(
 
     try:
         for item in plan:
+            if item.kind == "remove":
+                item.destination.unlink()
+                continue
             item.destination.parent.mkdir(parents=True, exist_ok=True)
             if item.kind == "directory":
                 shutil.copytree(item.source, item.destination)
@@ -405,6 +472,8 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--merge-existing", action="store_true")
     parser.add_argument("--refresh-existing", action="store_true")
+    parser.add_argument("--scorecard-badge", action="store_true")
+    parser.add_argument("--remove-scorecard-badge", action="store_true")
     args = parser.parse_args()
     try:
         plan = install(
@@ -415,10 +484,13 @@ def main() -> int:
             local_hooks=args.local_hooks,
             merge_existing=args.merge_existing,
             refresh_existing=args.refresh_existing,
+            scorecard_badge=args.scorecard_badge,
+            remove_scorecard_badge=args.remove_scorecard_badge,
         )
         print(("Would apply" if args.dry_run else "Applied") + " Guardrails v2:")
         for item in plan:
-            print(f"- install: {item.destination}")
+            action = "remove" if item.kind == "remove" else "install"
+            print(f"- {action}: {item.destination}")
         return 0
     except (OSError, ValueError) as error:
         print(f"ERROR {error}", file=sys.stderr)

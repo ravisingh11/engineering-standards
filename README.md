@@ -2,7 +2,7 @@
 
 **Engineering standards for an AI world.**
 
-[![Guardrail Scorecard](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml/badge.svg?branch=main)](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml)
+[![Scorecard Workflow](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml/badge.svg?event=pull_request_target)](https://github.com/ravisingh11/engineering-standards/actions/workflows/guardrails-scorecard.yml)
 
 AI changed the economics of software.
 
@@ -121,6 +121,56 @@ This repository uses itself as a working example:
 Consumer repositories receive the same workflow contracts, but must provide
 their own real build, test, lint, coverage, and migration commands. See
 [control setup](docs/control-setup.md).
+
+## Two useful badges
+
+The badges answer different questions:
+
+- **Scorecard Workflow** is GitHub's native status for the Guardrail Scorecard
+  workflow. The `event=pull_request_target` filter selects its PR executions
+  explicitly and avoids GitHub's default-branch fallback showing `no status`.
+- **Latest PR Scorecard** is an optional static badge showing the newest
+  accepted PR evaluation, such as `GREEN 14/14` or `ORANGE 12/14`. It is a
+  readiness signal for that PR, not an attestation of current `main`.
+
+A successful workflow can still produce an advisory `ORANGE` score. Badge
+publication is a post-scorecard reporting path; it never changes `allow`,
+`block`, or required-check behavior.
+
+Install the optional publisher during a clean install:
+
+```sh
+python3 /path/to/engineering-standards/tooling/install.py \
+  --target /path/to/repo --scorecard-badge --dry-run
+python3 /path/to/engineering-standards/tooling/install.py \
+  --target /path/to/repo --scorecard-badge
+```
+
+For an existing Guardrails installation, add `--refresh-existing`. Then set
+GitHub Pages to **GitHub Actions** and create these repository variables:
+
+```text
+GUARDRAILS_SCORECARD_BADGE_ENABLED=true
+GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated
+```
+
+The standalone publisher owns the repository's complete Pages deployment. If
+the repository already publishes a Pages site, integrate its generated output
+into that existing site workflow instead of enabling `dedicated` mode.
+
+Use these URLs after the first successful publication:
+
+```markdown
+[![Scorecard Workflow](https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml/badge.svg?event=pull_request_target)](https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml)
+[![Latest PR Scorecard](https://OWNER.github.io/REPOSITORY/guardrails-badge.svg)](https://OWNER.github.io/REPOSITORY/)
+```
+
+For an `OWNER.github.io` repository, omit `/REPOSITORY` from both Pages URLs.
+The public site contains only aggregate status/counts, source-run metadata, and
+a revision digest. Controls, findings, evidence, reasons, provider data, check
+URLs, raw revisions, and source Markdown are excluded from Pages and remain in
+the source Actions artifact, subject to the repository's normal artifact access.
+See the [quick start](docs/quickstart.md#publish-the-optional-scorecard-badge).
 
 ## Install
 

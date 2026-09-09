@@ -131,3 +131,18 @@ exact evidence binding, and check name are verified.
 
 Generated `.artifacts/` content is intentionally ignored. GitHub Actions
 uploads the scorecard directory as `guardrail-scorecard-<run-id>`.
+
+## Optional badges
+
+The native **Scorecard Workflow** badge reports workflow execution. The
+optional **Latest PR Scorecard** badge reports the newest accepted PR readiness
+and passed/active count; workflow success can still contain an advisory
+`ORANGE` score, and the latest PR result does not attest current `main`.
+
+Badge publication is not embedded under this example because nested workflows
+do not execute in the parent repository. A standalone demo repository can add
+it with `--refresh-existing --scorecard-badge`, then follow the
+[badge setup](https://github.com/ravisingh11/engineering-standards/blob/main/docs/quickstart.md#publish-the-optional-scorecard-badge).
+The public projection is aggregate-only; detailed evidence is excluded from
+Pages and remains in the source Actions artifact under normal repository
+access. Publication never changes `allow`, `block`, or branch protection.

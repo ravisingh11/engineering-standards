@@ -95,6 +95,22 @@ policy overrides can set a runnable capability to `advisory`, `enforced`, or
 `not_activated` per operation. The capability's catalog stage and evidence
 subject must also apply to the requested operation.
 
+## Badge signals
+
+The native **Scorecard Workflow** badge reports the GitHub workflow conclusion.
+The optional **Latest PR Scorecard** badge reports the readiness and
+passed/active count from the newest accepted PR scorecard. These signals are
+deliberately separate: workflow success can contain an advisory `ORANGE`
+evaluation, and the latest PR score does not attest current `main`.
+
+Badge publication runs after evaluation. It is not a capability, provider,
+policy mode, or required check and cannot influence `allow` or `block`. Its
+public projection is limited to aggregate status/counts, source-run metadata,
+and a revision digest. Detailed controls, findings, evidence, reasons, provider
+data, check URLs, raw revisions, and source Markdown are excluded from Pages and
+remain in the source Actions artifact under normal repository access. See
+[quick start](quickstart.md#publish-the-optional-scorecard-badge).
+
 ## Future lifecycle contracts
 
 Catalog entries marked `evidence-only` describe future subject and evidence

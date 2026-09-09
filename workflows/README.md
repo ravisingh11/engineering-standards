@@ -9,11 +9,14 @@ evidence can pass a capability.
 ```sh
 python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo
 python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo --profile github
+python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo --scorecard-badge
 python3 /path/to/engineering-standards/tooling/install.py --target /path/to/repo --no-actions
 ```
 
 The default installs Core runtime and Core workflows. `--profile github` adds
-the GitHub overlay. `--no-actions` installs no workflows.
+the GitHub overlay. `--scorecard-badge` adds the optional Pages publisher.
+`--no-actions` installs no workflows and cannot be combined with badge
+publishing.
 
 ### Core workflows
 
@@ -53,6 +56,16 @@ use a platform token for Semgrep or the separately licensed Gitleaks Action.
 | `dependabot-verification.yml` | `Dependabot Verification` | Optional `SECURITY_SETTINGS_TOKEN` and enabled platform settings |
 | `artifact-provenance.yml` | `Artifact Provenance` | Release/dispatch attestation only; not PR or scorecard evidence |
 
+### Optional reporting workflow
+
+| Installed file | Workflow | Activation |
+| --- | --- | --- |
+| `guardrails-scorecard-badge.yml` | `Guardrail Scorecard Badge` | GitHub Pages uses GitHub Actions; `GUARDRAILS_SCORECARD_BADGE_ENABLED=true`; `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` |
+
+This workflow is not a provider, capability, or required check. It owns the
+complete Pages deployment in `dedicated` mode; integrate the renderer into an
+existing site workflow instead when the repository already uses Pages.
+
 The settings probes use trusted, no-checkout `pull_request_target` workflows.
 Give `SECURITY_SETTINGS_TOKEN` only repository Administration read and Secret
 scanning alerts read access. Missing or insufficient access publishes skipped
@@ -72,6 +85,7 @@ provider workflows in parallel
         -> exact-head and workflow-run provenance verification
         -> nested provider evidence
         -> deterministic scorecard
+        -. optional trusted reconciliation .-> bounded Pages badge/report
 ```
 
 `guardrails-scorecard.yml` runs as trusted `pull_request_target` code. It checks
@@ -81,6 +95,15 @@ candidate code with the GitHub token. It waits up to 1,800 seconds, writes paire
 timestamped scorecard JSON and Markdown plus timestamped evidence, appends the
 Markdown to the job summary, and uploads `.artifacts/guardrails` as
 `guardrail-scorecard-<run-id>`.
+
+The native **Scorecard Workflow** badge reports whether this workflow ran. The
+optional **Latest PR Scorecard** badge reports readiness and passed/active count
+from the newest accepted PR artifact. A successful workflow may publish
+`ORANGE / ALLOW`; the latest PR badge does not attest current `main`. The Pages
+projection includes only aggregate status/counts, source-run metadata, and a
+revision digest. Controls, findings, evidence, reasons, provider data, check
+URLs, raw revisions, and source Markdown are excluded from Pages and remain in
+the source Actions artifact under normal repository access.
 
 The collector requires the exact check name/head/app, workflow run name/path,
 pull-request event, and exact PR-head association. Native Actions checks retain

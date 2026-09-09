@@ -188,4 +188,60 @@ Then add the observed check context to the repository ruleset. Policy mode and
 GitHub branch protection are separate changes; both are required for a merge
 gate.
 
+## Publish the optional scorecard badge
+
+GitHub's native **Scorecard Workflow** badge reports whether the workflow ran
+successfully. The optional **Latest PR Scorecard** badge reports the newest
+accepted PR readiness and passed/active count. A successful workflow may still
+publish `ORANGE / ALLOW`; the latest PR result does not attest current `main`.
+
+For a clean installation:
+
+```sh
+python3 tooling/install.py --target /path/to/repo --scorecard-badge --dry-run
+python3 tooling/install.py --target /path/to/repo --scorecard-badge
+```
+
+For an existing installation:
+
+```sh
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --scorecard-badge --dry-run
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --scorecard-badge
+```
+
+To remove only the installer-owned publisher files:
+
+```sh
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --remove-scorecard-badge --dry-run
+python3 tooling/install.py --target /path/to/existing-repo --refresh-existing --remove-scorecard-badge
+```
+
+In repository settings, select **Pages → Build and deployment → GitHub
+Actions**. Then create:
+
+```text
+GUARDRAILS_SCORECARD_BADGE_ENABLED=true
+GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated
+```
+
+No PAT or repository secret is required. The workflow uses the scoped
+`GITHUB_TOKEN`. `dedicated` means the publisher owns the complete Pages site;
+do not enable it when another Pages workflow already owns that deployment.
+Instead, render the four generated files into the existing site's artifact.
+
+Add the badges after the first successful publication:
+
+```markdown
+[![Scorecard Workflow](https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml/badge.svg?event=pull_request_target)](https://github.com/OWNER/REPOSITORY/actions/workflows/guardrails-scorecard.yml)
+[![Latest PR Scorecard](https://OWNER.github.io/REPOSITORY/guardrails-badge.svg)](https://OWNER.github.io/REPOSITORY/)
+```
+
+For an `OWNER.github.io` repository, use the Pages root without the repository
+segment. The public projection contains aggregate status/counts, source-run
+metadata, and a revision digest. Detailed controls, findings, evidence, reasons,
+provider data, check URLs, raw revisions, and source Markdown are excluded from
+Pages and remain in the source Actions artifact under normal repository access.
+Publishing is optional reporting and never influences the
+scorecard decision or branch rules.
+
 Continue with [control setup](control-setup.md) and [rulesets](../rulesets/README.md).

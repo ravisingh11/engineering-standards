@@ -18,6 +18,8 @@ contracts and evaluator.
 | `tooling/produce_guardrail_evidence.py` | `.guardrails/produce.py` | Repository command, Semgrep CE, and Gitleaks evidence |
 | `tooling/validators/validate_pr_metadata.py` | `.guardrails/validators/validate_pr_metadata.py` | Mutable pull-request fingerprint and metadata evidence |
 | `guardrails/validate_repository.py` | `.guardrails/validators/validate_repository.py` | Installed runtime inventory and contract validation |
+| `tooling/render_scorecard_badge.py` | `.guardrails/render_scorecard_badge.py` | Optional bounded public scorecard projection |
+| `tooling/reconcile_scorecard_badge.py` | `.guardrails/reconcile_scorecard_badge.py` | Optional trusted source-run and PR-binding reconciliation |
 
 ## Installed configuration
 
@@ -52,3 +54,20 @@ cannot pass repository validation with an `enforced` policy override.
 Future lifecycle capabilities remain catalog/evidence definitions and have no
 runtime producers. See [architecture](architecture.md) and
 [producer contract](producer-contract.md).
+
+## Optional badge publisher
+
+`--scorecard-badge` installs the two badge runtime files and
+`guardrails-scorecard-badge.yml`; the default install omits them. Existing
+installations require `--refresh-existing --scorecard-badge`. Refresh detects
+the installer-owned optional set and keeps it current. Symmetric removal uses
+`--refresh-existing --remove-scorecard-badge` and refuses symlinks or
+consumer-owned collisions.
+
+The native **Scorecard Workflow** badge is GitHub's workflow conclusion. The
+optional **Latest PR Scorecard** is the newest accepted PR readiness and
+passed/active count. Publication is downstream reporting only and never affects
+evaluation or merge policy. The public files contain aggregates, source-run
+metadata, and a revision digest; detailed evidence is excluded from Pages and
+remains in the source Actions artifact under normal repository access. See
+[quick start](quickstart.md#publish-the-optional-scorecard-badge).
