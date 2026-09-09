@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import stat
+import subprocess
 import tempfile
 import unittest
 import warnings
@@ -84,13 +85,15 @@ def archive(entries: list[tuple[str, bytes, int | None]]) -> bytes:
     return stream.getvalue()
 
 
-def valid_archive() -> bytes:
+def valid_archive(
+    *, binding: dict[str, Any] | None = None, revision: str = HEAD_SHA
+) -> bytes:
     card = {
         "version": 2,
         "operation": "change",
         "status": "GREEN",
         "decision": "allow",
-        "subject": {"type": "git-commit", "revision": HEAD_SHA},
+        "subject": {"type": "git-commit", "revision": revision},
         "enforced": {"passed": 2, "total": 2},
         "advisory": {"passed": 1, "total": 1},
     }
@@ -104,7 +107,7 @@ def valid_archive() -> bytes:
             ("scorecard-20260908-120000Z.md", b"report", stat.S_IFREG | 0o644),
             (
                 "source.json",
-                json.dumps(source_binding()).encode(),
+                json.dumps(binding or source_binding()).encode(),
                 stat.S_IFREG | 0o644,
             ),
         ]
@@ -349,6 +352,130 @@ class ReconcilerTests(unittest.TestCase):
             MODULE.select_candidate(
                 [run()], None, lambda _: (_ for _ in ()).throw(failure)
             )
+
+    def test_reconcile_falls_back_from_invalid_newest_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository_root = root / "repository"
+            repository_root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repository_root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repository_root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                cwd=repository_root,
+                check=True,
+            )
+            (repository_root / "README.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repository_root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "fixture"], cwd=repository_root, check=True
+            )
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repository_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            newest = run(run_id=200, attempt=1, created_at="2026-09-08T13:00:00Z")
+            fallback = run(run_id=199, attempt=1, created_at="2026-09-08T12:00:00Z")
+            binding = source_binding(
+                run_id=199,
+                run_attempt=1,
+                head_sha=revision,
+                base_sha=revision,
+            )
+
+            class Client:
+                def json(self, url: str) -> Any:
+                    if url == "https://api.github.com/repos/owner/repo":
+                        return {"default_branch": DEFAULT_BRANCH}
+                    if "/actions/workflows/" in url:
+                        return {"workflow_runs": [newest, fallback]}
+                    if "/actions/runs/200/artifacts" in url:
+                        return {
+                            "total_count": 1,
+                            "artifacts": [
+                                {
+                                    "id": 20,
+                                    "name": "guardrail-scorecard-200-1",
+                                    "expired": False,
+                                }
+                            ],
+                        }
+                    if "/actions/runs/199/artifacts" in url:
+                        return {
+                            "total_count": 1,
+                            "artifacts": [
+                                {
+                                    "id": 19,
+                                    "name": "guardrail-scorecard-199-1",
+                                    "expired": False,
+                                }
+                            ],
+                        }
+                    if url.endswith("/pulls/7"):
+                        return pull_request(head={"sha": revision})
+                    raise AssertionError(url)
+
+                def artifact(self, repository: str, artifact_id: int) -> bytes:
+                    if repository != REPOSITORY:
+                        raise AssertionError(repository)
+                    if artifact_id == 20:
+                        raise ValueError(
+                            "artifact archive exceeds the compressed size limit"
+                        )
+                    return valid_archive(binding=binding, revision=revision)
+
+            output = root / "site"
+            selected, rejected, publish = MODULE.reconcile(
+                REPOSITORY,
+                "token",
+                repository_root,
+                ROOT / "tooling" / "render_scorecard_badge.py",
+                output,
+                client=Client(),
+                published_loader=lambda _: None,
+            )
+
+            self.assertTrue(publish)
+            self.assertEqual(selected["run"]["id"], 199)
+            self.assertEqual(len(rejected), 1)
+            published = json.loads((output / "scorecard.json").read_text())
+            self.assertEqual(published["source_run_id"], 199)
+
+    def test_reconcile_propagates_malformed_api_state_without_output(self) -> None:
+        class Client:
+            def json(self, url: str) -> Any:
+                if url == "https://api.github.com/repos/owner/repo":
+                    return {"default_branch": DEFAULT_BRANCH}
+                if "/actions/workflows/" in url:
+                    return {"workflow_runs": [run()]}
+                if "/artifacts" in url:
+                    return {"unexpected": []}
+                raise AssertionError(url)
+
+            def artifact(self, repository: str, artifact_id: int) -> bytes:
+                raise AssertionError("artifact download must not be reached")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "site"
+            with self.assertRaises(MODULE.APIResponseError):
+                MODULE.reconcile(
+                    REPOSITORY,
+                    "token",
+                    root,
+                    ROOT / "tooling" / "render_scorecard_badge.py",
+                    output,
+                    client=Client(),
+                    published_loader=lambda _: None,
+                )
+            self.assertFalse(output.exists())
 
     def test_artifact_name_is_exact_for_run_attempt(self) -> None:
         listing = {

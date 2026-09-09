@@ -55,6 +55,14 @@ class CandidateRejected(ValueError):
     """Raised for invalid candidate-specific evidence while reconciliation continues."""
 
 
+class APIResponseError(ValueError):
+    """Raised when authenticated GitHub API state cannot be validated."""
+
+
+class TrustedRuntimeError(RuntimeError):
+    """Raised when the default-branch publisher runtime cannot execute reliably."""
+
+
 def _integer(value: Any, field: str, *, positive: bool = False) -> int:
     if type(value) is not int:
         raise ValueError(f"{field} must be an integer")
@@ -284,6 +292,25 @@ def validate_source_binding(
         )
 
 
+def validate_pull_request_response(pull_request: Any) -> dict[str, Any]:
+    if not isinstance(pull_request, dict):
+        raise APIResponseError("pull request response must be an object")
+    head = pull_request.get("head")
+    base = pull_request.get("base")
+    base_repo = base.get("repo") if isinstance(base, dict) else None
+    if (
+        type(pull_request.get("number")) is not int
+        or not isinstance(head, dict)
+        or not isinstance(head.get("sha"), str)
+        or not isinstance(base, dict)
+        or not isinstance(base.get("ref"), str)
+        or not isinstance(base_repo, dict)
+        or not isinstance(base_repo.get("full_name"), str)
+    ):
+        raise APIResponseError("pull request response is incomplete or malformed")
+    return pull_request
+
+
 def extract_artifact(payload: bytes, destination: Path) -> Path:
     if not isinstance(payload, bytes) or len(payload) > MAX_ARCHIVE_BYTES:
         raise ValueError("artifact archive exceeds the compressed size limit")
@@ -299,55 +326,58 @@ def extract_artifact(payload: bytes, destination: Path) -> Path:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except (OSError, zipfile.BadZipFile) as error:
         raise ValueError(f"artifact archive is not a valid ZIP: {error}") from error
-    with archive:
-        members = archive.infolist()
-        names: set[str] = set()
-        expanded = 0
-        for member in members:
-            name = member.filename
-            path = PurePosixPath(name)
-            mode = (member.external_attr >> 16) & 0xFFFF
-            if (
-                not name
-                or "\\" in name
-                or path.is_absolute()
-                or len(path.parts) != 1
-                or path.parts[0] in {".", ".."}
-                or member.is_dir()
-                or stat.S_ISLNK(mode)
-                or (mode and not stat.S_ISREG(mode))
-            ):
-                raise ValueError(f"artifact contains an unsafe member: {name!r}")
-            if name in names:
-                raise ValueError(f"artifact contains a duplicate member: {name}")
-            names.add(name)
-            if member.file_size > MAX_MEMBER_BYTES:
-                raise ValueError(f"artifact member exceeds the size limit: {name}")
-            expanded += member.file_size
-            if expanded > MAX_EXPANDED_BYTES:
-                raise ValueError("artifact exceeds the expanded size limit")
-        scorecard_json = sorted(
-            name
-            for name in names
-            if re.fullmatch(r"scorecard-[0-9]{8}-[0-9]{6}Z\.json", name)
-        )
-        if len(scorecard_json) != 1:
-            raise ValueError(
-                "artifact must contain exactly one timestamped scorecard JSON"
+    try:
+        with archive:
+            members = archive.infolist()
+            names: set[str] = set()
+            expanded = 0
+            for member in members:
+                name = member.filename
+                path = PurePosixPath(name)
+                mode = (member.external_attr >> 16) & 0xFFFF
+                if (
+                    not name
+                    or "\\" in name
+                    or path.is_absolute()
+                    or len(path.parts) != 1
+                    or path.parts[0] in {".", ".."}
+                    or member.is_dir()
+                    or stat.S_ISLNK(mode)
+                    or (mode and not stat.S_ISREG(mode))
+                ):
+                    raise ValueError(f"artifact contains an unsafe member: {name!r}")
+                if name in names:
+                    raise ValueError(f"artifact contains a duplicate member: {name}")
+                names.add(name)
+                if member.file_size > MAX_MEMBER_BYTES:
+                    raise ValueError(f"artifact member exceeds the size limit: {name}")
+                expanded += member.file_size
+                if expanded > MAX_EXPANDED_BYTES:
+                    raise ValueError("artifact exceeds the expanded size limit")
+            scorecard_json = sorted(
+                name
+                for name in names
+                if re.fullmatch(r"scorecard-[0-9]{8}-[0-9]{6}Z\.json", name)
             )
-        paired_markdown = scorecard_json[0][:-5] + ".md"
-        required = {scorecard_json[0], paired_markdown, "source.json"}
-        if names != required:
-            raise ValueError(
-                "artifact must contain only the scorecard pair and source binding"
-            )
-        for member in members:
-            content = archive.read(member)
-            if len(content) != member.file_size or len(content) > MAX_MEMBER_BYTES:
+            if len(scorecard_json) != 1:
                 raise ValueError(
-                    f"artifact member size changed while reading: {member.filename}"
+                    "artifact must contain exactly one timestamped scorecard JSON"
                 )
-            (destination / member.filename).write_bytes(content)
+            paired_markdown = scorecard_json[0][:-5] + ".md"
+            required = {scorecard_json[0], paired_markdown, "source.json"}
+            if names != required:
+                raise ValueError(
+                    "artifact must contain only the scorecard pair and source binding"
+                )
+            for member in members:
+                content = archive.read(member)
+                if len(content) != member.file_size or len(content) > MAX_MEMBER_BYTES:
+                    raise ValueError(
+                        f"artifact member size changed while reading: {member.filename}"
+                    )
+                (destination / member.filename).write_bytes(content)
+    except (RuntimeError, zipfile.BadZipFile) as error:
+        raise ValueError(f"artifact ZIP cannot be read safely: {error}") from error
     return destination
 
 
@@ -398,7 +428,7 @@ def download_artifact(
 
 def exact_artifact(listing: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(listing, dict):
-        raise ValueError("artifact listing must be an object")
+        raise APIResponseError("artifact listing must be an object")
     artifacts = listing.get("artifacts")
     total = listing.get("total_count")
     if (
@@ -407,7 +437,7 @@ def exact_artifact(listing: dict[str, Any], run: dict[str, Any]) -> dict[str, An
         or total != len(artifacts)
         or any(not isinstance(item, dict) for item in artifacts)
     ):
-        raise ValueError("artifact listing is incomplete or malformed")
+        raise APIResponseError("artifact listing is incomplete or malformed")
     expected = f"guardrail-scorecard-{run['id']}-{run['run_attempt']}"
     matching = [
         item
@@ -415,7 +445,7 @@ def exact_artifact(listing: dict[str, Any], run: dict[str, Any]) -> dict[str, An
         if item.get("name") == expected and item.get("expired") is False
     ]
     if len(matching) != 1:
-        raise ValueError(
+        raise CandidateRejected(
             "source run must have one exact non-expired scorecard artifact"
         )
     _integer(matching[0].get("id"), "artifact.id", positive=True)
@@ -524,15 +554,15 @@ def _load_object(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def _run_command(
-    command: list[str], *, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        command, cwd=cwd, text=True, capture_output=True, check=False
-    )
+def _run_renderer(command: list[str]) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
     if completed.returncode != 0:
         detail = (completed.stdout + completed.stderr).strip()
-        raise ValueError(f"command failed ({' '.join(command[:3])}): {detail}")
+        if completed.returncode == 2 and completed.stderr.startswith("ERROR:"):
+            raise CandidateRejected(detail)
+        raise TrustedRuntimeError(
+            f"trusted renderer failed ({' '.join(command[:3])}): {detail}"
+        )
     return completed
 
 
@@ -589,13 +619,15 @@ def reconcile(
                     "source run artifact listing is unavailable"
                 ) from error
             raise
-        artifact = candidate_value(lambda: exact_artifact(listing, normalized_run))
+        artifact = exact_artifact(listing, normalized_run)
         try:
             payload = client.artifact(repository, artifact["id"])
         except HTTPError as error:
             if error.code == 404:
                 raise CandidateRejected("source run artifact is unavailable") from error
             raise
+        except ValueError as error:
+            raise CandidateRejected(str(error)) from error
         with tempfile.TemporaryDirectory(prefix="guardrails-scorecard-") as directory:
             root = Path(directory)
             extracted = candidate_value(
@@ -606,21 +638,20 @@ def reconcile(
             for path in extracted.glob("scorecard-*"):
                 (scorecard_source / path.name).write_bytes(path.read_bytes())
             inspection_path = root / "inspection.json"
-            candidate_value(
-                lambda: _run_command(
-                    [
-                        sys.executable,
-                        str(renderer),
-                        "--source-dir",
-                        str(scorecard_source),
-                        "--inspect-output",
-                        str(inspection_path),
-                    ]
-                )
+            _run_renderer(
+                [
+                    sys.executable,
+                    str(renderer),
+                    "--source-dir",
+                    str(scorecard_source),
+                    "--inspect-output",
+                    str(inspection_path),
+                ]
             )
-            inspected = candidate_value(
-                lambda: _load_object(inspection_path, "scorecard inspection")
-            )
+            try:
+                inspected = _load_object(inspection_path, "scorecard inspection")
+            except ValueError as error:
+                raise TrustedRuntimeError(str(error)) from error
             source = candidate_value(
                 lambda: _load_object(extracted / "source.json", "source binding")
             )
@@ -641,8 +672,7 @@ def reconcile(
                         "bound pull request is unavailable"
                     ) from error
                 raise
-            if not isinstance(pull_request, dict):
-                raise CandidateRejected("pull request response must be an object")
+            pull_request = validate_pull_request_response(pull_request)
 
             def ancestor(revision: str) -> bool:
                 completed = subprocess.run(
@@ -693,29 +723,27 @@ def reconcile(
                 f"https://github.com/{repository}/actions/runs/{normalized_run['id']}"
                 f"/attempts/{normalized_run['run_attempt']}"
             )
-            candidate_value(
-                lambda: _run_command(
-                    [
-                        sys.executable,
-                        str(renderer),
-                        "--source-dir",
-                        str(scorecard_source),
-                        "--output-dir",
-                        str(output_dir),
-                        "--repository",
-                        repository,
-                        "--run-id",
-                        str(normalized_run["id"]),
-                        "--run-attempt",
-                        str(normalized_run["run_attempt"]),
-                        "--run-url",
-                        run_url,
-                        "--source-run-created-at",
-                        normalized_run["created_at"],
-                        "--expected-revision",
-                        revision,
-                    ]
-                )
+            _run_renderer(
+                [
+                    sys.executable,
+                    str(renderer),
+                    "--source-dir",
+                    str(scorecard_source),
+                    "--output-dir",
+                    str(output_dir),
+                    "--repository",
+                    repository,
+                    "--run-id",
+                    str(normalized_run["id"]),
+                    "--run-attempt",
+                    str(normalized_run["run_attempt"]),
+                    "--run-url",
+                    run_url,
+                    "--source-run-created-at",
+                    normalized_run["created_at"],
+                    "--expected-revision",
+                    revision,
+                ]
             )
             return {
                 "run": normalized_run,
@@ -799,6 +827,7 @@ def main() -> int:
         HTTPError,
         URLError,
         subprocess.SubprocessError,
+        TrustedRuntimeError,
     ) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
