@@ -54,6 +54,14 @@ downloads the exact triggering run's artifact, validates the scorecard schema
 and subject, renders static files with repository-owned code, and deploys only
 those generated files to GitHub Pages.
 
+Only scorecard runs associated with exactly one pull request whose base is the
+repository default branch are eligible. The publisher derives the expected
+subject revision from that pull request's head SHA. It validates the source
+run's base SHA separately because `pull_request_target` attributes the workflow
+run to the trusted base commit rather than the proposed head commit. Manual
+publisher runs may select an existing run ID, but that selected run must satisfy
+the same PR association and default-branch checks.
+
 ## Security boundaries
 
 - The publisher never checks out or executes pull-request code.
@@ -61,13 +69,17 @@ those generated files to GitHub Pages.
 - The downloaded archive and selected scorecard member have strict size and
   path limits.
 - Exactly one scorecard JSON document for the triggering run is accepted.
+- Exactly one source pull request is accepted; its base branch must be the
+  repository default branch, its base SHA must match the source workflow run,
+  and its head SHA must match the scorecard subject revision.
 - Status, decision, counts, and subject values are schema-validated before
   rendering.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
 - The publisher receives `actions: read`, `contents: read`, `pages: write`, and
   `id-token: write`; the scorecard workflow keeps its current read permissions.
-- A failed, canceled, missing, malformed, or ambiguous source result is not
-  published as green.
+- A valid `RED / block` scorecard is published even though the source scorecard
+  workflow reports failure. Canceled runs and failures without valid scorecard
+  evidence are not published.
 - Publishing is serialized so two completed source runs cannot deploy
   concurrently.
 
@@ -102,14 +114,26 @@ Activation requires:
 2. The installed publisher workflow present on the default branch.
 3. Repository Actions allowed to create Pages deployments.
 4. The documented badge URLs added to the consumer README.
+5. The repository variable
+   `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated`, acknowledging that this
+   publisher owns the complete Pages deployment for the repository.
+
+The standalone publisher must not be enabled for a repository that already
+uses GitHub Pages for documentation or another site. GitHub Pages has one active
+deployment per repository, so deploying only the badge output would replace the
+existing site. Such repositories should render these files inside their
+existing Pages build instead of installing the standalone publisher; that
+integration remains repository-owned.
 
 No personal access token, repository secret, Gist, or contents-write
 permission is required.
 
 ## Failure behavior
 
-- A scorecard workflow failure leaves the previously published badge intact
-  and makes the publisher run non-passing with a clear explanation.
+- A scorecard workflow failure with a valid `RED / block` artifact publishes
+  that red result. A failure without a valid scorecard artifact leaves the
+  previously published badge intact and makes the publisher non-passing.
+- Canceled or skipped source runs are rejected without deploying.
 - Missing or invalid evidence fails the publisher without deploying.
 - A Pages configuration error fails only the optional publisher. It does not
   alter the original scorecard decision.

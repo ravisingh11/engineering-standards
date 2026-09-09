@@ -15,6 +15,9 @@
 - The existing scorecard workflow remains read-only.
 - Badge publishing is optional and requires no PAT, Gist, repository secret, or `contents: write` permission.
 - The publisher executes only default-branch code and never executes downloaded artifact content.
+- A source run is eligible only when it is associated with exactly one pull request targeting the repository default branch. The publisher validates the source base SHA separately and derives the expected scorecard revision from the associated pull request head SHA.
+- A valid `RED / block` artifact is publishable even when the source workflow conclusion is `failure`; canceled, skipped, or artifact-less failures are not.
+- The standalone publisher requires `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` and must not replace an existing repository Pages site.
 - Exactly one bounded, non-symlink scorecard JSON and its paired Markdown report are accepted.
 - The score badge is labeled as the latest PR scorecard, not default-branch state.
 - Every external action is pinned to a full commit SHA.
@@ -183,6 +186,7 @@ git commit -m "feat(installer): manage scorecard badge publishing"
 **Interfaces:**
 - Trigger: `workflow_run` for `Guardrail Scorecard` completion and manual `workflow_dispatch` with required `run_id`
 - Feature flag: repository variable `GUARDRAILS_SCORECARD_BADGE_ENABLED == 'true'`
+- Pages ownership acknowledgement: repository variable `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE == 'dedicated'`
 - Deploys: renderer output through the `github-pages` environment
 
 - [ ] **Step 1: Write failing workflow contract tests**
@@ -202,6 +206,10 @@ on:
 
 Assert only `actions: read`, `contents: read`, `pages: write`, and `id-token: write` permissions; `concurrency.group: guardrails-scorecard-pages`; `cancel-in-progress: false`; the `github-pages` environment; the exact action pins; exact source run ID binding; no checkout of a PR repository/ref; and invocation of `.guardrails/render_scorecard_badge.py` from a default-branch checkout.
 
+Require both feature variables before deployment. Document and test that this
+standalone workflow owns the repository's complete Pages deployment and is not
+safe to enable alongside an existing Pages site.
+
 - [ ] **Step 2: Write failing source-run validation assertions**
 
 Require the workflow to reject source runs unless all are true:
@@ -210,9 +218,12 @@ Require the workflow to reject source runs unless all are true:
 repository.full_name == github.repository
 name == Guardrail Scorecard
 path == .github/workflows/guardrails-scorecard.yml
-conclusion == success
+conclusion in {success, failure}
 event in {pull_request_target, pull_request_review}
-head_sha is exactly 40 hexadecimal characters
+exactly one pull_requests entry is present
+pull_requests[0].base.ref == repository.default_branch
+head_sha == pull_requests[0].base.sha
+pull_requests[0].head.sha is exactly 40 hexadecimal characters
 ```
 
 Manual dispatch must fetch the requested run through the GitHub API and apply the same checks before artifact download.
@@ -229,7 +240,7 @@ Expected: failure because the publisher workflow does not exist.
 
 - [ ] **Step 4: Implement the workflow**
 
-Use the verified run ID to download `guardrail-scorecard-<run-id>` into a fresh directory. Invoke the renderer with the source run's exact repository, run ID, URL, and head SHA. Configure Pages, upload only the generated output directory, and deploy it. Append a job summary containing the resulting Pages URL and source run URL.
+Use the verified run ID to download `guardrail-scorecard-<run-id>` into a fresh directory. Invoke the renderer with the source run's exact repository, run ID, URL, and associated pull request head SHA. Configure Pages, upload only the generated output directory, and deploy it. A `failure` conclusion is accepted only when the downloaded artifact validates as a `RED / block` scorecard; a `success` conclusion must contain an `allow` scorecard. Append a job summary containing the resulting Pages URL and source run URL.
 
 Do not use source-controlled shell from the artifact, `pull_request` checkout values, `contents: write`, or any secret other than the automatic `GITHUB_TOKEN` consumed by official actions.
 
@@ -286,7 +297,12 @@ python3 tooling/install.py --target /path/to/repo --remove-scorecard-badge --dry
 python3 tooling/install.py --target /path/to/repo --remove-scorecard-badge
 ```
 
-State that GitHub Pages must use GitHub Actions as its source and that `GUARDRAILS_SCORECARD_BADGE_ENABLED=true` activates publication.
+State that GitHub Pages must use GitHub Actions as its source and that both
+`GUARDRAILS_SCORECARD_BADGE_ENABLED=true` and
+`GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` activate publication. Warn
+that the standalone workflow owns the complete Pages deployment; repositories
+with an existing Pages site must integrate the renderer output into that site's
+workflow instead.
 
 - [ ] **Step 3: Explain semantics and trust boundaries consistently**
 
@@ -330,6 +346,7 @@ git commit -m "docs(badges): explain workflow and score signals"
 
 **Interfaces:**
 - Repository variable: `GUARDRAILS_SCORECARD_BADGE_ENABLED=true`
+- Pages mode variable: `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated`
 - Pages build type: `workflow`
 - Proof: published SVG and scorecard JSON bind the same source run and revision
 
@@ -366,6 +383,7 @@ Set the repository variable and Pages build type:
 
 ```sh
 gh variable set GUARDRAILS_SCORECARD_BADGE_ENABLED --body true
+gh variable set GUARDRAILS_SCORECARD_BADGE_PAGES_MODE --body dedicated
 gh api --method POST repos/ravisingh11/engineering-standards/pages -f build_type=workflow
 ```
 
