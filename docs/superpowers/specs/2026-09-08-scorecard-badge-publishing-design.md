@@ -51,8 +51,9 @@ Static Pages artifact
 
 The existing scorecard workflow keeps read-only permissions and adds a trusted
 `source.json` binding to its artifact. The binding records the source run ID,
-event, repository, pull-request number, head SHA, base branch, and base SHA from
-the trusted event payload. A separate publisher runs
+run attempt, event, repository, pull-request number, head SHA, base branch, and
+base SHA from the trusted event payload. The artifact name includes both run ID
+and attempt so reruns cannot collide with retained evidence. A separate publisher runs
 from the default branch after a completed `Guardrail Scorecard` workflow. Each
 trigger is a reconciliation signal, not an instruction to publish that run.
 After acquiring its concurrency group, the publisher pages through completed
@@ -86,10 +87,10 @@ privileged workflow definition can execute only from the default branch through
   API request does not auto-follow, and the signed HTTPS archive URL is fetched
   in a second request without `Authorization` or other credentials.
 - Exactly one scorecard JSON document for the triggering run is accepted.
-- Exactly one trusted source binding is accepted. Its repository, run ID,
-  event, PR number, head SHA, base branch, and base SHA must agree with the
-  source run, scorecard subject, current PR record, and repository default
-  branch.
+- Exactly one trusted source binding is accepted. Its repository, run ID, run
+  attempt, event, PR number, head SHA, base branch, and base SHA must agree with
+  the source run, artifact name, scorecard subject, current PR record, and
+  repository default branch.
 - The bound base SHA must be reachable from the current default branch, proving
   that the producer came from trusted repository history for either supported
   PR event type.
@@ -111,7 +112,7 @@ privileged workflow definition can execute only from the default branch through
   next newest valid candidate remains eligible. With no prior publication, the
   first valid candidate is selected. API or pagination failure fails closed.
 - Publication is monotonic. Before deployment, the publisher compares the
-  source run creation time and run ID with the currently published metadata.
+  source run creation time, run ID, and run attempt with the currently published metadata.
   An older source run is validated and reported as stale but cannot replace a
   newer badge. A transient failure reading existing metadata fails closed.
 
@@ -132,6 +133,10 @@ successful badge.
 The published report identifies its source repository, workflow run, exact
 subject revision, operation, and generation time. The badge links to the
 published report page; the workflow badge links to GitHub Actions.
+
+Project repositories publish under `https://OWNER.github.io/REPOSITORY/`.
+Repositories named `OWNER.github.io` publish at the root
+`https://OWNER.github.io/`; badge and report URLs use the derived base.
 
 ## Installation and configuration
 
