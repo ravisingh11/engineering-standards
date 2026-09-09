@@ -58,8 +58,9 @@ from the default branch after a completed `Guardrail Scorecard` workflow. Each
 trigger is a reconciliation signal, not an instruction to publish that run.
 After acquiring its concurrency group, the publisher pages through completed
 scorecard runs newest-first until it finds a valid candidate newer than the
-currently published tuple or reaches that tuple. It renders static files with
-repository-owned code and deploys only those generated files to GitHub Pages.
+currently published tuple or reaches that tuple. It renders a minimal public
+projection with repository-owned code and deploys only those generated files
+to GitHub Pages.
 
 Only scorecard runs bound to one eligible pull request whose base is the
 repository default branch are eligible. GitHub may leave a
@@ -104,6 +105,11 @@ recover even when no later PR event occurs.
   passed, ORANGE means enforced controls passed with advisory misses, and RED
   means at least one enforced miss. Only RED blocks.
 - SVG and HTML use only validated enumerations, integers, and escaped text.
+- Pages output is an allowlisted projection, never a copy of the source JSON or
+  Markdown. It contains aggregate status and counts, source run ID/attempt and
+  timestamps, and a SHA-256 digest of the subject revision. It excludes raw
+  revisions, controls, findings, evidence, reasons, provider details, and check
+  URLs.
 - The publisher receives `actions: read`, `contents: read`,
   `pull-requests: read`, `pages: write`, and `id-token: write`; the scorecard
   workflow keeps its current read permissions.
@@ -137,9 +143,12 @@ The count uses all active controls: enforced total plus advisory total. A
 zero-control or malformed scorecard is rejected rather than presented as a
 successful badge.
 
-The published report identifies its source repository, workflow run, exact
-subject revision, operation, and generation time. The badge links to the
-published report page; the workflow badge links to GitHub Actions.
+The published report identifies its source repository, workflow run, subject
+revision digest, operation, and generation time. The badge links to the
+published report page; the workflow badge links to GitHub Actions. Repository
+identity and aggregate scorecard metadata become visible wherever the Pages
+site is visible; consumers that cannot accept that disclosure must not enable
+the standalone publisher.
 
 Project repositories publish under `https://OWNER.github.io/REPOSITORY/`.
 Repositories named `OWNER.github.io` publish at the root

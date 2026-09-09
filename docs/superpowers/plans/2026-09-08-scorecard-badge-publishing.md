@@ -25,6 +25,7 @@
 - A valid `RED / block` artifact is publishable even when the source workflow conclusion is `failure`; canceled, skipped, or artifact-less failures are not.
 - The standalone publisher requires `GUARDRAILS_SCORECARD_BADGE_PAGES_MODE=dedicated` and must not replace an existing repository Pages site.
 - Exactly one bounded, non-symlink scorecard JSON, its paired Markdown report, and one trusted `source.json` binding are accepted. Published metadata includes the source run creation time for monotonic deployment checks.
+- Pages receives only an allowlisted public projection: aggregate status/counts, run ID/attempt and timestamps, and a SHA-256 subject digest. Never copy controls, findings, evidence, reasons, provider details, check URLs, raw revisions, or source report text.
 - The score badge is labeled as the latest PR scorecard, not default-branch state.
 - Every external action is pinned to a full commit SHA.
 - Current approved action pins are:
@@ -50,7 +51,7 @@
 
 - [ ] **Step 1: Write failing happy-path renderer tests**
 
-Create a minimal valid GREEN scorecard fixture in a temporary source directory with one `scorecard-20260908-120000Z.json` and paired Markdown file. Assert that the returned metadata and all four output files contain `GREEN`, `14/14`, the exact revision, repository, and run URL.
+Create a minimal valid GREEN scorecard fixture in a temporary source directory with one `scorecard-20260908-120000Z.json` and paired Markdown file. Assert that returned metadata and all four output files contain the intended public fields: `GREEN`, `14/14`, repository, source run/attempt, timestamps, and the SHA-256 revision digest. Assert the raw revision and all fixture controls, findings, evidence, reasons, provider values, check URLs, and source Markdown text are absent from every published file.
 
 ```python
 metadata = MODULE.render_badge(
@@ -95,7 +96,7 @@ MAX_MEMBER_BYTES = 64_000
 MAX_SOURCE_BYTES = 1_000_000
 ```
 
-Validate `version == 2`, `operation == "change"`, `subject.type == "git-commit"`, `subject.revision == expected_revision`, exact 40-character lowercase hexadecimal revisions, integer nonnegative `passed`/`total` values with `passed <= total`, and `enforced.total + advisory.total > 0`. Require GREEN exactly when every active control passed, ORANGE exactly when every enforced control passed and at least one advisory control missed, and RED exactly when at least one enforced control missed. Require `decision == "allow"` for GREEN/ORANGE and `decision == "block"` for RED. Derive the badge count from both modes. Escape all SVG and HTML text with `html.escape`. Write into a temporary sibling directory and replace `output_dir` only after every file has been rendered successfully.
+Validate `version == 2`, `operation == "change"`, `subject.type == "git-commit"`, `subject.revision == expected_revision`, exact 40-character lowercase hexadecimal revisions, integer nonnegative `passed`/`total` values with `passed <= total`, and `enforced.total + advisory.total > 0`. Require GREEN exactly when every active control passed, ORANGE exactly when every enforced control passed and at least one advisory control missed, and RED exactly when at least one enforced control missed. Require `decision == "allow"` for GREEN/ORANGE and `decision == "block"` for RED. Derive the badge count from both modes and publish only an allowlisted summary plus `sha256(expected_revision)`; do not copy source objects or Markdown. Escape all SVG and HTML text with `html.escape`. Write into a temporary sibling directory and replace `output_dir` only after every file has been rendered successfully.
 
 - [ ] **Step 5: Add the CLI and prove invalid invocations fail closed**
 
@@ -355,7 +356,7 @@ Scorecard Workflow = GitHub workflow execution conclusion
 Latest PR Scorecard = validated Guardrails readiness and passed/active count
 ```
 
-State that a successful workflow may still contain an advisory ORANGE score, the latest PR badge does not attest current `main`, and the published report links to its immutable source revision and workflow run.
+State that a successful workflow may still contain an advisory ORANGE score and the latest PR badge does not attest current `main`. Explain the public projection and disclosure boundary: aggregate status/counts, source run metadata, and a revision digest are published; controls, findings, evidence, reasons, provider data, check URLs, raw revisions, and source Markdown remain only in the Actions artifact.
 
 - [ ] **Step 4: Update diagrams and workflow inventory**
 
@@ -451,7 +452,7 @@ Fetch the deployed JSON and SVG without authentication. Assert that:
 ```text
 status == source scorecard status
 passed/total == source scorecard passed/total
-subject revision == proof PR head SHA
+subject revision digest == sha256(proof PR head SHA)
 source_run_id == triggering Guardrail Scorecard run ID
 source_run_attempt == triggering Guardrail Scorecard run attempt
 SVG title and visible message match the JSON
